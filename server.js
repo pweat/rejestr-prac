@@ -32,7 +32,7 @@ app.get('/api/prace', (req, res) => {
   }
   const whereString = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' OR ')}` : '';
   const countSql = `SELECT COUNT(*) as count FROM prace ${whereString}`;
-  const dataSql = `SELECT * FROM prace ${whereString} ORDER BY id DESC LIMIT ? OFFSET ?`;
+  const dataSql = `SELECT * FROM prace ${whereString} ORDER BY data_zakonczenia DESC NULLS LAST, id DESC LIMIT ? OFFSET ?`;
   const finalDataParams = [...searchParams, limit, offset];
   db.get(countSql, searchParams, (err, row) => {
     if (err) { res.status(500).json({ "error": err.message }); return; }
@@ -55,7 +55,8 @@ app.get('/api/prace/:id', (req, res) => {
 });
 app.post('/api/prace', (req, res) => {
   const { od_kogo, pracownicy, numer_tel, miejscowosc, informacje, srednica, data_rozpoczecia, data_zakonczenia, lustro_statyczne, lustro_dynamiczne, wydajnosc, ilosc_metrow } = req.body;
-  if (!od_kogo) { return res.status(400).json({ error: "Pole 'Od kogo' jest wymagane." }); }
+  // ZMIANA: Walidacja na serwerze
+  if (!od_kogo || !data_zakonczenia) { return res.status(400).json({ error: "Pola 'Od kogo' i 'Data zakończenia' są wymagane." }); }
   if (numer_tel && numer_tel.length > 0) {
     const phoneDigits = numer_tel.replace(/[\s-]/g, '');
     if (!/^\d{9}$/.test(phoneDigits)) { return res.status(400).json({ error: "Niepoprawny format numeru telefonu." }); }
@@ -70,7 +71,8 @@ app.post('/api/prace', (req, res) => {
 app.put('/api/prace/:id', (req, res) => {
   const id = req.params.id;
   const { od_kogo, pracownicy, numer_tel, miejscowosc, informacje, srednica, data_rozpoczecia, data_zakonczenia, lustro_statyczne, lustro_dynamiczne, wydajnosc, ilosc_metrow } = req.body;
-  if (!od_kogo) { return res.status(400).json({ error: "Pole 'Od kogo' jest wymagane." }); }
+  // ZMIANA: Walidacja na serwerze
+  if (!od_kogo || !data_zakonczenia) { return res.status(400).json({ error: "Pola 'Od kogo' i 'Data zakończenia' są wymagane." }); }
   if (numer_tel && numer_tel.length > 0) {
     const phoneDigits = numer_tel.replace(/[\s-]/g, '');
     if (!/^\d{9}$/.test(phoneDigits)) { return res.status(400).json({ error: "Niepoprawny format numeru telefonu." }); }
