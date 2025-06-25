@@ -1,19 +1,44 @@
 <script setup>
-import { ref, onMounted } from 'vue';
+// Importujemy teraz `computed` do obsługi wyszukiwarki
+import { ref, onMounted, computed } from 'vue';
 
+// Funkcja inicjalizująca obiekt pracy (bez zmian)
 const inicjalizujPustaPrace = () => ({
   od_kogo: '', pracownicy: '', dane_kontaktowe: '', numer_tel: '', email: '', miejscowosc: '',
   informacje: '', srednica: null, data_rozpoczecia: '', data_zakonczenia: '', lustro_statyczne: null,
   lustro_dynamiczne: null, wydajnosc: null, ilosc_metrow: null
 });
 
+// Zmienne reaktywne (ref)
 const prace = ref([]);
-const wiadomosc = ref('Ładowanie danych...'); // Ten ref pozostaje na potrzeby komunikatów o błędach i sukcesie
+const wiadomosc = ref('Ładowanie danych...');
 const nowaPraca = ref(inicjalizujPustaPrace());
-
 const showAddModal = ref(false); 
 const showEditModal = ref(false); 
 const edytowaneDane = ref(inicjalizujPustaPrace());
+const searchQuery = ref(''); // Nowa zmienna dla wyszukiwarki
+
+// Właściwość obliczeniowa (computed) do filtrowania listy prac
+const filteredPrace = computed(() => {
+  if (!searchQuery.value) {
+    return prace.value;
+  }
+  const lowerCaseQuery = searchQuery.value.toLowerCase();
+
+  return prace.value.filter(praca => {
+    // Sprawdzamy kilka kluczowych pól.
+    return (
+      praca.od_kogo?.toLowerCase().includes(lowerCaseQuery) ||
+      praca.miejscowosc?.toLowerCase().includes(lowerCaseQuery) ||
+      praca.pracownicy?.toLowerCase().includes(lowerCaseQuery) ||
+      praca.dane_kontaktowe?.toLowerCase().includes(lowerCaseQuery) ||
+      // ZMIANA: Dodano wyszukiwanie po numerze telefonu
+      praca.numer_tel?.toString().includes(lowerCaseQuery)
+    );
+  });
+});
+
+// --- Funkcje ---
 
 async function pobierzPrace() {
   try {
@@ -21,10 +46,9 @@ async function pobierzPrace() {
     if (!response.ok) throw new Error(`Błąd sieci! Status: ${response.status}`);
     const data = await response.json();
     prace.value = data.data;
-    // Usunięto aktualizację `wiadomosc` po sukcesie, bo liczba jest teraz w tytule
   } catch (error) {
     console.error('Błąd w pobierzPrace():', error);
-    wiadomosc.value = `Błąd ładowania danych: ${error.message}`;
+    alert(`Błąd ładowania danych: ${error.message}`);
   }
 }
 
@@ -37,7 +61,7 @@ async function handleSubmit() {
     showAddModal.value = false; 
   } catch (error) {
     console.error('Błąd w handleSubmit():', error);
-    alert(`Nie udało się zapisać pracy: ${error.message}`); // Użyjemy alert() dla błędów
+    alert(`Nie udało się zapisać pracy: ${error.message}`);
   }
 }
 
@@ -90,49 +114,26 @@ onMounted(() => {
 <template>
   <div class="container">
     <div class="header">
-      <h1>Ilość studni: {{ prace.length }}</h1>
+      <h1>Ilość studni: {{ prace.length }} (Wyświetlono: {{ filteredPrace.length }})</h1>
       <button class="add-new-btn" @click="handleShowAddModal">
         &#43; Dodaj nową pracę
       </button>
+    </div>
+
+    <div class="search-container">
+      <input type="text" v-model="searchQuery" placeholder="Szukaj po kliencie, miejscowości, pracowniku...">
     </div>
     
     <div class="table-container">
       <table>
         <thead>
           <tr>
-            <th>Od kogo</th>
-            <th>Miejscowość</th>
-            <th>Data Rozp.</th>
-            <th>Data Zakoń.</th>
-            <th>Pracownicy</th>
-            <th>Osoba kontaktowa</th>
-            <th>Telefon</th>
-            <th>Email</th>
-            <th>Metry</th>
-            <th>Średnica Ø</th>
-            <th>L. statyczne</th>
-            <th>L. dynamiczne</th>
-            <th>Wydajność</th>
-            <th>Informacje</th>
-            <th>Akcje</th>
+            <th>Od kogo</th><th>Miejscowość</th><th>Data Rozp.</th><th>Data Zakoń.</th><th>Pracownicy</th><th>Osoba kontaktowa</th><th>Telefon</th><th>Email</th><th>Metry</th><th>Średnica Ø</th><th>L. statyczne</th><th>L. dynamiczne</th><th>Wydajność</th><th>Informacje</th><th>Akcje</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="praca in prace" :key="praca.id">
-            <td>{{ praca.od_kogo }}</td>
-            <td>{{ praca.miejscowosc }}</td>
-            <td>{{ praca.data_rozpoczecia }}</td>
-            <td>{{ praca.data_zakonczenia }}</td>
-            <td>{{ praca.pracownicy }}</td>
-            <td>{{ praca.dane_kontaktowe }}</td>
-            <td>{{ praca.numer_tel }}</td>
-            <td>{{ praca.email }}</td>
-            <td>{{ praca.ilosc_metrow }}</td>
-            <td>{{ praca.srednica }}</td>
-            <td>{{ praca.lustro_statyczne }}</td>
-            <td>{{ praca.lustro_dynamiczne }}</td>
-            <td>{{ praca.wydajnosc }}</td>
-            <td>{{ praca.informacje }}</td>
+          <tr v-for="praca in filteredPrace" :key="praca.id">
+            <td>{{ praca.od_kogo }}</td><td>{{ praca.miejscowosc }}</td><td>{{ praca.data_rozpoczecia }}</td><td>{{ praca.data_zakonczenia }}</td><td>{{ praca.pracownicy }}</td><td>{{ praca.dane_kontaktowe }}</td><td>{{ praca.numer_tel }}</td><td>{{ praca.email }}</td><td>{{ praca.ilosc_metrow }}</td><td>{{ praca.srednica }}</td><td>{{ praca.lustro_statyczne }}</td><td>{{ praca.lustro_dynamiczne }}</td><td>{{ praca.wydajnosc }}</td><td>{{ praca.informacje }}</td>
             <td>
               <button class="edytuj" @click="handleEdit(praca)">Edytuj</button>
               <button class="usun" @click="handleDelete(praca.id)">Usuń</button>
@@ -140,7 +141,9 @@ onMounted(() => {
           </tr>
         </tbody>
       </table>
-      <div v-if="prace.length === 0" class="empty-table-message"><p>Brak zapisanych prac.</p></div>
+      <div v-if="!filteredPrace.length" class="empty-table-message">
+        <p>Brak pasujących wyników.</p>
+      </div>
     </div>
   </div>
 
@@ -185,8 +188,8 @@ onMounted(() => {
             <div class="form-group"><label>Data zakończenia:</label><input type="date" v-model="edytowaneDane.data_zakonczenia"></div>
             <div class="form-group"><label>Średnica Ø:</label><input type="number" step="any" v-model.number="edytowaneDane.srednica"></div>
             <div class="form-group"><label>Ilość metrów:</label><input type="number" step="any" v-model.number="edytowaneDane.ilosc_metrow"></div>
-            <div class="form-group"><label>Lustro statyczne:</label><input type="number" step="any" v-model.number="edytowaneDane.lustro_statyczne"></div>
-            <div class="form-group"><label>Lustro dynamiczne:</label><input type="number" step="any" v-model.number="edytowaneDane.lustro_dynamiczne"></div>
+            <div class="form-group"><label>Lustro statyczne:</label><input type="number" step="any" v-model.number="nowaPraca.lustro_statyczne"></div>
+            <div class="form-group"><label>Lustro dynamiczne:</label><input type="number" step="any" v-model="edytowaneDane.lustro_dynamiczne"></div>
             <div class="form-group"><label>Wydajność (m³/h):</label><input type="number" step="any" v-model.number="edytowaneDane.wydajnosc"></div>
         </div>
         <div class="modal-actions"><button type="submit" class="zapisz">Zapisz zmiany</button><button type="button" class="anuluj" @click="handleCancelEdit">Anuluj</button></div>
@@ -197,6 +200,8 @@ onMounted(() => {
 
 <style>
 /* Style bez zmian */
+.search-container { margin-bottom: 1.5rem; }
+.search-container input { width: 100%; padding: 12px 15px; font-size: 16px; border: 1px solid var(--border-color); border-radius: 6px; box-sizing: border-box; }
 :root {
   --text-color: #2c3e50; --border-color: #e0e0e0; --background-light: #ffffff;
   --background-page: #f4f7f9; --header-background: #f8f9fa; --green: #28a745;
@@ -228,7 +233,7 @@ body {
   padding-bottom: 1rem;
   border-bottom: 1px solid var(--border-color);
 }
-.header h1 { margin: 0; }
+.header h1 { margin: 0; font-size: 24px; }
 .add-new-btn { background-color: var(--green); font-size: 16px; padding: 12px 20px; }
 .status-message {
   text-align: center;
@@ -236,7 +241,6 @@ body {
   color: var(--grey);
   min-height: 1.5rem;
 }
-h2 { margin-top: 2rem; }
 .table-container { width: 100%; overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
 th, td { padding: 12px 15px; text-align: left; border-bottom: 1px solid var(--border-color); white-space: nowrap; }
