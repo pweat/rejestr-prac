@@ -17,7 +17,6 @@ const db = new sqlite3.Database(dbFile, (err) => {
   if (err) { console.error('Błąd podczas łączenia z bazą danych:', err.message); } 
   else {
     console.log('Połączono z bazą danych SQLite.');
-    // ZMIANA: Usunięto `email TEXT` ze struktury tabeli
     db.run(`CREATE TABLE IF NOT EXISTS prace (id INTEGER PRIMARY KEY AUTOINCREMENT, od_kogo TEXT, pracownicy TEXT, dane_kontaktowe TEXT, numer_tel TEXT, miejscowosc TEXT, informacje TEXT, srednica REAL, data_rozpoczecia TEXT, data_zakonczenia TEXT, lustro_statyczne REAL, lustro_dynamiczne REAL, wydajnosc REAL, ilosc_metrow REAL)`, 
       (err) => {
         if (err) { console.error('Błąd podczas tworzenia tabeli:', err.message); } 
@@ -39,9 +38,18 @@ app.get('/api/prace', (req, res) => {
 
 // POST /api/prace
 app.post('/api/prace', (req, res) => {
-  // ZMIANA: Usunięto `email`
   const { od_kogo, pracownicy, dane_kontaktowe, numer_tel, miejscowosc, informacje, srednica, data_rozpoczecia, data_zakonczenia, lustro_statyczne, lustro_dynamiczne, wydajnosc, ilosc_metrow } = req.body;
   if (!od_kogo) { return res.status(400).json({ error: "Pole 'Od kogo' jest wymagane." }); }
+
+  // ZMIANA: Walidacja numeru telefonu po stronie serwera
+  if (numer_tel && numer_tel.length > 0) {
+    const phoneDigits = numer_tel.replace(/[\s-]/g, '');
+    if (!/^\d{9}$/.test(phoneDigits)) {
+      // Jeśli numer jest niepoprawny, odrzuć żądanie
+      return res.status(400).json({ error: "Niepoprawny format numeru telefonu." });
+    }
+  }
+
   const sql = `INSERT INTO prace (od_kogo, pracownicy, dane_kontaktowe, numer_tel, miejscowosc, informacje, srednica, data_rozpoczecia, data_zakonczenia, lustro_statyczne, lustro_dynamiczne, wydajnosc, ilosc_metrow) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`;
   const params = [ od_kogo, pracownicy, dane_kontaktowe, numer_tel, miejscowosc, informacje, srednica, data_rozpoczecia, data_zakonczenia, lustro_statyczne, lustro_dynamiczne, wydajnosc, ilosc_metrow ];
   db.run(sql, params, function(err) {
@@ -53,9 +61,18 @@ app.post('/api/prace', (req, res) => {
 // PUT /api/prace/:id
 app.put('/api/prace/:id', (req, res) => {
   const id = req.params.id;
-  // ZMIANA: Usunięto `email`
   const { od_kogo, pracownicy, dane_kontaktowe, numer_tel, miejscowosc, informacje, srednica, data_rozpoczecia, data_zakonczenia, lustro_statyczne, lustro_dynamiczne, wydajnosc, ilosc_metrow } = req.body;
   if (!od_kogo) { return res.status(400).json({ error: "Pole 'Od kogo' jest wymagane." }); }
+
+  // ZMIANA: Walidacja numeru telefonu po stronie serwera
+  if (numer_tel && numer_tel.length > 0) {
+    const phoneDigits = numer_tel.replace(/[\s-]/g, '');
+    if (!/^\d{9}$/.test(phoneDigits)) {
+      // Jeśli numer jest niepoprawny, odrzuć żądanie
+      return res.status(400).json({ error: "Niepoprawny format numeru telefonu." });
+    }
+  }
+  
   const sql = `UPDATE prace SET od_kogo = ?, pracownicy = ?, dane_kontaktowe = ?, numer_tel = ?, miejscowosc = ?, informacje = ?, srednica = ?, data_rozpoczecia = ?, data_zakonczenia = ?, lustro_statyczne = ?, lustro_dynamiczne = ?, wydajnosc = ?, ilosc_metrow = ? WHERE id = ?`;
   const params = [ od_kogo, pracownicy, dane_kontaktowe, numer_tel, miejscowosc, informacje, srednica, data_rozpoczecia, data_zakonczenia, lustro_statyczne, lustro_dynamiczne, wydajnosc, ilosc_metrow, id ];
   db.run(sql, params, function(err) {
