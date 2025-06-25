@@ -17,7 +17,6 @@ const db = new sqlite3.Database(dbFile, (err) => {
   if (err) { console.error('Błąd podczas łączenia z bazą danych:', err.message); } 
   else {
     console.log('Połączono z bazą danych SQLite.');
-    // ZMIANA: Usunięto `dane_kontaktowe TEXT`
     db.run(`CREATE TABLE IF NOT EXISTS prace (id INTEGER PRIMARY KEY AUTOINCREMENT, od_kogo TEXT, pracownicy TEXT, numer_tel TEXT, miejscowosc TEXT, informacje TEXT, srednica REAL, data_rozpoczecia TEXT, data_zakonczenia TEXT, lustro_statyczne REAL, lustro_dynamiczne REAL, wydajnosc REAL, ilosc_metrow REAL)`, 
       (err) => {
         if (err) { console.error('Błąd podczas tworzenia tabeli:', err.message); } 
@@ -28,18 +27,55 @@ const db = new sqlite3.Database(dbFile, (err) => {
 
 // === 5. API ENDPOINTS ===
 
-// GET /api/prace
+// GET /api/prace - Obsługuje paginację i wyszukiwanie
 app.get('/api/prace', (req, res) => {
-  const sql = "SELECT * FROM prace ORDER BY id DESC";
-  db.all(sql, [], (err, rows) => {
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 15;
+  const offset = (page - 1) * limit;
+  const search = req.query.search || '';
+
+  let whereClauses = [];
+  let searchParams = [];
+
+  if (search) {
+    const searchTerm = `%${search}%`;
+    const searchableColumns = ['od_kogo', 'miejscowosc', 'pracownicy', 'numer_tel'];
+    searchableColumns.forEach(col => {
+      whereClauses.push(`${col} LIKE ?`);
+    });
+    searchParams = Array(searchableColumns.length).fill(searchTerm);
+  }
+
+  const whereString = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' OR ')}` : '';
+
+  const countSql = `SELECT COUNT(*) as count FROM prace ${whereString}`;
+  const dataSql = `SELECT * FROM prace ${whereString} ORDER BY id DESC LIMIT ? OFFSET ?`;
+  
+  const finalDataParams = [...searchParams, limit, offset];
+
+  db.get(countSql, searchParams, (err, row) => {
     if (err) { res.status(500).json({ "error": err.message }); return; }
-    res.json({ "message": "success", "data": rows });
+    const totalItems = row.count;
+    const totalPages = Math.ceil(totalItems / limit);
+
+    db.all(dataSql, finalDataParams, (err, rows) => {
+      if (err) { res.status(500).json({ "error": err.message }); return; }
+      res.json({
+        message: "success",
+        data: rows,
+        pagination: {
+          totalItems: totalItems,
+          totalPages: totalPages,
+          currentPage: page,
+          itemsPerPage: limit
+        }
+      });
+    });
   });
 });
 
 // POST /api/prace
 app.post('/api/prace', (req, res) => {
-  // ZMIANA: Usunięto `dane_kontaktowe`
   const { od_kogo, pracownicy, numer_tel, miejscowosc, informacje, srednica, data_rozpoczecia, data_zakonczenia, lustro_statyczne, lustro_dynamiczne, wydajnosc, ilosc_metrow } = req.body;
   if (!od_kogo) { return res.status(400).json({ error: "Pole 'Od kogo' jest wymagane." }); }
   if (numer_tel && numer_tel.length > 0) {
@@ -57,7 +93,6 @@ app.post('/api/prace', (req, res) => {
 // PUT /api/prace/:id
 app.put('/api/prace/:id', (req, res) => {
   const id = req.params.id;
-  // ZMIANA: Usunięto `dane_kontaktowe`
   const { od_kogo, pracownicy, numer_tel, miejscowosc, informacje, srednica, data_rozpoczecia, data_zakonczenia, lustro_statyczne, lustro_dynamiczne, wydajnosc, ilosc_metrow } = req.body;
   if (!od_kogo) { return res.status(400).json({ error: "Pole 'Od kogo' jest wymagane." }); }
   if (numer_tel && numer_tel.length > 0) {
@@ -82,6 +117,7 @@ app.delete('/api/prace/:id', (req, res) => {
     else { res.status(404).json({ "message": "not_found" }); }
   });
 });
+
 
 // === 6. URUCHOMIENIE SERWERA ===
 app.listen(PORT, () => {
