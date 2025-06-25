@@ -1,0 +1,10 @@
+# Zależności i pliki tymczasowe
+/node_modules
+/client/node_modules
+npm-debug.log*
+
+# Baza danych
+*.db
+
+# Pliki systemowe
+.DS_Store
