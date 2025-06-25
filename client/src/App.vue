@@ -4,35 +4,29 @@ import { ref, onMounted, computed } from 'vue';
 
 // Funkcja inicjalizująca obiekt pracy (bez zmian)
 const inicjalizujPustaPrace = () => ({
-  od_kogo: '', pracownicy: '', dane_kontaktowe: '', numer_tel: '', email: '', miejscowosc: '',
+  od_kogo: '', pracownicy: '', dane_kontaktowe: '', numer_tel: '', miejscowosc: '',
   informacje: '', srednica: null, data_rozpoczecia: '', data_zakonczenia: '', lustro_statyczne: null,
   lustro_dynamiczne: null, wydajnosc: null, ilosc_metrow: null
 });
 
 // Zmienne reaktywne (ref)
 const prace = ref([]);
-const wiadomosc = ref('Ładowanie danych...');
 const nowaPraca = ref(inicjalizujPustaPrace());
 const showAddModal = ref(false); 
 const showEditModal = ref(false); 
 const edytowaneDane = ref(inicjalizujPustaPrace());
-const searchQuery = ref(''); // Nowa zmienna dla wyszukiwarki
+const searchQuery = ref('');
 
 // Właściwość obliczeniowa (computed) do filtrowania listy prac
 const filteredPrace = computed(() => {
-  if (!searchQuery.value) {
-    return prace.value;
-  }
+  if (!searchQuery.value) { return prace.value; }
   const lowerCaseQuery = searchQuery.value.toLowerCase();
-
   return prace.value.filter(praca => {
-    // Sprawdzamy kilka kluczowych pól.
     return (
       praca.od_kogo?.toLowerCase().includes(lowerCaseQuery) ||
       praca.miejscowosc?.toLowerCase().includes(lowerCaseQuery) ||
       praca.pracownicy?.toLowerCase().includes(lowerCaseQuery) ||
       praca.dane_kontaktowe?.toLowerCase().includes(lowerCaseQuery) ||
-      // ZMIANA: Dodano wyszukiwanie po numerze telefonu
       praca.numer_tel?.toString().includes(lowerCaseQuery)
     );
   });
@@ -114,26 +108,22 @@ onMounted(() => {
 <template>
   <div class="container">
     <div class="header">
-      <h1>Ilość studni: {{ prace.length }} (Wyświetlono: {{ filteredPrace.length }})</h1>
-      <button class="add-new-btn" @click="handleShowAddModal">
-        &#43; Dodaj nową pracę
-      </button>
+      <h1>Ilość studni: {{ prace.length }}</h1>
+      <button class="add-new-btn" @click="handleShowAddModal">&#43; Dodaj nową pracę</button>
     </div>
-
     <div class="search-container">
       <input type="text" v-model="searchQuery" placeholder="Szukaj po kliencie, miejscowości, pracowniku...">
     </div>
-    
     <div class="table-container">
       <table>
         <thead>
           <tr>
-            <th>Od kogo</th><th>Miejscowość</th><th>Data Rozp.</th><th>Data Zakoń.</th><th>Pracownicy</th><th>Osoba kontaktowa</th><th>Telefon</th><th>Email</th><th>Metry</th><th>Średnica Ø</th><th>L. statyczne</th><th>L. dynamiczne</th><th>Wydajność</th><th>Informacje</th><th>Akcje</th>
+            <th>Od kogo</th><th>Miejscowość</th><th>Data Rozp.</th><th>Data Zakoń.</th><th>Pracownicy</th><th>Osoba kontaktowa</th><th>Telefon</th><th>Metry</th><th>Średnica Ø</th><th>L. statyczne</th><th>L. dynamiczne</th><th>Wydajność</th><th>Informacje</th><th>Akcje</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="praca in filteredPrace" :key="praca.id">
-            <td>{{ praca.od_kogo }}</td><td>{{ praca.miejscowosc }}</td><td>{{ praca.data_rozpoczecia }}</td><td>{{ praca.data_zakonczenia }}</td><td>{{ praca.pracownicy }}</td><td>{{ praca.dane_kontaktowe }}</td><td>{{ praca.numer_tel }}</td><td>{{ praca.email }}</td><td>{{ praca.ilosc_metrow }}</td><td>{{ praca.srednica }}</td><td>{{ praca.lustro_statyczne }}</td><td>{{ praca.lustro_dynamiczne }}</td><td>{{ praca.wydajnosc }}</td><td>{{ praca.informacje }}</td>
+            <td>{{ praca.od_kogo }}</td><td>{{ praca.miejscowosc }}</td><td>{{ praca.data_rozpoczecia }}</td><td>{{ praca.data_zakonczenia }}</td><td>{{ praca.pracownicy }}</td><td>{{ praca.dane_kontaktowe }}</td><td>{{ praca.numer_tel }}</td><td>{{ praca.ilosc_metrow }}</td><td>{{ praca.srednica }}</td><td>{{ praca.lustro_statyczne }}</td><td>{{ praca.lustro_dynamiczne }}</td><td>{{ praca.wydajnosc }}</td><td>{{ praca.informacje }}</td>
             <td>
               <button class="edytuj" @click="handleEdit(praca)">Edytuj</button>
               <button class="usun" @click="handleDelete(praca.id)">Usuń</button>
@@ -141,9 +131,7 @@ onMounted(() => {
           </tr>
         </tbody>
       </table>
-      <div v-if="!filteredPrace.length" class="empty-table-message">
-        <p>Brak pasujących wyników.</p>
-      </div>
+      <div v-if="!filteredPrace.length" class="empty-table-message"><p>Brak pasujących wyników.</p></div>
     </div>
   </div>
 
@@ -157,7 +145,6 @@ onMounted(() => {
             <div class="form-group"><label>Pracownicy:</label><input type="text" v-model="nowaPraca.pracownicy"></div>
             <div class="form-group"><label>Osoba kontaktowa:</label><input type="text" v-model="nowaPraca.dane_kontaktowe"></div>
             <div class="form-group"><label>Numer tel.:</label><input type="text" v-model="nowaPraca.numer_tel"></div>
-            <div class="form-group"><label>E-mail:</label><input type="email" v-model="nowaPraca.email"></div>
             <div class="form-group full-width"><label>Informacje:</label><textarea v-model="nowaPraca.informacje" rows="3"></textarea></div>
             <div class="form-group"><label>Data rozpoczęcia:</label><input type="date" v-model="nowaPraca.data_rozpoczecia"></div>
             <div class="form-group"><label>Data zakończenia:</label><input type="date" v-model="nowaPraca.data_zakonczenia"></div>
@@ -182,13 +169,12 @@ onMounted(() => {
             <div class="form-group"><label>Pracownicy:</label><input type="text" v-model="edytowaneDane.pracownicy"></div>
             <div class="form-group"><label>Osoba kontaktowa:</label><input type="text" v-model="edytowaneDane.dane_kontaktowe"></div>
             <div class="form-group"><label>Numer tel.:</label><input type="text" v-model="edytowaneDane.numer_tel"></div>
-            <div class="form-group"><label>E-mail:</label><input type="email" v-model="edytowaneDane.email"></div>
             <div class="form-group full-width"><label>Informacje:</label><textarea v-model="edytowaneDane.informacje" rows="3"></textarea></div>
             <div class="form-group"><label>Data rozpoczęcia:</label><input type="date" v-model="edytowaneDane.data_rozpoczecia"></div>
             <div class="form-group"><label>Data zakończenia:</label><input type="date" v-model="edytowaneDane.data_zakonczenia"></div>
             <div class="form-group"><label>Średnica Ø:</label><input type="number" step="any" v-model.number="edytowaneDane.srednica"></div>
             <div class="form-group"><label>Ilość metrów:</label><input type="number" step="any" v-model.number="edytowaneDane.ilosc_metrow"></div>
-            <div class="form-group"><label>Lustro statyczne:</label><input type="number" step="any" v-model.number="nowaPraca.lustro_statyczne"></div>
+            <div class="form-group"><label>Lustro statyczne:</label><input type="number" step="any" v-model="edytowaneDane.lustro_statyczne"></div>
             <div class="form-group"><label>Lustro dynamiczne:</label><input type="number" step="any" v-model="edytowaneDane.lustro_dynamiczne"></div>
             <div class="form-group"><label>Wydajność (m³/h):</label><input type="number" step="any" v-model.number="edytowaneDane.wydajnosc"></div>
         </div>
