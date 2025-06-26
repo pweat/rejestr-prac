@@ -12,9 +12,13 @@ const router = createRouter({
     {
       path: '/praca/:id',
       name: 'workDetails',
-      // Poniższy kod sprawia, że komponent dla tej podstrony będzie ładowany "leniwie",
-      // czyli dopiero wtedy, gdy użytkownik na nią wejdzie. To dobra praktyka.
       component: () => import('../views/WorkDetailsView.vue')
+    },
+    // ZMIANA: Nowa trasa dla strony logowania
+    {
+      path: '/login',
+      name: 'login',
+      component: () => import('../views/LoginView.vue')
     }
   ]
 })

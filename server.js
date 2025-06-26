@@ -1,9 +1,12 @@
 const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const JWT_SECRET = process.env.JWT_SECRET || 'bardzo-tajny-klucz-do-zmiany-na-produkcji';
 
 app.use(cors()); 
 app.use(express.json()); 
@@ -14,7 +17,7 @@ const pool = new Pool({
   user: 'postgres',
   host: 'localhost',
   database: 'rejestr_prac',
-  password: 'admin', // <-- PAMIĘTAJ O ZMIANIE
+  password: 'admin',
   port: 5432,
 });
 
@@ -25,17 +28,60 @@ const initializeDatabase = async () => {
     console.log('Połączono z bazą danych PostgreSQL');
     await client.query(`CREATE TABLE IF NOT EXISTS prace (id SERIAL PRIMARY KEY, od_kogo TEXT, pracownicy TEXT, numer_tel TEXT, miejscowosc TEXT, informacje TEXT, srednica REAL, data_rozpoczecia DATE, data_zakonczenia DATE, lustro_statyczne REAL, lustro_dynamiczne REAL, wydajnosc REAL, ilosc_metrow REAL)`);
     console.log('Tabela "prace" jest gotowa.');
+    await client.query(`CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL)`);
+    console.log('Tabela "users" jest gotowa.');
   } catch (err) {
     console.error('Błąd podczas inicjalizacji bazy danych:', err);
   } finally {
-    if (client) {
-      client.release();
-    }
+    if (client) client.release();
   }
 };
 initializeDatabase();
 
-app.get('/api/prace', async (req, res) => {
+app.post('/api/register', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    if (!username || !password) { return res.status(400).json({ error: 'Nazwa użytkownika i hasło są wymagane.' }); }
+    const salt = await bcrypt.genSalt(10);
+    const password_hash = await bcrypt.hash(password, salt);
+    const newUser = await pool.query("INSERT INTO users (username, password_hash) VALUES ($1, $2) RETURNING id, username", [username, password_hash]);
+    res.status(201).json(newUser.rows[0]);
+  } catch (err) {
+    if (err.code === '23505') { return res.status(400).json({ error: 'Użytkownik o tej nazwie już istnieje.' }); }
+    console.error('Błąd w /api/register:', err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera.' });
+  }
+});
+
+app.post('/api/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    if (!username || !password) { return res.status(400).json({ error: 'Nazwa użytkownika i hasło są wymagane.' }); }
+    const userResult = await pool.query("SELECT * FROM users WHERE username = $1", [username]);
+    if (userResult.rows.length === 0) { return res.status(401).json({ error: 'Nieprawidłowa nazwa użytkownika lub hasło.' }); }
+    const user = userResult.rows[0];
+    const isMatch = await bcrypt.compare(password, user.password_hash);
+    if (!isMatch) { return res.status(401).json({ error: 'Nieprawidłowa nazwa użytkownika lub hasło.' }); }
+    const token = jwt.sign({ userId: user.id, username: user.username }, JWT_SECRET, { expiresIn: '24h' });
+    res.json({ token });
+  } catch (err) {
+    console.error('Błąd w /api/login:', err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera.' });
+  }
+});
+
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  if (token == null) return res.sendStatus(401);
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) return res.sendStatus(403);
+    req.user = user;
+    next();
+  });
+};
+
+app.get('/api/prace', authenticateToken, async (req, res) => {
   const page = parseInt(req.query.page) || 1;
   const limit = parseInt(req.query.limit) || 15;
   const offset = (page - 1) * limit;
@@ -68,7 +114,7 @@ app.get('/api/prace', async (req, res) => {
   }
 });
 
-app.get('/api/prace/:id', async (req, res) => {
+app.get('/api/prace/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
     const result = await pool.query("SELECT * FROM prace WHERE id = $1", [id]);
@@ -80,7 +126,7 @@ app.get('/api/prace/:id', async (req, res) => {
   }
 });
 
-app.post('/api/prace', async (req, res) => {
+app.post('/api/prace', authenticateToken, async (req, res) => {
   try {
     const { od_kogo, pracownicy, numer_tel, miejscowosc, informacje, srednica, data_rozpoczecia, data_zakonczenia, lustro_statyczne, lustro_dynamiczne, wydajnosc, ilosc_metrow } = req.body;
     if (!od_kogo || !data_zakonczenia) { return res.status(400).json({ error: "Pola 'Od kogo' i 'Data zakończenia' są wymagane." }); }
@@ -98,7 +144,7 @@ app.post('/api/prace', async (req, res) => {
   }
 });
 
-app.put('/api/prace/:id', async (req, res) => {
+app.put('/api/prace/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
     const { od_kogo, pracownicy, numer_tel, miejscowosc, informacje, srednica, data_rozpoczecia, data_zakonczenia, lustro_statyczne, lustro_dynamiczne, wydajnosc, ilosc_metrow } = req.body;
@@ -117,7 +163,7 @@ app.put('/api/prace/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/prace/:id', async (req, res) => {
+app.delete('/api/prace/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
     const result = await pool.query("DELETE FROM prace WHERE id = $1", [id]);

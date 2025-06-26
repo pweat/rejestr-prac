@@ -1,14 +1,9 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRoute, RouterLink } from 'vue-router'
-
-function formatDate(dateString) {
-  if (!dateString) return '';
-  return dateString.split('T')[0];
-}
+import { getAuthHeaders } from '../auth/auth.js'
 
 const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
-
 const route = useRoute()
 const praca = ref(null)
 const isLoading = ref(true)
@@ -31,20 +26,7 @@ const visibleFields = ref({
 });
 
 function formatFieldName(field) {
-  const names = {
-    od_kogo: 'Od kogo',
-    miejscowosc: 'Miejscowość',
-    pracownicy: 'Pracownicy',
-    numer_tel: 'Telefon',
-    data_rozpoczecia: 'Data rozpoczęcia',
-    data_zakonczenia: 'Data zakończenia',
-    informacje: 'Informacje',
-    srednica: 'Średnica Ø',
-    ilosc_metrow: 'Ilość metrów',
-    lustro_statyczne: 'Lustro statyczne',
-    lustro_dynamiczne: 'Lustro dynamiczne',
-    wydajnosc: 'Wydajność'
-  };
+  const names = { od_kogo: 'Od kogo', miejscowosc: 'Miejscowość', pracownicy: 'Pracownicy', numer_tel: 'Telefon', data_rozpoczecia: 'Data rozpoczęcia', data_zakonczenia: 'Data zakończenia', informacje: 'Informacje', srednica: 'Średnica Ø', ilosc_metrow: 'Ilość metrów', lustro_statyczne: 'Lustro statyczne', lustro_dynamiczne: 'Lustro dynamiczne', wydajnosc: 'Wydajność' };
   return names[field] || field;
 }
 
@@ -52,13 +34,9 @@ const workId = route.params.id
 
 onMounted(async () => {
   try {
-    const response = await fetch(`${API_URL}/api/prace/${workId}`)
-    if (response.status === 404) {
-      throw new Error('Nie znaleziono zlecenia o podanym ID.')
-    }
-    if (!response.ok) {
-      throw new Error('Błąd podczas pobierania danych zlecenia.')
-    }
+    const response = await fetch(`${API_URL}/api/prace/${workId}`, { headers: getAuthHeaders() })
+    if (response.status === 404) { throw new Error('Nie znaleziono zlecenia o podanym ID.') }
+    if (!response.ok) { throw new Error('Błąd podczas pobierania danych zlecenia.') }
     const result = await response.json()
     praca.value = result.data
   } catch (e) {
@@ -72,35 +50,19 @@ onMounted(async () => {
 <template>
   <div class="view-wrapper">
     <div class="details-container">
-      <div v-if="isLoading" class="loading-box">
-        <p>Ładowanie danych...</p>
-      </div>
-
-      <div v-else-if="error" class="error-box">
-        <h2>Błąd</h2>
-        <p>{{ error }}</p>
-        <RouterLink to="/" class="btn btn-secondary">Wróć do listy</RouterLink>
-      </div>
-      
+      <div v-if="isLoading" class="loading-box"><p>Ładowanie danych...</p></div>
+      <div v-else-if="error" class="error-box"><h2>Błąd</h2><p>{{ error }}</p><RouterLink to="/" class="btn btn-secondary">Wróć do listy</RouterLink></div>
       <div v-else-if="praca">
-        <div class="view-actions">
-          <button class="btn btn-secondary" @click="showPrintControls = !showPrintControls">
-            Ustawienia Druku
-          </button>
-          <RouterLink to="/" class="btn btn-primary">Wróć do listy</RouterLink>
-        </div>
-
+        <div class="view-actions"><button class="btn btn-secondary" @click="showPrintControls = !showPrintControls">Ustawienia Druku</button><RouterLink to="/" class="btn btn-primary">Wróć do listy</RouterLink></div>
         <div v-if="showPrintControls" class="print-controls">
           <h3>Pola do druku</h3>
           <p>Wybierz, które informacje mają znaleźć się na wydruku.</p>
           <div class="checkbox-grid">
             <div v-for="(isVisible, field) in visibleFields" :key="field" class="checkbox-item">
-              <input type="checkbox" :id="field" v-model="visibleFields[field]">
-              <label :for="field">{{ formatFieldName(field) }}</label>
+              <input type="checkbox" :id="field" v-model="visibleFields[field]"><label :for="field">{{ formatFieldName(field) }}</label>
             </div>
           </div>
         </div>
-
         <div class="work-card">
           <h1 class="print-title">Studnia {{ praca.miejscowosc }}</h1>
           <div class="card-grid">
@@ -110,10 +72,7 @@ onMounted(async () => {
             <div v-if="visibleFields.numer_tel" class="card-item"><strong>Telefon:</strong> <span>{{ praca.numer_tel }}</span></div>
             <div v-if="visibleFields.data_rozpoczecia" class="card-item"><strong>Data rozpoczęcia:</strong> <span>{{ formatDate(praca.data_rozpoczecia) }}</span></div>
             <div v-if="visibleFields.data_zakonczenia" class="card-item"><strong>Data zakończenia:</strong> <span>{{ formatDate(praca.data_zakonczenia) }}</span></div>
-            <div v-if="visibleFields.informacje" class="card-item full-width">
-              <strong>Informacje:</strong>
-              <p class="info-text">{{ praca.informacje }}</p>
-            </div>
+            <div v-if="visibleFields.informacje" class="card-item full-width"><strong>Informacje:</strong><p class="info-text">{{ praca.informacje }}</p></div>
             <div v-if="visibleFields.srednica" class="card-item"><strong>Średnica Ø:</strong> <span>{{ praca.srednica }}</span></div>
             <div v-if="visibleFields.ilosc_metrow" class="card-item"><strong>Ilość metrów:</strong> <span>{{ praca.ilosc_metrow }}</span></div>
             <div v-if="visibleFields.lustro_statyczne" class="card-item"><strong>Lustro statyczne:</strong> <span>{{ praca.lustro_statyczne }}</span></div>

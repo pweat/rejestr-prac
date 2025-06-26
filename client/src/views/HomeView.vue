@@ -1,13 +1,7 @@
 <script setup>
 import { RouterLink } from 'vue-router'
 import { ref, onMounted, computed, watch } from 'vue';
-
-const isLoading = ref(true);
-
-function formatDate(dateString) {
-  if (!dateString) return '-';
-  return dateString.split('T')[0];
-}
+import { getAuthHeaders } from '../auth/auth.js';
 
 const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
 
@@ -33,8 +27,12 @@ const sortOrder = ref('desc');
 
 const isFormInvalid = computed(() => Object.keys(validationErrors.value).length > 0);
 
+function formatDate(dateString) {
+  if (!dateString) return '-';
+  return dateString.split('T')[0];
+}
+
 async function pobierzPrace() {
-  isLoading.value = true;
   try {
     const params = new URLSearchParams({
       page: currentPage.value,
@@ -43,7 +41,9 @@ async function pobierzPrace() {
       sortBy: sortBy.value,
       sortOrder: sortOrder.value
     });
-    const response = await fetch(`${API_URL}/api/prace?${params.toString()}`);
+    const response = await fetch(`${API_URL}/api/prace?${params.toString()}`, {
+      headers: getAuthHeaders()
+    });
     if (!response.ok) throw new Error(`Błąd sieci! Status: ${response.status}`);
     const result = await response.json();
     prace.value = result.data;
@@ -51,9 +51,12 @@ async function pobierzPrace() {
     totalItems.value = result.pagination.totalItems;
   } catch (error) {
     console.error('Błąd w pobierzPrace():', error);
-    alert(`Błąd ładowania danych: ${error.message}`);
-  } finally {
-    isLoading.value = false;
+    if (error.message.includes('401') || error.message.includes('403')) {
+      prace.value = [];
+      totalItems.value = 0;
+    } else {
+      alert(`Błąd ładowania danych: ${error.message}`);
+    }
   }
 }
 
@@ -90,7 +93,11 @@ async function handleSubmit() {
   validateForm(nowaPraca.value);
   if (isFormInvalid.value) return;
   try {
-    const response = await fetch(`${API_URL}/api/prace`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(nowaPraca.value) });
+    const response = await fetch(`${API_URL}/api/prace`, { 
+      method: 'POST', 
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() }, 
+      body: JSON.stringify(nowaPraca.value) 
+    });
     if (!response.ok) throw new Error('Błąd podczas zapisywania');
     await pobierzPrace();
     nowaPraca.value = inicjalizujPustaPrace();
@@ -128,7 +135,11 @@ async function handleUpdate() {
   if (isFormInvalid.value) return;
   if (!edytowaneDane.value.id) return;
   try {
-    const response = await fetch(`${API_URL}/api/prace/${edytowaneDane.value.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(edytowaneDane.value) });
+    const response = await fetch(`${API_URL}/api/prace/${edytowaneDane.value.id}`, { 
+      method: 'PUT', 
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() }, 
+      body: JSON.stringify(edytowaneDane.value) 
+    });
     if (!response.ok) throw new Error('Błąd podczas aktualizacji');
     await pobierzPrace();
     showEditModal.value = false;
@@ -141,7 +152,10 @@ async function handleUpdate() {
 async function handleDelete(idPracy) {
   if (!confirm('Czy na pewno chcesz usunąć ten wpis?')) return;
   try {
-    const response = await fetch(`${API_URL}/api/prace/${idPracy}`, { method: 'DELETE' });
+    const response = await fetch(`${API_URL}/api/prace/${idPracy}`, { 
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    });
     if (!response.ok) throw new Error('Błąd podczas usuwania');
     if (prace.value.length === 1 && currentPage.value > 1) {
       currentPage.value--;
@@ -163,67 +177,40 @@ onMounted(() => {
   <div class="container">
     <div class="header">
       <h1>Ilość studni: {{ totalItems }}</h1>
-      <button class="add-new-btn" @click="handleShowAddModal" :disabled="isLoading">&#43; Dodaj nową pracę</button>
+      <button class="add-new-btn" @click="handleShowAddModal">&#43; Dodaj nową pracę</button>
     </div>
     <div class="search-container">
-      <input type="text" v-model="searchQuery" placeholder="Szukaj..." :disabled="isLoading">
+      <input type="text" v-model="searchQuery" placeholder="Szukaj...">
     </div>
-    
-    <div v-if="isLoading" class="loading-container">
-      <div class="spinner"></div>
-      <p>Ładowanie danych...</p>
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th @click="changeSort('od_kogo')" class="sortable">Od kogo <span v-if="sortBy === 'od_kogo'">{{ sortOrder === 'asc' ? '▲' : '▼' }}</span></th>
+            <th>Pracownicy</th><th>Telefon</th>
+            <th @click="changeSort('miejscowosc')" class="sortable">Miejscowość <span v-if="sortBy === 'miejscowosc'">{{ sortOrder === 'asc' ? '▲' : '▼' }}</span></th>
+            <th>Informacje</th><th>Data Rozp.</th>
+            <th @click="changeSort('data_zakonczenia')" class="sortable">Data Zakoń. <span v-if="sortBy === 'data_zakonczenia'">{{ sortOrder === 'asc' ? '▲' : '▼' }}</span></th>
+            <th>Średnica Ø</th><th>L. statyczne</th><th>L. dynamiczne</th><th>Wydajność</th><th>Metry</th><th>Akcje</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="praca in prace" :key="praca.id">
+            <td>{{ praca.od_kogo }}</td><td>{{ praca.pracownicy }}</td><td>{{ praca.numer_tel }}</td><td>{{ praca.miejscowosc }}</td><td>{{ praca.informacje }}</td><td>{{ formatDate(praca.data_rozpoczecia) }}</td><td>{{ formatDate(praca.data_zakonczenia) }}</td><td>{{ praca.srednica }}</td><td>{{ praca.lustro_statyczne }}</td><td>{{ praca.lustro_dynamiczne }}</td><td>{{ praca.wydajnosc }}</td><td>{{ praca.ilosc_metrow }}</td>
+            <td class="actions-cell">
+              <RouterLink :to="`/praca/${praca.id}`"><button class="pokaż">Pokaż</button></RouterLink>
+              <button class="edytuj" @click="handleEdit(praca)">Edytuj</button>
+              <button class="usun" @click="handleDelete(praca.id)">Usuń</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <div v-if="!prace.length" class="empty-table-message"><p>Brak pasujących wyników.</p></div>
     </div>
-    
-    <div v-else>
-      <div class="table-container">
-        <table>
-          <thead>
-            <tr>
-              <th @click="changeSort('od_kogo')" class="sortable">Od kogo <span v-if="sortBy === 'od_kogo'">{{ sortOrder === 'asc' ? '▲' : '▼' }}</span></th>
-              <th class="col-pracownicy">Pracownicy</th>
-              <th class="col-telefon">Telefon</th>
-              <th @click="changeSort('miejscowosc')" class="sortable">Miejscowość <span v-if="sortBy === 'miejscowosc'">{{ sortOrder === 'asc' ? '▲' : '▼' }}</span></th>
-              <th class="col-informacje">Informacje</th>
-              <th>Data Rozp.</th>
-              <th @click="changeSort('data_zakonczenia')" class="sortable">Data Zakoń. <span v-if="sortBy === 'data_zakonczenia'">{{ sortOrder === 'asc' ? '▲' : '▼' }}</span></th>
-              <th>Średnica Ø</th>
-              <th>L. statyczne</th>
-              <th>L. dynamiczne</th>
-              <th>Wydajność</th>
-              <th>Metry</th>
-              <th>Akcje</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="praca in prace" :key="praca.id">
-              <td data-label="Od kogo">{{ praca.od_kogo || '-' }}</td>
-              <td data-label="Pracownicy" class="col-pracownicy">{{ praca.pracownicy || '-' }}</td>
-              <td data-label="Telefon" class="col-telefon">{{ praca.numer_tel || '-' }}</td>
-              <td data-label="Miejscowość">{{ praca.miejscowosc || '-' }}</td>
-              <td data-label="Informacje" class="col-informacje">{{ praca.informacje || '-' }}</td>
-              <td data-label="Data Rozp.">{{ formatDate(praca.data_rozpoczecia) }}</td>
-              <td data-label="Data Zakoń.">{{ formatDate(praca.data_zakonczenia) }}</td>
-              <td data-label="Średnica Ø">{{ praca.srednica || '-' }}</td>
-              <td data-label="L. statyczne">{{ praca.lustro_statyczne || '-' }}</td>
-              <td data-label="L. dynamiczne">{{ praca.lustro_dynamiczne || '-' }}</td>
-              <td data-label="Wydajność">{{ praca.wydajnosc || '-' }}</td>
-              <td data-label="Metry">{{ praca.ilosc_metrow || '-' }}</td>
-              <td data-label="Akcje" class="actions-cell">
-                <RouterLink :to="`/praca/${praca.id}`"><button class="pokaż">Pokaż</button></RouterLink>
-                <button class="edytuj" @click="handleEdit(praca)">Edytuj</button>
-                <button class="usun" @click="handleDelete(praca.id)">Usuń</button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-        <div v-if="!prace.length" class="empty-table-message"><p>Brak pasujących wyników.</p></div>
-      </div>
-
-      <div v-if="totalPages > 1" class="pagination-controls">
-        <button @click="currentPage--" :disabled="currentPage === 1">&laquo; Poprzednia</button>
-        <span>Strona {{ currentPage }} z {{ totalPages }}</span>
-        <button @click="currentPage++" :disabled="currentPage === totalPages">Następna &raquo;</button>
-      </div>
+    <div v-if="totalPages > 1" class="pagination-controls">
+      <button @click="currentPage--" :disabled="currentPage === 1">&laquo; Poprzednia</button>
+      <span>Strona {{ currentPage }} z {{ totalPages }}</span>
+      <button @click="currentPage++" :disabled="currentPage === totalPages">Następna &raquo;</button>
     </div>
   </div>
 
@@ -291,7 +278,7 @@ onMounted(() => {
 </template>
 
 <style>
-  :root{--text-color:#2c3e50;--border-color:#e0e0e0;--background-light:#fff;--background-page:#f4f7f9;--header-background:#f8f9fa;--green:#28a745;--red:#dc3545;--blue:#007bff;--grey:#6c757d;--white:#fff;--shadow:0 4px 12px rgba(0,0,0,.08)}
+  th.sortable{cursor:pointer;user-select:none}th.sortable:hover{background-color:#e9ecef}:root{--text-color:#2c3e50;--border-color:#e0e0e0;--background-light:#fff;--background-page:#f4f7f9;--header-background:#f8f9fa;--green:#28a745;--red:#dc3545;--blue:#007bff;--grey:#6c757d;--white:#fff;--shadow:0 4px 12px rgba(0,0,0,.08)}
   html{box-sizing:border-box}*,:after,:before{box-sizing:inherit}
   body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--text-color);background-color:var(--background-page);margin:0}
   #app{width:100%}
@@ -301,17 +288,11 @@ onMounted(() => {
   .add-new-btn{background-color:var(--green);font-size:16px;padding:12px 20px}
   .search-container{margin-bottom:1.5rem}
   .search-container input{width:100%;padding:12px 15px;font-size:16px;border:1px solid var(--border-color);border-radius:6px;box-sizing:border-box}
-  .loading-container{display:flex;flex-direction:column;justify-content:center;align-items:center;min-height:300px;color:var(--grey)}
-  .spinner{border:4px solid #f3f3f3;border-top:4px solid var(--blue);border-radius:50%;width:40px;height:40px;animation:spin 1s linear infinite;margin-bottom:15px}
-  @keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
   .table-container{width:100%;overflow-x:auto}
   table{width:100%;border-collapse:collapse;margin-top:1rem}
-  th,td{padding:12px 15px;text-align:left;border-bottom:1px solid var(--border-color);vertical-align:middle}
+  th,td{padding:12px 15px;text-align:left;border-bottom:1px solid var(--border-color);white-space:nowrap;vertical-align:middle}
   th{background-color:var(--header-background);font-weight:600}
-  th.sortable{cursor:pointer;user-select:none}
-  th.sortable:hover{background-color:#e9ecef}
   td{color:#555}
-  .col-pracownicy,.col-informacje{white-space:normal;word-break:break-word;min-width:200px}
   .empty-table-message{padding:30px;text-align:center;color:var(--grey)}
   .actions-cell>*{margin-right:8px}.actions-cell>*:last-child{margin-right:0}
   button{padding:8px 12px;color:#fff;border:none;border-radius:6px;cursor:pointer;margin:0;font-size:14px;font-weight:500;transition:all .2s}
@@ -339,36 +320,4 @@ onMounted(() => {
   .form-group input:focus,.form-group textarea:focus{outline:0;border-color:var(--blue);box-shadow:0 0 0 3px rgba(0,123,255,.2)}
   .modal-actions{grid-column:1/-1;display:flex;justify-content:flex-end;margin-top:20px;padding-top:20px;border-top:1px solid var(--border-color)}
   .error-message{color:var(--red);font-size:13px;margin-top:5px;margin-bottom:0}
-
-  @media screen and (max-width: 768px) {
-    .table-container table thead {border:none;clip:rect(0 0 0 0);height:1px;margin:-1px;overflow:hidden;padding:0;position:absolute;width:1px}
-    .table-container table tr {display:block;margin-bottom:.625em;border:1px solid #ddd;border-radius:6px;padding:15px}
-    /* ZMIANA: Nowe, prostsze i bardziej niezawodne style dla kart mobilnych */
-    .table-container table td {
-      display: block;
-      text-align: left; /* Wyrównujemy wszystko do lewej */
-      border-bottom: none;
-      padding: 8px 0;
-    }
-    .table-container table td:last-child { padding-bottom: 0; }
-    .table-container table td::before {
-      content: attr(data-label);
-      display: block;
-      font-weight: 700;
-      text-transform: uppercase;
-      font-size: 11px;
-      color: #6c757d;
-      margin-bottom: 4px;
-    }
-    .actions-cell {
-      padding-top: 15px;
-      border-top: 1px dotted #ccc;
-      margin-top: 10px;
-    }
-    .actions-cell::before { display: none; } /* Ukrywamy etykietę "AKCJE" */
-    
-    .header {flex-direction:column;gap:15px}
-    .modal-content {width:95%;padding:15px}
-    .form-grid {grid-template-columns:1fr;gap:15px}
-  }
 </style>
