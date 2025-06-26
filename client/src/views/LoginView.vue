@@ -1,7 +1,6 @@
 <script setup>
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
-// ZMIANA: Importujemy naszą funkcję do zapisu tokenu
 import { setToken } from '../auth/auth.js';
 
 const router = useRouter();
@@ -12,35 +11,21 @@ const isLoading = ref(false);
 
 const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
 
-// ZMIANA: Prawdziwa logika logowania
 const handleLogin = async () => {
   isLoading.value = true;
   error.value = null;
-
   try {
     const response = await fetch(`${API_URL}/api/login`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        username: username.value,
-        password: password.value,
-      }),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: username.value, password: password.value }),
     });
-
     const data = await response.json();
-
     if (!response.ok) {
       throw new Error(data.error || 'Nie udało się zalogować.');
     }
-
-    // Jeśli sukces, zapisz token
     setToken(data.token);
-
-    // Przekieruj na stronę główną
     router.push('/');
-
   } catch (err) {
     error.value = err.message;
   } finally {
@@ -80,5 +65,11 @@ const handleLogin = async () => {
   .form-group input { width: 100%; padding: 12px; font-size: 16px; border: 1px solid #e0e0e0; border-radius: 6px; }
   .login-btn { width: 100%; padding: 12px; font-size: 16px; font-weight: 600; border: none; border-radius: 6px; background-color: #007bff; color: white; cursor: pointer; transition: background-color 0.2s; }
   .login-btn:hover { background-color: #0056b3; }
-  .error-message { color: #dc3545; margin-top: 15px; text-align: center; }
+  .error-message { 
+    color: #dc3545; 
+    /* ZMIANA: Dodano margines na górze, aby odsunąć od pól i na dole, aby odsunąć od przycisku */
+    margin-top: 15px;
+    margin-bottom: 15px;
+    text-align: center; 
+  }
 </style>
