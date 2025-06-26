@@ -2,6 +2,13 @@
 import { ref, onMounted } from 'vue'
 import { useRoute, RouterLink } from 'vue-router'
 
+function formatDate(dateString) {
+  if (!dateString) return '';
+  return dateString.split('T')[0];
+}
+
+const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
+
 const route = useRoute()
 const praca = ref(null)
 const isLoading = ref(true)
@@ -45,7 +52,7 @@ const workId = route.params.id
 
 onMounted(async () => {
   try {
-    const response = await fetch(`http://localhost:3000/api/prace/${workId}`)
+    const response = await fetch(`${API_URL}/api/prace/${workId}`)
     if (response.status === 404) {
       throw new Error('Nie znaleziono zlecenia o podanym ID.')
     }
@@ -101,8 +108,8 @@ onMounted(async () => {
             <div v-if="visibleFields.miejscowosc" class="card-item"><strong>Miejscowość:</strong> <span>{{ praca.miejscowosc }}</span></div>
             <div v-if="visibleFields.pracownicy" class="card-item"><strong>Pracownicy:</strong> <span>{{ praca.pracownicy }}</span></div>
             <div v-if="visibleFields.numer_tel" class="card-item"><strong>Telefon:</strong> <span>{{ praca.numer_tel }}</span></div>
-            <div v-if="visibleFields.data_rozpoczecia" class="card-item"><strong>Data rozpoczęcia:</strong> <span>{{ praca.data_rozpoczecia }}</span></div>
-            <div v-if="visibleFields.data_zakonczenia" class="card-item"><strong>Data zakończenia:</strong> <span>{{ praca.data_zakonczenia }}</span></div>
+            <div v-if="visibleFields.data_rozpoczecia" class="card-item"><strong>Data rozpoczęcia:</strong> <span>{{ formatDate(praca.data_rozpoczecia) }}</span></div>
+            <div v-if="visibleFields.data_zakonczenia" class="card-item"><strong>Data zakończenia:</strong> <span>{{ formatDate(praca.data_zakonczenia) }}</span></div>
             <div v-if="visibleFields.informacje" class="card-item full-width">
               <strong>Informacje:</strong>
               <p class="info-text">{{ praca.informacje }}</p>
@@ -120,95 +127,6 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-/* ZMIANA: Generalne poprawki stylów, dodanie klas dla przycisków */
-.view-wrapper {
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
-  width: 100%;
-  min-height: 100vh;
-  padding: 40px 20px;
-  box-sizing: border-box;
-}
-.details-container {
-  width: 100%;
-  max-width: 900px;
-  margin: 0;
-  padding: 30px 40px;
-  background-color: #fff;
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-}
-.view-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-bottom: 20px;
-}
-.btn {
-  text-decoration: none;
-  border: 1px solid transparent;
-  padding: 8px 15px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
-  transition: all 0.2s;
-}
-.btn:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-}
-.btn-primary {
-  background-color: #007bff;
-  color: white;
-}
-.btn-secondary {
-  background-color: #6c757d;
-  color: white;
-}
-.print-controls { margin-bottom: 30px; padding: 20px; border: 1px solid #e0e0e0; border-radius: 6px; background-color: #f8f9fa; }
-.print-controls h3 { margin-top: 0; }
-.checkbox-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
-.checkbox-item { display: flex; align-items: center; }
-.checkbox-item input { margin-right: 8px; }
-.checkbox-item label { cursor: pointer; }
-.work-card { border: 1px solid #ccc; padding: 25px; border-radius: 6px; }
-.print-title {
-  text-align: center;
-  margin-top: 0;
-  margin-bottom: 30px;
-  padding-bottom: 15px;
-  border-bottom: 1px solid #e0e0e0;
-}
-.card-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-.card-item { background-color: #f8f9fa; padding: 15px; border-radius: 6px; border: 1px solid #e7e7e7; font-size: 16px; }
-.card-item.full-width { grid-column: 1 / -1; }
-.card-item strong { display: block; margin-bottom: 8px; color: #6c757d; font-size: 14px; }
-.card-item span { font-weight: 500; }
-.info-text { margin: 0; white-space: pre-wrap; line-height: 1.6; }
-.error-box, .loading-box { text-align: center; padding: 50px; color: #6c757d; }
-.error-box h2 { color: #dc3545; }
-
-/* ZMIANA: Bardziej "agresywne" style dla wydruku */
-@media print {
-  body, #app, .view-wrapper {
-    all: unset !important; /* Usuwa wszystkie style z elementów nadrzędnych */
-    background: white !important;
-  }
-  .details-container {
-    box-shadow: none !important;
-    width: 100% !important;
-    max-width: 100% !important;
-  }
-  .view-actions, .print-controls {
-    display: none !important;
-  }
-  .work-card {
-    border: none !important;
-    box-shadow: none !important;
-    padding: 0 !important;
-    margin: 0 !important;
-  }
-}
+.view-wrapper{display:flex;justify-content:center;align-items:flex-start;width:100%;min-height:100vh;padding:40px 20px;box-sizing:border-box}.details-container{width:100%;max-width:900px;margin:0;padding:30px 40px;background-color:#fff;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.08)}.view-actions{display:flex;justify-content:flex-end;gap:10px;margin-bottom:20px}.btn{text-decoration:none;border:1px solid transparent;padding:8px 15px;border-radius:6px;cursor:pointer;font-size:14px;font-weight:500;transition:all .2s}.btn:hover{transform:translateY(-1px);box-shadow:0 2px 4px rgba(0,0,0,.1)}.btn-primary{background-color:#007bff;color:#fff}.btn-secondary{background-color:#6c757d;color:#fff}.print-controls{margin-bottom:30px;padding:20px;border:1px solid #e0e0e0;border-radius:6px;background-color:#f8f9fa}.print-controls h3{margin-top:0}.checkbox-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}.checkbox-item{display:flex;align-items:center}.checkbox-item input{margin-right:8px}.checkbox-item label{cursor:pointer}.work-card{border:1px solid #ccc;padding:25px;border-radius:6px}.print-title{text-align:center;margin-top:0;margin-bottom:30px;padding-bottom:15px;border-bottom:1px solid #e0e0e0}.card-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}.card-item{background-color:#f8f9fa;padding:15px;border-radius:6px;border:1px solid #e7e7e7;font-size:16px}.card-item.full-width{grid-column:1/-1}.card-item strong{display:block;margin-bottom:8px;color:#6c757d;font-size:14px}.card-item span{font-weight:500}.info-text{margin:0;white-space:pre-wrap;line-height:1.6}.error-box,.loading-box{text-align:center;padding:50px;color:#6c757d}.error-box h2{color:#dc3545}
+@media print{body,#app,.view-wrapper{all:unset!important;background:#fff!important}.details-container{box-shadow:none!important;width:100%!important;max-width:100%!important}.view-actions,.print-controls{display:none!important}.work-card{border:none!important;box-shadow:none!important;padding:0!important;margin:0!important}}
 </style>
