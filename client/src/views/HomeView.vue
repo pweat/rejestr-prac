@@ -34,7 +34,7 @@ async function pobierzPrace() {
       sortBy: sortBy.value,
       sortOrder: sortOrder.value
     });
-    const response = await fetch(`http://localhost:3000/api/prace?${params.toString()}`);
+    const response = await fetch(`https://rejestr-prac-api.onrender.com/api/prace?${params.toString()}`);
     if (!response.ok) throw new Error(`Błąd sieci! Status: ${response.status}`);
     const result = await response.json();
     prace.value = result.data;
@@ -79,7 +79,7 @@ async function handleSubmit() {
   validateForm(nowaPraca.value);
   if (isFormInvalid.value) return;
   try {
-    const response = await fetch('http://localhost:3000/api/prace', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(nowaPraca.value) });
+    const response = await fetch('https://rejestr-prac-api.onrender.com/api/prace', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(nowaPraca.value) });
     if (!response.ok) throw new Error('Błąd podczas zapisywania');
     await pobierzPrace();
     nowaPraca.value = inicjalizujPustaPrace();
@@ -113,7 +113,7 @@ async function handleUpdate() {
   if (isFormInvalid.value) return;
   if (!edytowaneDane.value.id) return;
   try {
-    const response = await fetch(`http://localhost:3000/api/prace/${edytowaneDane.value.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(edytowaneDane.value) });
+    const response = await fetch(`https://rejestr-prac-api.onrender.com/api/prace/${edytowaneDane.value.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(edytowaneDane.value) });
     if (!response.ok) throw new Error('Błąd podczas aktualizacji');
     await pobierzPrace();
     showEditModal.value = false;
@@ -126,7 +126,7 @@ async function handleUpdate() {
 async function handleDelete(idPracy) {
   if (!confirm('Czy na pewno chcesz usunąć ten wpis?')) return;
   try {
-    const response = await fetch(`http://localhost:3000/api/prace/${idPracy}`, { method: 'DELETE' });
+    const response = await fetch(`https://rejestr-prac-api.onrender.com/api/prace/${idPracy}`, { method: 'DELETE' });
     if (!response.ok) throw new Error('Błąd podczas usuwania');
     if (prace.value.length === 1 && currentPage.value > 1) {
       currentPage.value--;
