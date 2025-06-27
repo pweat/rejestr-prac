@@ -8,36 +8,45 @@ const route = useRoute()
 const praca = ref(null)
 const isLoading = ref(true)
 const error = ref(null)
+const showPrintControls = ref(false)
+
+const visibleFields = ref({
+  od_kogo: true, miejscowosc: true, pracownicy: true, numer_tel: true,
+  data_rozpoczecia: true, data_zakonczenia: true, informacje: true, srednica: true,
+  ilosc_metrow: true, lustro_statyczne: true, lustro_dynamiczne: true, wydajnosc: true
+});
+
+function formatFieldName(field) {
+  const names = {
+    od_kogo: 'Od kogo', miejscowosc: 'Miejscowość', pracownicy: 'Pracownicy',
+    numer_tel: 'Telefon', data_rozpoczecia: 'Data rozpoczęcia', data_zakonczenia: 'Data zakończenia',
+    informacje: 'Informacje', srednica: 'Średnica Ø', ilosc_metrow: 'Ilość metrów',
+    lustro_statyczne: 'Lustro statyczne', lustro_dynamiczne: 'Lustro dynamiczne', wydajnosc: 'Wydajność'
+  };
+  return names[field] || field;
+}
+
 const workId = route.params.id
 
 onMounted(async () => {
   try {
-    const response = await fetch(`${API_URL}/api/prace/${workId}`, {
-      headers: getAuthHeaders()
-    })
-    if (response.status === 404) {
-      throw new Error('Nie znaleziono zlecenia o podanym ID.')
-    }
+    const response = await fetch(`${API_URL}/api/prace/${workId}`, { headers: getAuthHeaders() })
     if (!response.ok) {
-      throw new Error(`Błąd podczas pobierania danych zlecenia. Status: ${response.status}`)
+      if (response.status === 404) throw new Error('Nie znaleziono zlecenia o podanym ID.');
+      throw new Error(`Błąd podczas pobierania danych. Status: ${response.status}`);
     }
-    const result = await response.json()
-
-    // ZMIANA: Dodajemy "kamerę" do podglądania odpowiedzi z serwera
-    console.log('Odpowiedź z serwera dla pojedynczego wpisu:', result);
-
-    praca.value = result.data
+    const result = await response.json();
+    if (result && result.data) {
+      praca.value = result.data;
+    } else {
+      throw new Error('Otrzymano niekompletne dane z serwera.');
+    }
   } catch (e) {
-    error.value = e.message
+    error.value = e.message;
   } finally {
-    isLoading.value = false
+    isLoading.value = false;
   }
 })
-
-function formatDate(dateString) {
-  if (!dateString) return '-';
-  return dateString.split('T')[0];
-}
 </script>
 
 <template>
@@ -53,7 +62,7 @@ function formatDate(dateString) {
         <RouterLink to="/" class="btn btn-secondary">Wróć do listy</RouterLink>
       </div>
       
-      <div v-else-if="praca" class="work-card">
+      <div v-else-if="praca && praca.id" class="work-card-wrapper">
         <div class="view-actions">
           <button class="btn btn-secondary" @click="showPrintControls = !showPrintControls">
             Ustawienia Druku
@@ -63,6 +72,7 @@ function formatDate(dateString) {
 
         <div v-if="showPrintControls" class="print-controls">
           <h3>Pola do druku</h3>
+          <p>Wybierz, które informacje mają znaleźć się na wydruku.</p>
           <div class="checkbox-grid">
             <div v-for="(isVisible, field) in visibleFields" :key="field" class="checkbox-item">
               <input type="checkbox" :id="field" v-model="visibleFields[field]">
@@ -92,6 +102,13 @@ function formatDate(dateString) {
           </div>
         </div>
       </div>
+      
+      <div v-else class="error-box">
+        <h2>Błąd</h2>
+        <p>Nie udało się wczytać danych dla tego zlecenia.</p>
+        <RouterLink to="/" class="btn btn-secondary">Wróć do listy</RouterLink>
+      </div>
+
     </div>
   </div>
 </template>
