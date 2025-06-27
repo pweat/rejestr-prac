@@ -13,9 +13,12 @@ app.use(express.json());
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: {
-    rejectUnauthorized: false
-  }
+  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false,
+  user: 'postgres',
+  host: 'localhost',
+  database: 'rejestr_prac',
+  password: 'admin', // <-- Pamiętaj o swoim lokalnym haśle
+  port: 5432,
 });
 
 const initializeDatabase = async () => {
@@ -36,7 +39,6 @@ const initializeDatabase = async () => {
 };
 initializeDatabase();
 
-// --- API UŻYTKOWNIKÓW ---
 app.post('/api/register', async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -69,7 +71,6 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-// --- "STRAŻNIK" (MIDDLEWARE) ---
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
@@ -81,7 +82,6 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
-// --- API PRAC (ZABEZPIECZONE) ---
 app.get('/api/prace', authenticateToken, async (req, res) => {
   const page = parseInt(req.query.page) || 1;
   const limit = parseInt(req.query.limit) || 15;
@@ -114,6 +114,7 @@ app.get('/api/prace', authenticateToken, async (req, res) => {
     res.status(500).json({ error: 'Wystąpił błąd serwera' });
   }
 });
+
 app.get('/api/prace/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
@@ -125,6 +126,7 @@ app.get('/api/prace/:id', authenticateToken, async (req, res) => {
     res.status(500).json({ error: 'Wystąpił błąd serwera' });
   }
 });
+
 app.post('/api/prace', authenticateToken, async (req, res) => {
   try {
     const { od_kogo, pracownicy, numer_tel, miejscowosc, informacje, srednica, data_rozpoczecia, data_zakonczenia, lustro_statyczne, lustro_dynamiczne, wydajnosc, ilosc_metrow } = req.body;
@@ -142,6 +144,7 @@ app.post('/api/prace', authenticateToken, async (req, res) => {
     res.status(500).json({ error: 'Wystąpił błąd serwera podczas dodawania wpisu.' });
   }
 });
+
 app.put('/api/prace/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
@@ -160,6 +163,7 @@ app.put('/api/prace/:id', authenticateToken, async (req, res) => {
     res.status(500).json({ error: 'Wystąpił błąd serwera podczas aktualizacji.' });
   }
 });
+
 app.delete('/api/prace/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
