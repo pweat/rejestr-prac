@@ -13,12 +13,9 @@ app.use(express.json());
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false,
-  user: 'postgres',
-  host: 'localhost',
-  database: 'rejestr_prac',
-  password: 'admin',
-  port: 5432,
+  ssl: {
+    rejectUnauthorized: false
+  }
 });
 
 const initializeDatabase = async () => {
@@ -32,6 +29,7 @@ const initializeDatabase = async () => {
     console.log('Tabela "users" jest gotowa.');
   } catch (err) {
     console.error('Błąd podczas inicjalizacji bazy danych:', err);
+    process.exit(1);
   } finally {
     if (client) client.release();
   }
