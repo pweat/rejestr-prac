@@ -17,6 +17,13 @@ const router = createRouter({
       component: () => import('../views/WorkDetailsView.vue'),
       meta: { requiresAuth: true }
     },
+    // ZMIANA: Nowa trasa dla modułu magazynowego
+    {
+      path: '/magazyn',
+      name: 'inventory',
+      component: () => import('../views/InventoryView.vue'),
+      meta: { requiresAuth: true }
+    },
     {
       path: '/login',
       name: 'login',

@@ -1,15 +1,26 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { useRoute, RouterLink } from 'vue-router'
-import { getAuthHeaders } from '../auth/auth.js'
+import { useRoute, RouterLink, useRouter } from 'vue-router'
+import { getAuthHeaders, removeToken } from '../auth/auth.js'
 import { formatDate } from '../utils/formatters.js'
 
 const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
 const route = useRoute()
+const router = useRouter()
 const praca = ref(null)
 const isLoading = ref(true)
 const error = ref(null)
 const showPrintControls = ref(false)
+
+const handleAuthError = (error) => {
+  if (error.message.includes('401') || error.message.includes('403')) {
+    alert('Twoja sesja wygasła lub jest nieprawidłowa. Proszę zalogować się ponownie.');
+    removeToken();
+    router.push('/login');
+    return true;
+  }
+  return false;
+}
 
 const visibleFields = ref({
   od_kogo: true, miejscowosc: true, pracownicy: true, numer_tel: true,
@@ -38,7 +49,9 @@ onMounted(async () => {
       throw new Error('Otrzymano niekompletne dane z serwera.');
     }
   } catch (e) {
-    error.value = e.message;
+    if (!handleAuthError(e)) {
+      error.value = e.message;
+    }
   } finally {
     isLoading.value = false;
   }

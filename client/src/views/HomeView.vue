@@ -4,8 +4,8 @@ import { ref, onMounted, computed, watch } from 'vue';
 import { getAuthHeaders, removeToken, isAuthenticated } from '../auth/auth.js';
 import { formatDate } from '../utils/formatters.js';
 
-const isLoading = ref(true);
 const router = useRouter();
+const isLoading = ref(true);
 
 const handleLogout = () => {
   removeToken();
@@ -57,8 +57,7 @@ async function pobierzPrace() {
   } catch (error) {
     console.error('Błąd w pobierzPrace():', error);
     if (error.message.includes('401') || error.message.includes('403')) {
-      prace.value = [];
-      totalItems.value = 0;
+      handleLogout();
     } else {
       alert(`Błąd ładowania danych: ${error.message}`);
     }
@@ -68,7 +67,6 @@ async function pobierzPrace() {
 }
 
 watch([currentPage, sortBy, sortOrder], pobierzPrace);
-
 let searchTimeout = null;
 watch(searchQuery, () => {
   clearTimeout(searchTimeout);
@@ -77,7 +75,6 @@ watch(searchQuery, () => {
     pobierzPrace();
   }, 300); 
 });
-
 
 function changeSort(key) {
   if (sortBy.value === key) {
@@ -111,13 +108,15 @@ async function handleSubmit() {
       headers: { 'Content-Type': 'application/json', ...getAuthHeaders() }, 
       body: JSON.stringify(nowaPraca.value) 
     });
-    if (!response.ok) throw new Error('Błąd podczas zapisywania');
+    if (!response.ok) throw new Error(`Błąd podczas zapisywania. Status: ${response.status}`);
     await pobierzPrace();
     nowaPraca.value = inicjalizujPustaPrace();
     showAddModal.value = false; 
   } catch (error) {
     console.error('Błąd w handleSubmit():', error);
-    alert(`Nie udało się zapisać pracy: ${error.message}`);
+    if (!handleAuthError(error)) {
+      alert(`Nie udało się zapisać pracy: ${error.message}`);
+    }
   }
 }
 
@@ -153,12 +152,14 @@ async function handleUpdate() {
       headers: { 'Content-Type': 'application/json', ...getAuthHeaders() }, 
       body: JSON.stringify(edytowaneDane.value) 
     });
-    if (!response.ok) throw new Error('Błąd podczas aktualizacji');
+    if (!response.ok) throw new Error(`Błąd podczas aktualizacji. Status: ${response.status}`);
     await pobierzPrace();
     showEditModal.value = false;
   } catch (error) {
     console.error("Błąd w handleUpdate():", error);
-    alert(`Nie udało się zaktualizować wpisu: ${error.message}`);
+    if (!handleAuthError(error)) {
+      alert(`Nie udało się zaktualizować wpisu: ${error.message}`);
+    }
   }
 }
 
@@ -169,7 +170,7 @@ async function handleDelete(idPracy) {
       method: 'DELETE',
       headers: getAuthHeaders()
     });
-    if (!response.ok) throw new Error('Błąd podczas usuwania');
+    if (!response.ok) throw new Error(`Błąd podczas usuwania. Status: ${response.status}`);
     if (prace.value.length === 1 && currentPage.value > 1) {
       currentPage.value--;
     } else {
@@ -177,7 +178,9 @@ async function handleDelete(idPracy) {
     }
   } catch (error) {
     console.error('Błąd w handleDelete():', error);
-    alert(`Nie udało się usunąć wpisu: ${error.message}`);
+    if (!handleAuthError(error)) {
+      alert(`Nie udało się usunąć wpisu: ${error.message}`);
+    }
   }
 }
 
@@ -196,64 +199,62 @@ onMounted(() => {
       </div>
     </div>
     <div class="search-container">
-      <input type="text" v-model="searchQuery" placeholder="Szukaj...">
+      <input type="text" v-model="searchQuery" placeholder="Szukaj..." :disabled="isLoading">
     </div>
     
-    <div class="main-content-wrapper">
-      <div v-if="isLoading" class="loading-overlay">
-        <div class="spinner"></div>
+    <div v-if="isLoading" class="loading-container">
+      <div class="spinner"></div>
+      <p>Ładowanie danych...</p>
+    </div>
+    
+    <div v-else>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th @click="changeSort('od_kogo')" class="sortable">Od kogo <span v-if="sortBy === 'od_kogo'">{{ sortOrder === 'asc' ? '▲' : '▼' }}</span></th>
+              <th class="col-pracownicy">Pracownicy</th>
+              <th class="col-telefon">Telefon</th>
+              <th @click="changeSort('miejscowosc')" class="sortable">Miejscowość <span v-if="sortBy === 'miejscowosc'">{{ sortOrder === 'asc' ? '▲' : '▼' }}</span></th>
+              <th class="col-informacje">Informacje</th>
+              <th>Data Rozp.</th>
+              <th @click="changeSort('data_zakonczenia')" class="sortable">Data Zakoń. <span v-if="sortBy === 'data_zakonczenia'">{{ sortOrder === 'asc' ? '▲' : '▼' }}</span></th>
+              <th>Średnica Ø</th>
+              <th>L. statyczne</th>
+              <th>L. dynamiczne</th>
+              <th>Wydajność</th>
+              <th>Metry</th>
+              <th>Akcje</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="praca in prace" :key="praca.id">
+              <td data-label="Od kogo">{{ praca.od_kogo || '-' }}</td>
+              <td data-label="Pracownicy" class="col-pracownicy">{{ praca.pracownicy || '-' }}</td>
+              <td data-label="Telefon" class="col-telefon">{{ praca.numer_tel || '-' }}</td>
+              <td data-label="Miejscowość">{{ praca.miejscowosc || '-' }}</td>
+              <td data-label="Informacje" class="col-informacje">{{ praca.informacje || '-' }}</td>
+              <td data-label="Data Rozp.">{{ formatDate(praca.data_rozpoczecia) }}</td>
+              <td data-label="Data Zakoń.">{{ formatDate(praca.data_zakonczenia) }}</td>
+              <td data-label="Średnica Ø">{{ praca.srednica || '-' }}</td>
+              <td data-label="L. statyczne">{{ praca.lustro_statyczne || '-' }}</td>
+              <td data-label="L. dynamiczne">{{ praca.lustro_dynamiczne || '-' }}</td>
+              <td data-label="Wydajność">{{ praca.wydajnosc || '-' }}</td>
+              <td data-label="Metry">{{ praca.ilosc_metrow || '-' }}</td>
+              <td data-label="Akcje" class="actions-cell">
+                <RouterLink :to="`/praca/${praca.id}`"><button class="pokaż">Pokaż</button></RouterLink>
+                <button class="edytuj" @click="handleEdit(praca)">Edytuj</button>
+                <button class="usun" @click="handleDelete(praca.id)">Usuń</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <div v-if="!prace.length && !isLoading" class="empty-table-message"><p>Brak pasujących wyników.</p></div>
       </div>
-      
-      <div class="table-and-pagination" :class="{ 'is-loading': isLoading }">
-        <div class="table-container">
-          <table>
-            <thead>
-              <tr>
-                <th @click="changeSort('od_kogo')" class="sortable">Od kogo <span v-if="sortBy === 'od_kogo'">{{ sortOrder === 'asc' ? '▲' : '▼' }}</span></th>
-                <th class="col-pracownicy">Pracownicy</th>
-                <th class="col-telefon">Telefon</th>
-                <th @click="changeSort('miejscowosc')" class="sortable">Miejscowość <span v-if="sortBy === 'miejscowosc'">{{ sortOrder === 'asc' ? '▲' : '▼' }}</span></th>
-                <th class="col-informacje">Informacje</th>
-                <th>Data Rozp.</th>
-                <th @click="changeSort('data_zakonczenia')" class="sortable">Data Zakoń. <span v-if="sortBy === 'data_zakonczenia'">{{ sortOrder === 'asc' ? '▲' : '▼' }}</span></th>
-                <th>Średnica Ø</th>
-                <th>L. statyczne</th>
-                <th>L. dynamiczne</th>
-                <th>Wydajność</th>
-                <th>Metry</th>
-                <th>Akcje</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="praca in prace" :key="praca.id">
-                <td data-label="Od kogo">{{ praca.od_kogo || '-' }}</td>
-                <td data-label="Pracownicy" class="col-pracownicy">{{ praca.pracownicy || '-' }}</td>
-                <td data-label="Telefon" class="col-telefon">{{ praca.numer_tel || '-' }}</td>
-                <td data-label="Miejscowość">{{ praca.miejscowosc || '-' }}</td>
-                <td data-label="Informacje" class="col-informacje">{{ praca.informacje || '-' }}</td>
-                <td data-label="Data Rozp.">{{ formatDate(praca.data_rozpoczecia) }}</td>
-                <td data-label="Data Zakoń.">{{ formatDate(praca.data_zakonczenia) }}</td>
-                <td data-label="Średnica Ø">{{ praca.srednica || '-' }}</td>
-                <td data-label="L. statyczne">{{ praca.lustro_statyczne || '-' }}</td>
-                <td data-label="L. dynamiczne">{{ praca.lustro_dynamiczne || '-' }}</td>
-                <td data-label="Wydajność">{{ praca.wydajnosc || '-' }}</td>
-                <td data-label="Metry">{{ praca.ilosc_metrow || '-' }}</td>
-                <td data-label="Akcje" class="actions-cell">
-                  <RouterLink :to="`/praca/${praca.id}`"><button class="pokaż">Pokaż</button></RouterLink>
-                  <button class="edytuj" @click="handleEdit(praca)">Edytuj</button>
-                  <button class="usun" @click="handleDelete(praca.id)">Usuń</button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-          <div v-if="!prace.length && !isLoading" class="empty-table-message"><p>Brak pasujących wyników.</p></div>
-        </div>
-
-        <div v-if="totalPages > 1" class="pagination-controls">
-          <button @click="currentPage--" :disabled="currentPage === 1">&laquo; Poprzednia</button>
-          <span>Strona {{ currentPage }} z {{ totalPages }}</span>
-          <button @click="currentPage++" :disabled="currentPage === totalPages">Następna &raquo;</button>
-        </div>
+      <div v-if="totalPages > 1" class="pagination-controls">
+        <button @click="currentPage--" :disabled="currentPage === 1">&laquo; Poprzednia</button>
+        <span>Strona {{ currentPage }} z {{ totalPages }}</span>
+        <button @click="currentPage++" :disabled="currentPage === totalPages">Następna &raquo;</button>
       </div>
     </div>
   </div>
