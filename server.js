@@ -3,13 +3,12 @@ const cors = require('cors');
 const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-
 const app = express();
 const PORT = process.env.PORT || 3000;
-const JWT_SECRET = process.env.JWT_SECRET || 'bardzo-tajny-klucz-do-zmiany-na-produkcji';
-
-app.use(cors()); 
-app.use(express.json()); 
+const JWT_SECRET =
+  process.env.JWT_SECRET || 'bardzo-tajny-klucz-do-zmiany-na-produkcji';
+app.use(cors());
+app.use(express.json());
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -26,13 +25,30 @@ const initializeDatabase = async () => {
   try {
     client = await pool.connect();
     console.log('Połączono z bazą danych PostgreSQL');
-    await client.query(`CREATE TABLE IF NOT EXISTS prace (id SERIAL PRIMARY KEY, od_kogo TEXT, pracownicy TEXT, numer_tel TEXT, miejscowosc TEXT, informacje TEXT, srednica REAL, data_rozpoczecia DATE, data_zakonczenia DATE NOT NULL, lustro_statyczne REAL, lustro_dynamiczne REAL, wydajnosc REAL, ilosc_metrow REAL)`);
+    await client.query(
+      `CREATE TABLE IF NOT EXISTS prace (id SERIAL PRIMARY KEY, od_kogo TEXT, pracownicy TEXT, numer_tel TEXT, miejscowosc TEXT, informacje TEXT, srednica REAL, data_rozpoczecia DATE, data_zakonczenia DATE NOT NULL, lustro_statyczne REAL, lustro_dynamiczne REAL, wydajnosc REAL, ilosc_metrow REAL)`
+    );
     console.log('Tabela "prace" jest gotowa.');
-    await client.query(`CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL)`);
+    await client.query(
+      `CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL)`
+    );
     console.log('Tabela "users" jest gotowa.');
-    await client.query(`CREATE TABLE IF NOT EXISTS inventory_items (id SERIAL PRIMARY KEY, name TEXT NOT NULL UNIQUE, quantity REAL NOT NULL DEFAULT 0, unit TEXT NOT NULL, min_stock_level REAL NOT NULL DEFAULT 0, last_delivery_date DATE)`);
+    await client.query(
+      `CREATE TABLE IF NOT EXISTS inventory_items (id SERIAL PRIMARY KEY, name TEXT NOT NULL UNIQUE, quantity REAL NOT NULL DEFAULT 0, unit TEXT NOT NULL, min_stock_level REAL NOT NULL DEFAULT 0, last_delivery_date DATE)`
+    );
     console.log('Tabela "inventory_items" jest gotowa.');
-    await client.query(`CREATE TABLE IF NOT EXISTS stock_history (id SERIAL PRIMARY KEY, item_id INTEGER NOT NULL REFERENCES inventory_items(id), change_quantity REAL NOT NULL, operation_type TEXT NOT NULL, operation_date TIMESTAMPTZ NOT NULL DEFAULT NOW(), user_id INTEGER REFERENCES users(id))`);
+    const res = await client.query(
+      "SELECT column_name FROM information_schema.columns WHERE table_name='inventory_items' AND column_name='is_ordered'"
+    );
+    if (res.rows.length === 0) {
+      await client.query(
+        'ALTER TABLE inventory_items ADD COLUMN is_ordered BOOLEAN DEFAULT FALSE NOT NULL'
+      );
+      console.log('Dodano kolumnę "is_ordered" do tabeli "inventory_items".');
+    }
+    await client.query(
+      `CREATE TABLE IF NOT EXISTS stock_history (id SERIAL PRIMARY KEY, item_id INTEGER NOT NULL REFERENCES inventory_items(id) ON DELETE CASCADE, change_quantity REAL NOT NULL, operation_type TEXT NOT NULL, operation_date TIMESTAMPTZ NOT NULL DEFAULT NOW(), user_id INTEGER REFERENCES users(id))`
+    );
     console.log('Tabela "stock_history" jest gotowa.');
   } catch (err) {
     console.error('Błąd podczas inicjalizacji bazy danych:', err);
@@ -42,7 +58,6 @@ const initializeDatabase = async () => {
   }
 };
 initializeDatabase();
-
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
@@ -57,35 +72,63 @@ const authenticateToken = (req, res, next) => {
 app.post('/api/register', async (req, res) => {
   try {
     const { username, password } = req.body;
-    if (!username || !password) { return res.status(400).json({ error: 'Nazwa użytkownika i hasło są wymagane.' }); }
+    if (!username || !password) {
+      return res
+        .status(400)
+        .json({ error: 'Nazwa użytkownika i hasło są wymagane.' });
+    }
     const salt = await bcrypt.genSalt(10);
     const password_hash = await bcrypt.hash(password, salt);
-    const newUser = await pool.query("INSERT INTO users (username, password_hash) VALUES ($1, $2) RETURNING id, username", [username, password_hash]);
+    const newUser = await pool.query(
+      'INSERT INTO users (username, password_hash) VALUES ($1, $2) RETURNING id, username',
+      [username, password_hash]
+    );
     res.status(201).json(newUser.rows[0]);
   } catch (err) {
-    if (err.code === '23505') { return res.status(400).json({ error: 'Użytkownik o tej nazwie już istnieje.' }); }
+    if (err.code === '23505') {
+      return res
+        .status(400)
+        .json({ error: 'Użytkownik o tej nazwie już istnieje.' });
+    }
     console.error('Błąd w /api/register:', err);
     res.status(500).json({ error: 'Wystąpił błąd serwera.' });
   }
 });
-
 app.post('/api/login', async (req, res) => {
   try {
     const { username, password } = req.body;
-    if (!username || !password) { return res.status(400).json({ error: 'Nazwa użytkownika i hasło są wymagane.' }); }
-    const userResult = await pool.query("SELECT * FROM users WHERE username = $1", [username]);
-    if (userResult.rows.length === 0) { return res.status(401).json({ error: 'Nieprawidłowa nazwa użytkownika lub hasło.' }); }
+    if (!username || !password) {
+      return res
+        .status(400)
+        .json({ error: 'Nazwa użytkownika i hasło są wymagane.' });
+    }
+    const userResult = await pool.query(
+      'SELECT * FROM users WHERE username = $1',
+      [username]
+    );
+    if (userResult.rows.length === 0) {
+      return res
+        .status(401)
+        .json({ error: 'Nieprawidłowa nazwa użytkownika lub hasło.' });
+    }
     const user = userResult.rows[0];
     const isMatch = await bcrypt.compare(password, user.password_hash);
-    if (!isMatch) { return res.status(401).json({ error: 'Nieprawidłowa nazwa użytkownika lub hasło.' }); }
-    const token = jwt.sign({ userId: user.id, username: user.username }, JWT_SECRET, { expiresIn: '24h' });
+    if (!isMatch) {
+      return res
+        .status(401)
+        .json({ error: 'Nieprawidłowa nazwa użytkownika lub hasło.' });
+    }
+    const token = jwt.sign(
+      { userId: user.id, username: user.username },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
     res.json({ token });
   } catch (err) {
     console.error('Błąd w /api/login:', err);
     res.status(500).json({ error: 'Wystąpił błąd serwera.' });
   }
 });
-
 app.get('/api/prace', authenticateToken, async (req, res) => {
   const page = parseInt(req.query.page) || 1;
   const limit = parseInt(req.query.limit) || 15;
@@ -94,17 +137,28 @@ app.get('/api/prace', authenticateToken, async (req, res) => {
   const sortBy = req.query.sortBy || 'data_zakonczenia';
   const sortOrder = req.query.sortOrder === 'asc' ? 'ASC' : 'DESC';
   const allowedSortBy = ['id', 'od_kogo', 'miejscowosc', 'data_zakonczenia'];
-  if (!allowedSortBy.includes(sortBy)) { return res.status(400).json({ error: "Niedozwolona kolumna sortowania." }); }
+  if (!allowedSortBy.includes(sortBy)) {
+    return res.status(400).json({ error: 'Niedozwolona kolumna sortowania.' });
+  }
   try {
-    let whereClauses = []; let searchParams = [];
+    let whereClauses = [];
+    let searchParams = [];
     if (search) {
       const searchTerm = `%${search}%`;
-      const searchableColumns = ['od_kogo', 'miejscowosc', 'pracownicy', 'numer_tel'];
+      const searchableColumns = [
+        'od_kogo',
+        'miejscowosc',
+        'pracownicy',
+        'numer_tel',
+      ];
       let paramIndex = 1;
-      searchableColumns.forEach(col => { whereClauses.push(`${col} ILIKE $${paramIndex++}`); });
+      searchableColumns.forEach((col) => {
+        whereClauses.push(`${col} ILIKE $${paramIndex++}`);
+      });
       searchParams = Array(searchableColumns.length).fill(searchTerm);
     }
-    const whereString = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' OR ')}` : '';
+    const whereString =
+      whereClauses.length > 0 ? `WHERE ${whereClauses.join(' OR ')}` : '';
     const countSql = `SELECT COUNT(*) as count FROM prace ${whereString}`;
     const countResult = await pool.query(countSql, searchParams);
     const totalItems = parseInt(countResult.rows[0].count);
@@ -112,103 +166,394 @@ app.get('/api/prace', authenticateToken, async (req, res) => {
     const dataSql = `SELECT * FROM prace ${whereString} ORDER BY ${sortBy} ${sortOrder} NULLS LAST, id DESC LIMIT $${searchParams.length + 1} OFFSET $${searchParams.length + 2}`;
     const finalDataParams = [...searchParams, limit, offset];
     const dataResult = await pool.query(dataSql, finalDataParams);
-    res.json({ message: "success", data: dataResult.rows, pagination: { totalItems, totalPages, currentPage: page, itemsPerPage: limit } });
+    res.json({
+      message: 'success',
+      data: dataResult.rows,
+      pagination: {
+        totalItems,
+        totalPages,
+        currentPage: page,
+        itemsPerPage: limit,
+      },
+    });
   } catch (err) {
     console.error('Błąd w GET /api/prace:', err);
     res.status(500).json({ error: 'Wystąpił błąd serwera' });
   }
 });
-
 app.get('/api/prace/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const result = await pool.query("SELECT * FROM prace WHERE id = $1", [id]);
-    if (result.rows.length === 0) { return res.status(404).json({ "error": "Nie znaleziono wpisu o podanym ID." }); }
-    res.json({ message: "success", data: result.rows[0] });
+    const result = await pool.query('SELECT * FROM prace WHERE id = $1', [id]);
+    if (result.rows.length === 0) {
+      return res
+        .status(404)
+        .json({ error: 'Nie znaleziono wpisu o podanym ID.' });
+    }
+    res.json({ message: 'success', data: result.rows[0] });
   } catch (err) {
     console.error(`Błąd w GET /api/prace/${req.params.id}:`, err);
     res.status(500).json({ error: 'Wystąpił błąd serwera' });
   }
 });
-
 app.post('/api/prace', authenticateToken, async (req, res) => {
   try {
-    const { od_kogo, pracownicy, numer_tel, miejscowosc, informacje, srednica, data_rozpoczecia, data_zakonczenia, lustro_statyczne, lustro_dynamiczne, wydajnosc, ilosc_metrow } = req.body;
-    if (!od_kogo || !data_zakonczenia) { return res.status(400).json({ error: "Pola 'Od kogo' i 'Data zakończenia' są wymagane." }); }
+    const {
+      od_kogo,
+      pracownicy,
+      numer_tel,
+      miejscowosc,
+      informacje,
+      srednica,
+      data_rozpoczecia,
+      data_zakonczenia,
+      lustro_statyczne,
+      lustro_dynamiczne,
+      wydajnosc,
+      ilosc_metrow,
+    } = req.body;
+    if (!od_kogo || !data_zakonczenia) {
+      return res
+        .status(400)
+        .json({ error: "Pola 'Od kogo' i 'Data zakończenia' są wymagane." });
+    }
     if (numer_tel && numer_tel.length > 0) {
       const phoneDigits = numer_tel.replace(/[\s-]/g, '');
-      if (!/^\d{9}$/.test(phoneDigits)) { return res.status(400).json({ error: "Niepoprawny format numeru telefonu." }); }
+      if (!/^\d{9}$/.test(phoneDigits)) {
+        return res
+          .status(400)
+          .json({ error: 'Niepoprawny format numeru telefonu.' });
+      }
     }
     const sql = `INSERT INTO prace (od_kogo, pracownicy, numer_tel, miejscowosc, informacje, srednica, data_rozpoczecia, data_zakonczenia, lustro_statyczne, lustro_dynamiczne, wydajnosc, ilosc_metrow) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`;
-    const params = [ od_kogo, pracownicy, numer_tel, miejscowosc, informacje, srednica || null, data_rozpoczecia || null, data_zakonczenia, lustro_statyczne || null, lustro_dynamiczne || null, wydajnosc || null, ilosc_metrow || null ];
+    const params = [
+      od_kogo,
+      pracownicy,
+      numer_tel,
+      miejscowosc,
+      informacje,
+      srednica || null,
+      data_rozpoczecia || null,
+      data_zakonczenia,
+      lustro_statyczne || null,
+      lustro_dynamiczne || null,
+      wydajnosc || null,
+      ilosc_metrow || null,
+    ];
     const result = await pool.query(sql, params);
-    res.status(201).json({ message: "success", data: result.rows[0] });
+    res.status(201).json({ message: 'success', data: result.rows[0] });
   } catch (err) {
     console.error('Błąd w POST /api/prace:', err);
-    res.status(500).json({ error: 'Wystąpił błąd serwera podczas dodawania wpisu.' });
+    res
+      .status(500)
+      .json({ error: 'Wystąpił błąd serwera podczas dodawania wpisu.' });
   }
 });
-
 app.put('/api/prace/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const { od_kogo, pracownicy, numer_tel, miejscowosc, informacje, srednica, data_rozpoczecia, data_zakonczenia, lustro_statyczne, lustro_dynamiczne, wydajnosc, ilosc_metrow } = req.body;
-    if (!od_kogo || !data_zakonczenia) { return res.status(400).json({ error: "Pola 'Od kogo' i 'Data zakończenia' są wymagane." }); }
+    const {
+      od_kogo,
+      pracownicy,
+      numer_tel,
+      miejscowosc,
+      informacje,
+      srednica,
+      data_rozpoczecia,
+      data_zakonczenia,
+      lustro_statyczne,
+      lustro_dynamiczne,
+      wydajnosc,
+      ilosc_metrow,
+    } = req.body;
+    if (!od_kogo || !data_zakonczenia) {
+      return res
+        .status(400)
+        .json({ error: "Pola 'Od kogo' i 'Data zakończenia' są wymagane." });
+    }
     if (numer_tel && numer_tel.length > 0) {
       const phoneDigits = numer_tel.replace(/[\s-]/g, '');
-      if (!/^\d{9}$/.test(phoneDigits)) { return res.status(400).json({ error: "Niepoprawny format numeru telefonu." }); }
+      if (!/^\d{9}$/.test(phoneDigits)) {
+        return res
+          .status(400)
+          .json({ error: 'Niepoprawny format numeru telefonu.' });
+      }
     }
     const sql = `UPDATE prace SET od_kogo = $1, pracownicy = $2, numer_tel = $3, miejscowosc = $4, informacje = $5, srednica = $6, data_rozpoczecia = $7, data_zakonczenia = $8, lustro_statyczne = $9, lustro_dynamiczne = $10, wydajnosc = $11, ilosc_metrow = $12 WHERE id = $13 RETURNING *`;
-    const params = [ od_kogo, pracownicy, numer_tel, miejscowosc, informacje, srednica || null, data_rozpoczecia || null, data_zakonczenia, lustro_statyczne || null, lustro_dynamiczne || null, wydajnosc || null, ilosc_metrow || null, id ];
+    const params = [
+      od_kogo,
+      pracownicy,
+      numer_tel,
+      miejscowosc,
+      informacje,
+      srednica || null,
+      data_rozpoczecia || null,
+      data_zakonczenia,
+      lustro_statyczne || null,
+      lustro_dynamiczne || null,
+      wydajnosc || null,
+      ilosc_metrow || null,
+      id,
+    ];
     const result = await pool.query(sql, params);
-    res.json({ message: "updated", data: result.rows[0] });
+    res.json({ message: 'updated', data: result.rows[0] });
   } catch (err) {
     console.error(`Błąd w PUT /api/prace/${req.params.id}:`, err);
-    res.status(500).json({ error: 'Wystąpił błąd serwera podczas aktualizacji.' });
+    res
+      .status(500)
+      .json({ error: 'Wystąpił błąd serwera podczas aktualizacji.' });
   }
 });
-
 app.delete('/api/prace/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const result = await pool.query("DELETE FROM prace WHERE id = $1", [id]);
-    if (result.rowCount === 0) { return res.status(404).json({ "message": "not_found" }); }
-    res.json({ "message": "deleted" });
+    const result = await pool.query('DELETE FROM prace WHERE id = $1', [id]);
+    if (result.rowCount === 0) {
+      return res.status(404).json({ message: 'not_found' });
+    }
+    res.json({ message: 'deleted' });
   } catch (err) {
     console.error(`Błąd w DELETE /api/prace/${req.params.id}:`, err);
     res.status(500).json({ error: 'Wystąpił błąd serwera podczas usuwania.' });
   }
 });
-
 app.get('/api/inventory', authenticateToken, async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM inventory_items ORDER BY name ASC');
+    const result = await pool.query(
+      'SELECT * FROM inventory_items ORDER BY name ASC'
+    );
     res.json(result.rows);
   } catch (err) {
     console.error('Błąd w GET /api/inventory:', err);
     res.status(500).json({ error: 'Wystąpił błąd serwera' });
   }
 });
-
 app.post('/api/inventory', authenticateToken, async (req, res) => {
   try {
     const { name, quantity, unit, min_stock_level } = req.body;
     if (!name || !unit) {
-      return res.status(400).json({ error: 'Nazwa i jednostka miary są wymagane.' });
+      return res
+        .status(400)
+        .json({ error: 'Nazwa i jednostka miary są wymagane.' });
     }
     const sql = `INSERT INTO inventory_items (name, quantity, unit, min_stock_level) VALUES ($1, $2, $3, $4) RETURNING *`;
     const params = [name, quantity || 0, unit, min_stock_level || 0];
     const result = await pool.query(sql, params);
     res.status(201).json(result.rows[0]);
   } catch (err) {
-    if (err.code === '23505') { 
-      return res.status(400).json({ error: 'Przedmiot o tej nazwie już istnieje w magazynie.' });
+    if (err.code === '23505') {
+      return res
+        .status(400)
+        .json({ error: 'Przedmiot o tej nazwie już istnieje w magazynie.' });
     }
     console.error('Błąd w POST /api/inventory:', err);
     res.status(500).json({ error: 'Wystąpił błąd serwera' });
   }
 });
+app.put('/api/inventory/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, quantity, unit, min_stock_level, is_ordered } = req.body;
+    if (!name || !unit) {
+      return res
+        .status(400)
+        .json({ error: 'Nazwa i jednostka miary są wymagane.' });
+    }
+    const sql = `UPDATE inventory_items SET name = $1, quantity = $2, unit = $3, min_stock_level = $4, is_ordered = $5 WHERE id = $6 RETURNING *`;
+    const params = [
+      name,
+      quantity || 0,
+      unit,
+      min_stock_level || 0,
+      is_ordered || false,
+      id,
+    ];
+    const result = await pool.query(sql, params);
+    if (result.rows.length === 0) {
+      return res
+        .status(404)
+        .json({ error: 'Nie znaleziono przedmiotu o podanym ID.' });
+    }
+    res.status(200).json(result.rows[0]);
+  } catch (err) {
+    if (err.code === '23505') {
+      return res
+        .status(400)
+        .json({ error: 'Przedmiot o tej nazwie już istnieje w magazynie.' });
+    }
+    console.error(`Błąd w PUT /api/inventory/${req.params.id}:`, err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
+app.delete('/api/inventory/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query(
+      'DELETE FROM inventory_items WHERE id = $1',
+      [id]
+    );
+    if (result.rowCount === 0) {
+      return res.status(404).json({ message: 'Nie znaleziono przedmiotu' });
+    }
+    res.status(204).send();
+  } catch (err) {
+    console.error(`Błąd w DELETE /api/inventory/${req.params.id}:`, err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
+app.post('/api/inventory/operation', authenticateToken, async (req, res) => {
+  const { itemId, operationType, quantity } = req.body;
+  const client = await pool.connect();
 
+  try {
+    await client.query('BEGIN'); // Rozpocznij transakcję
+
+    let updatedItem;
+
+    if (operationType === 'delivery' || operationType === 'withdrawal') {
+      // Logika dla przyjęcia/wydania (pozostaje taka sama)
+      if (!quantity || quantity <= 0)
+        throw new Error('Ilość musi być dodatnia.');
+      const changeQuantity =
+        operationType === 'delivery' ? Math.abs(quantity) : -Math.abs(quantity);
+
+      const updateQuery = `UPDATE inventory_items SET quantity = quantity + $1, last_delivery_date = CASE WHEN $2 = 'delivery' THEN NOW() ELSE last_delivery_date END WHERE id = $3 RETURNING *`;
+      const updateResult = await client.query(updateQuery, [
+        changeQuantity,
+        operationType,
+        itemId,
+      ]);
+      updatedItem = updateResult.rows[0];
+
+      const historyQuery = `INSERT INTO stock_history (item_id, change_quantity, operation_type, user_id) VALUES ($1, $2, $3, $4)`;
+      await client.query(historyQuery, [
+        itemId,
+        changeQuantity,
+        operationType,
+        req.user.userId,
+      ]);
+    } else if (operationType === 'toggle_ordered') {
+      // NOWA LOGIKA: Zmiana statusu "zamówione"
+      const updateQuery = `UPDATE inventory_items SET is_ordered = NOT is_ordered WHERE id = $1 RETURNING *`;
+      const updateResult = await client.query(updateQuery, [itemId]);
+      updatedItem = updateResult.rows[0];
+
+      const historyQuery = `INSERT INTO stock_history (item_id, change_quantity, operation_type, user_id) VALUES ($1, $2, $3, $4)`;
+      // Zapisujemy operację z ilością 0, aby nie wpływała na stan
+      await client.query(historyQuery, [
+        itemId,
+        0,
+        `status_changed_to_${updatedItem.is_ordered}`,
+        req.user.userId,
+      ]);
+    } else {
+      throw new Error('Nieznany typ operacji.');
+    }
+
+    if (!updatedItem) {
+      throw new Error('Nie znaleziono przedmiotu.');
+    }
+
+    await client.query('COMMIT'); // Zatwierdź transakcję
+    res.status(200).json(updatedItem);
+  } catch (err) {
+    await client.query('ROLLBACK'); // Wycofaj transakcję w razie błędu
+    console.error('Błąd w /api/inventory/operation:', err);
+    res
+      .status(500)
+      .json({ error: 'Wystąpił błąd serwera podczas operacji magazynowej.' });
+  } finally {
+    client.release();
+  }
+});
+app.get('/api/inventory/:id/history', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const sql = `
+      SELECT sh.change_quantity, sh.operation_type, sh.operation_date, u.username
+      FROM stock_history sh
+      LEFT JOIN users u ON sh.user_id = u.id
+      WHERE sh.item_id = $1
+      ORDER BY sh.operation_date DESC
+    `;
+    const result = await pool.query(sql, [id]);
+    res.json(result.rows);
+  } catch (err) {
+    console.error(`Błąd w GET /api/inventory/${req.params.id}/history:`, err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
+app.delete('/api/inventory/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query(
+      'DELETE FROM inventory_items WHERE id = $1',
+      [id]
+    );
+    if (result.rowCount === 0) {
+      return res.status(404).json({ message: 'Nie znaleziono przedmiotu' });
+    }
+    res.status(204).send(); // Sukces, brak zawartości
+  } catch (err) {
+    console.error(`Błąd w DELETE /api/inventory/${req.params.id}:`, err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
+
+// POST /api/inventory/operation - Zarejestruj operację (przyjęcie/wydanie)
+app.post('/api/inventory/operation', authenticateToken, async (req, res) => {
+  const { itemId, operationType, quantity } = req.body;
+  const changeQuantity =
+    operationType === 'delivery' ? Math.abs(quantity) : -Math.abs(quantity);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const updateQuery = `UPDATE inventory_items SET quantity = quantity + $1 WHERE id = $2 RETURNING *`;
+    const updatedItem = await client.query(updateQuery, [
+      changeQuantity,
+      itemId,
+    ]);
+    if (updatedItem.rows.length === 0) {
+      throw new Error('Nie znaleziono przedmiotu.');
+    }
+    const historyQuery = `INSERT INTO stock_history (item_id, change_quantity, operation_type, user_id) VALUES ($1, $2, $3, $4)`;
+    await client.query(historyQuery, [
+      itemId,
+      changeQuantity,
+      operationType,
+      req.user.userId,
+    ]);
+    await client.query('COMMIT');
+    res.status(200).json(updatedItem.rows[0]);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Błąd w /api/inventory/operation:', err);
+    res
+      .status(500)
+      .json({ error: 'Wystąpił błąd serwera podczas operacji magazynowej.' });
+  } finally {
+    client.release();
+  }
+});
+
+// GET /api/inventory/:id/history - Pobierz historię operacji dla jednego przedmiotu
+app.get('/api/inventory/:id/history', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const sql = `
+      SELECT sh.change_quantity, sh.operation_type, sh.operation_date, u.username
+      FROM stock_history sh
+      LEFT JOIN users u ON sh.user_id = u.id
+      WHERE sh.item_id = $1
+      ORDER BY sh.operation_date DESC
+    `;
+    const result = await pool.query(sql, [id]);
+    res.json(result.rows);
+  } catch (err) {
+    console.error(`Błąd w GET /api/inventory/${req.params.id}/history:`, err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
 app.listen(PORT, () => {
   console.log(`Serwer został uruchomiony na porcie ${PORT}`);
 });

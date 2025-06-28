@@ -1,6 +1,6 @@
-import { createRouter, createWebHistory } from 'vue-router'
-import HomeView from '../views/HomeView.vue'
-import { isAuthenticated } from '../auth/auth.js'
+import { createRouter, createWebHistory } from 'vue-router';
+import HomeView from '../views/HomeView.vue';
+import { isAuthenticated } from '../auth/auth.js';
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -9,28 +9,28 @@ const router = createRouter({
       path: '/',
       name: 'home',
       component: HomeView,
-      meta: { requiresAuth: true }
+      meta: { requiresAuth: true },
     },
     {
       path: '/praca/:id',
       name: 'workDetails',
       component: () => import('../views/WorkDetailsView.vue'),
-      meta: { requiresAuth: true }
+      meta: { requiresAuth: true },
     },
     // ZMIANA: Nowa trasa dla modułu magazynowego
     {
       path: '/magazyn',
       name: 'inventory',
       component: () => import('../views/InventoryView.vue'),
-      meta: { requiresAuth: true }
+      meta: { requiresAuth: true },
     },
     {
       path: '/login',
       name: 'login',
-      component: () => import('../views/LoginView.vue')
-    }
-  ]
-})
+      component: () => import('../views/LoginView.vue'),
+    },
+  ],
+});
 
 router.beforeEach((to, from, next) => {
   if (to.meta.requiresAuth && !isAuthenticated.value) {
@@ -40,4 +40,4 @@ router.beforeEach((to, from, next) => {
   }
 });
 
-export default router
+export default router;
