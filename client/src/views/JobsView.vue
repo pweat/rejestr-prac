@@ -9,6 +9,14 @@ const isLoading = ref(true);
 const jobs = ref([]);
 const showAddJobModal = ref(false);
 const availableClients = ref([]);
+const newJobData = ref({});
+
+const showDetailsModal = ref(false);
+const selectedJobDetails = ref(null);
+const isDetailsLoading = ref(false);
+
+const showEditJobModal = ref(false);
+const editedJobData = ref(null);
 
 const inicjalizujNoweZlecenie = () => ({
   clientId: null,
@@ -16,8 +24,6 @@ const inicjalizujNoweZlecenie = () => ({
   jobDate: new Date().toISOString().slice(0, 10),
   details: {},
 });
-
-const newJobData = ref(inicjalizujNoweZlecenie());
 
 function translateJobType(type) {
   const types = {
@@ -89,6 +95,98 @@ async function handleAddJob() {
   }
 }
 
+async function handleShowDetails(jobId) {
+  selectedJobDetails.value = null;
+  isDetailsLoading.value = true;
+  showDetailsModal.value = true;
+  try {
+    const response = await fetch(`${API_URL}/api/jobs/${jobId}`, {
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) throw new Error('Błąd pobierania szczegółów zlecenia');
+    selectedJobDetails.value = await response.json();
+  } catch (error) {
+    console.error('Błąd podczas pobierania szczegółów zlecenia:', error);
+    alert(error.message);
+    showDetailsModal.value = false;
+  } finally {
+    isDetailsLoading.value = false;
+  }
+}
+
+async function handleShowEditModal(job) {
+  editedJobData.value = null;
+  isDetailsLoading.value = true;
+  showEditJobModal.value = true;
+  try {
+    const response = await fetch(`${API_URL}/api/jobs/${job.id}`, {
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok)
+      throw new Error('Błąd pobierania pełnych danych zlecenia do edycji');
+    const fullJobData = await response.json();
+    editedJobData.value = fullJobData;
+    editedJobData.value.job_date = formatDate(editedJobData.value.job_date);
+  } catch (error) {
+    console.error('Błąd w handleShowEditModal:', error);
+    alert(error.message);
+    showEditJobModal.value = false;
+  } finally {
+    isDetailsLoading.value = false;
+  }
+}
+
+async function handleUpdateJob() {
+  if (!editedJobData.value) return;
+  try {
+    const payload = {
+      clientId: editedJobData.value.client_id,
+      jobType: editedJobData.value.job_type,
+      jobDate: editedJobData.value.job_date,
+      details: editedJobData.value.details,
+    };
+    const response = await fetch(
+      `${API_URL}/api/jobs/${editedJobData.value.id}`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify(payload),
+      }
+    );
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Błąd podczas aktualizacji zlecenia.');
+    }
+    await fetchJobs();
+    showEditJobModal.value = false;
+  } catch (error) {
+    console.error('Błąd w handleUpdateJob():', error);
+    alert(error.message);
+  }
+}
+
+async function handleDeleteJob(jobId) {
+  if (
+    !confirm(
+      'Czy na pewno chcesz usunąć to zlecenie? Tej operacji nie można cofnąć.'
+    )
+  )
+    return;
+  try {
+    const response = await fetch(`${API_URL}/api/jobs/${jobId}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok && response.status !== 204) {
+      throw new Error('Nie udało się usunąć zlecenia.');
+    }
+    await fetchJobs();
+  } catch (error) {
+    console.error('Błąd w handleDeleteJob():', error);
+    alert(error.message);
+  }
+}
+
 watch(
   () => newJobData.value.jobType,
   (newType, oldType) => {
@@ -127,27 +225,33 @@ onMounted(() => {
         <table>
           <thead>
             <tr>
-              <th>ID Zlecenia</th>
-              <th>Typ Zlecenia</th>
-              <th>Data</th>
               <th>Klient</th>
               <th>Telefon Klienta</th>
+              <th>Typ Zlecenia</th>
+              <th>Data</th>
               <th>Akcje</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="job in jobs" :key="job.id">
-              <td data-label="ID Zlecenia">#{{ job.id }}</td>
+              <td data-label="Klient">{{ job.client_name || '-' }}</td>
+              <td data-label="Telefon Klienta">{{ job.client_phone }}</td>
               <td data-label="Typ Zlecenia">
                 <span class="job-type-badge" :class="job.job_type">
                   {{ translateJobType(job.job_type) }}
                 </span>
               </td>
               <td data-label="Data">{{ formatDate(job.job_date) }}</td>
-              <td data-label="Klient">{{ job.client_name || '-' }}</td>
-              <td data-label="Telefon Klienta">{{ job.client_phone }}</td>
               <td data-label="Akcje" class="actions-cell">
-                <button class="pokaż">Pokaż szczegóły</button>
+                <button class="pokaż" @click="handleShowDetails(job.id)">
+                  Szczegóły
+                </button>
+                <button class="edytuj" @click="handleShowEditModal(job)">
+                  Edytuj
+                </button>
+                <button class="usun" @click="handleDeleteJob(job.id)">
+                  Usuń
+                </button>
               </td>
             </tr>
           </tbody>
@@ -170,8 +274,8 @@ onMounted(() => {
       <form @submit.prevent="handleAddJob">
         <div class="form-grid-single-col">
           <div class="form-group">
-            <label for="clientSelect">1. Wybierz klienta</label>
-            <select id="clientSelect" v-model="newJobData.clientId" required>
+            <label for="clientSelect">1. Wybierz klienta</label
+            ><select id="clientSelect" v-model="newJobData.clientId" required>
               <option :value="null" disabled>-- Wybierz z listy --</option>
               <option
                 v-for="client in availableClients"
@@ -182,31 +286,27 @@ onMounted(() => {
               </option>
             </select>
           </div>
-
           <div class="form-group">
-            <label for="jobDate">2. Data zlecenia</label>
-            <input
+            <label for="jobDate">2. Data zlecenia</label
+            ><input
               type="date"
               id="jobDate"
               v-model="newJobData.jobDate"
               required
             />
           </div>
-
           <div class="form-group">
-            <label for="jobTypeSelect">3. Typ zlecenia</label>
-            <select id="jobTypeSelect" v-model="newJobData.jobType">
+            <label for="jobTypeSelect">3. Typ zlecenia</label
+            ><select id="jobTypeSelect" v-model="newJobData.jobType">
               <option value="well_drilling">Wykonanie Studni</option>
               <option value="connection">Podłączenie</option>
               <option value="treatment_station">Stacja Uzdatniania</option>
               <option value="service">Serwis</option>
             </select>
           </div>
-
           <div class="details-section">
             <hr />
             <h4>4. Wprowadź szczegóły zlecenia</h4>
-
             <div
               v-if="newJobData.jobType === 'well_drilling'"
               class="form-grid"
@@ -267,7 +367,6 @@ onMounted(() => {
                 />
               </div>
             </div>
-
             <div
               v-else-if="newJobData.jobType === 'connection'"
               class="form-grid"
@@ -369,7 +468,6 @@ onMounted(() => {
                 />
               </div>
             </div>
-
             <div
               v-else-if="newJobData.jobType === 'treatment_station'"
               class="form-grid"
@@ -403,12 +501,232 @@ onMounted(() => {
           </div>
         </div>
         <div class="modal-actions">
-          <button type="submit" class="zapisz">Zapisz Zlecenie</button>
-          <button type="button" class="anuluj" @click="showAddJobModal = false">
+          <button type="submit" class="zapisz">Zapisz Zlecenie</button
+          ><button
+            type="button"
+            class="anuluj"
+            @click="showAddJobModal = false"
+          >
             Anuluj
           </button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <div v-if="showDetailsModal" class="modal-backdrop">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>
+          Szczegóły zlecenia #{{
+            selectedJobDetails ? selectedJobDetails.id : ''
+          }}
+        </h3>
+        <button class="close-button" @click="showDetailsModal = false">
+          &times;
+        </button>
+      </div>
+      <div class="modal-body">
+        <div v-if="isDetailsLoading" class="modal-loading-spinner">
+          <div class="spinner"></div>
+        </div>
+        <div v-else-if="selectedJobDetails" class="details-view-grid">
+          <div class="details-section">
+            <h4>Dane Klienta</h4>
+            <p>
+              <strong>Nazwa:</strong>
+              {{ selectedJobDetails.client_name || '-' }}
+            </p>
+            <p>
+              <strong>Telefon:</strong> {{ selectedJobDetails.client_phone }}
+            </p>
+            <p>
+              <strong>Adres:</strong>
+              {{ selectedJobDetails.client_address || '-' }}
+            </p>
+            <p>
+              <strong>Notatki o kliencie:</strong>
+              {{ selectedJobDetails.client_notes || '-' }}
+            </p>
+          </div>
+          <div class="details-section">
+            <h4>Dane Główne Zlecenia</h4>
+            <p>
+              <strong>Typ zlecenia:</strong>
+              {{ translateJobType(selectedJobDetails.job_type) }}
+            </p>
+            <p>
+              <strong>Data zlecenia:</strong>
+              {{ formatDate(selectedJobDetails.job_date) }}
+            </p>
+          </div>
+          <div
+            v-if="selectedJobDetails.job_type === 'well_drilling'"
+            class="details-section full-width"
+          >
+            <h4>Szczegóły Wykonania Studni</h4>
+            <div class="details-grid-inner">
+              <p>
+                <strong>Miejscowość:</strong>
+                {{ selectedJobDetails.details.miejscowosc || '-' }}
+              </p>
+              <p>
+                <strong>Pracownicy:</strong>
+                {{ selectedJobDetails.details.pracownicy || '-' }}
+              </p>
+              <p>
+                <strong>Ilość metrów:</strong>
+                {{ selectedJobDetails.details.ilosc_metrow || '-' }}
+              </p>
+              <p>
+                <strong>Średnica Ø:</strong>
+                {{ selectedJobDetails.details.srednica || '-' }}
+              </p>
+              <p>
+                <strong>L. statyczne:</strong>
+                {{ selectedJobDetails.details.lustro_statyczne || '-' }}
+              </p>
+              <p>
+                <strong>L. dynamiczne:</strong>
+                {{ selectedJobDetails.details.lustro_dynamiczne || '-' }}
+              </p>
+              <p>
+                <strong>Wydajność:</strong>
+                {{ selectedJobDetails.details.wydajnosc || '-' }}
+              </p>
+              <p class="full-width-p">
+                <strong>Informacje:</strong>
+                {{ selectedJobDetails.details.informacje || '-' }}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div v-if="showEditJobModal" class="modal-backdrop">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Edytuj zlecenie #{{ editedJobData ? editedJobData.id : '' }}</h3>
+        <button class="close-button" @click="showEditJobModal = false">
+          &times;
+        </button>
+      </div>
+      <div class="modal-body">
+        <div v-if="isDetailsLoading" class="modal-loading-spinner">
+          <div class="spinner"></div>
+        </div>
+        <form v-else-if="editedJobData" @submit.prevent="handleUpdateJob">
+          <div class="form-grid-single-col">
+            <div class="form-group">
+              <label>Klient:</label>
+              <p>
+                <strong
+                  >{{ editedJobData.client_name }} ({{
+                    editedJobData.client_phone
+                  }})</strong
+                >
+              </p>
+            </div>
+            <div class="form-group">
+              <label for="editJobDate">Data zlecenia</label
+              ><input
+                type="date"
+                id="editJobDate"
+                v-model="editedJobData.job_date"
+                required
+              />
+            </div>
+            <div class="form-group">
+              <label>Typ zlecenia:</label>
+              <p>
+                <strong>{{ translateJobType(editedJobData.job_type) }}</strong>
+              </p>
+            </div>
+            <div class="details-section">
+              <hr />
+              <h4>Szczegóły zlecenia</h4>
+              <div
+                v-if="editedJobData.job_type === 'well_drilling'"
+                class="form-grid"
+              >
+                <div class="form-group">
+                  <label>Miejscowość:</label
+                  ><input
+                    type="text"
+                    v-model="editedJobData.details.miejscowosc"
+                  />
+                </div>
+                <div class="form-group">
+                  <label>Pracownicy:</label
+                  ><input
+                    type="text"
+                    v-model="editedJobData.details.pracownicy"
+                  />
+                </div>
+                <div class="form-group full-width">
+                  <label>Informacje:</label
+                  ><textarea
+                    v-model="editedJobData.details.informacje"
+                    rows="2"
+                  ></textarea>
+                </div>
+                <div class="form-group">
+                  <label>Średnica Ø:</label
+                  ><input
+                    type="number"
+                    step="any"
+                    v-model.number="editedJobData.details.srednica"
+                  />
+                </div>
+                <div class="form-group">
+                  <label>Ilość metrów:</label
+                  ><input
+                    type="number"
+                    step="any"
+                    v-model.number="editedJobData.details.ilosc_metrow"
+                  />
+                </div>
+                <div class="form-group">
+                  <label>Lustro statyczne:</label
+                  ><input
+                    type="number"
+                    step="any"
+                    v-model.number="editedJobData.details.lustro_statyczne"
+                  />
+                </div>
+                <div class="form-group">
+                  <label>Lustro dynamiczne:</label
+                  ><input
+                    type="number"
+                    step="any"
+                    v-model.number="editedJobData.details.lustro_dynamiczne"
+                  />
+                </div>
+                <div class="form-group">
+                  <label>Wydajność (m³/h):</label
+                  ><input
+                    type="number"
+                    step="any"
+                    v-model.number="editedJobData.details.wydajnosc"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="modal-actions">
+            <button type="submit" class="zapisz">Zapisz zmiany</button
+            ><button
+              type="button"
+              class="anuluj"
+              @click="showEditJobModal = false"
+            >
+              Anuluj
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   </div>
 </template>
@@ -436,7 +754,6 @@ onMounted(() => {
 .service {
   background-color: #6c757d;
 }
-
 .details-section {
   margin-top: 20px;
   padding-top: 20px;
@@ -450,5 +767,43 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 20px;
+}
+.modal-body {
+  padding: 25px;
+}
+.modal-loading-spinner {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 200px;
+}
+.details-view-grid {
+  display: grid;
+  gap: 20px;
+}
+.details-section {
+  background-color: #f8f9fa;
+  padding: 20px;
+  border-radius: 6px;
+}
+.details-section h4 {
+  margin-top: 0;
+  border-bottom: 1px solid #e0e0e0;
+  padding-bottom: 10px;
+  margin-bottom: 15px;
+}
+.details-section p {
+  margin: 0 0 10px;
+}
+.details-section p:last-child {
+  margin-bottom: 0;
+}
+.details-grid-inner {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 20px;
+}
+.full-width-p {
+  grid-column: 1 / -1;
 }
 </style>

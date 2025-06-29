@@ -371,6 +371,214 @@ app.get('/api/jobs', authenticateToken, async (req, res) => {
   }
 });
 
+// GET /api/jobs/:id - Pobierz szczegóły jednego zlecenia
+app.get('/api/jobs/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // 1. Pobierz główne dane zlecenia i klienta
+    const jobSql = `
+      SELECT j.id, j.job_type, j.job_date, j.details_id, c.id as client_id, c.name as client_name, c.phone_number as client_phone, c.address as client_address, c.notes as client_notes
+      FROM jobs j
+      JOIN clients c ON j.client_id = c.id
+      WHERE j.id = $1
+    `;
+    const jobResult = await pool.query(jobSql, [id]);
+
+    if (jobResult.rows.length === 0) {
+      return res
+        .status(404)
+        .json({ error: 'Nie znaleziono zlecenia o podanym ID.' });
+    }
+    const jobData = jobResult.rows[0];
+
+    // 2. Pobierz specyficzne szczegóły w zależności od typu zlecenia
+    let detailsTable = '';
+    if (jobData.job_type === 'well_drilling') detailsTable = 'well_details';
+    else if (jobData.job_type === 'connection')
+      detailsTable = 'connection_details';
+    else if (jobData.job_type === 'treatment_station')
+      detailsTable = 'treatment_station_details';
+    // ... inne typy w przyszłości
+
+    let detailsData = {};
+    if (detailsTable) {
+      const detailsSql = `SELECT * FROM ${detailsTable} WHERE id = $1`;
+      const detailsResult = await pool.query(detailsSql, [jobData.details_id]);
+      if (detailsResult.rows.length > 0) {
+        detailsData = detailsResult.rows[0];
+      }
+    }
+
+    // 3. Połącz wszystko w jeden obiekt i zwróć
+    const fullJobData = {
+      ...jobData,
+      details: detailsData,
+    };
+
+    res.json(fullJobData);
+  } catch (err) {
+    console.error(`Błąd w GET /api/jobs/${req.params.id}:`, err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
+
+// PUT /api/jobs/:id - Aktualizuj istniejące zlecenie
+app.put('/api/jobs/:id', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  const { clientId, jobType, jobDate, details } = req.body;
+  if (!clientId || !jobType || !jobDate || !details) {
+    return res
+      .status(400)
+      .json({ error: 'Brak wszystkich wymaganych danych dla zlecenia.' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // 1. Zaktualizuj główny wpis w tabeli 'jobs'
+    const jobSql = `UPDATE jobs SET client_id = $1, job_date = $2 WHERE id = $3 RETURNING details_id`;
+    const jobResult = await client.query(jobSql, [clientId, jobDate, id]);
+    if (jobResult.rows.length === 0)
+      throw new Error('Nie znaleziono zlecenia o podanym ID.');
+    const detailsId = jobResult.rows[0].details_id;
+
+    // 2. Zaktualizuj wpis w odpowiedniej tabeli ze szczegółami
+    let detailsTable = '';
+    let detailsColumns = [];
+    let detailsValues = [];
+    if (jobType === 'well_drilling') {
+      detailsTable = 'well_details';
+      detailsColumns = [
+        'miejscowosc',
+        'pracownicy',
+        'informacje',
+        'srednica',
+        'ilosc_metrow',
+        'lustro_statyczne',
+        'lustro_dynamiczne',
+        'wydajnosc',
+      ];
+      detailsValues = detailsColumns.map((col) => details[col] || null);
+    } // ... Tutaj w przyszłości dodamy logikę dla innych typów zleceń
+
+    if (detailsTable) {
+      const setClauses = detailsColumns
+        .map((col, i) => `${col} = $${i + 1}`)
+        .join(', ');
+      const detailsSql = `UPDATE ${detailsTable} SET ${setClauses} WHERE id = $${detailsColumns.length + 1}`;
+      await client.query(detailsSql, [...detailsValues, detailsId]);
+    }
+
+    await client.query('COMMIT');
+    res.status(200).json({ message: 'Pomyślnie zaktualizowano zlecenie.' });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error(`Błąd w PUT /api/jobs/${id}:`, err);
+    res
+      .status(500)
+      .json({ error: 'Wystąpił błąd serwera podczas aktualizacji zlecenia.' });
+  } finally {
+    client.release();
+  }
+});
+
+// DELETE /api/jobs/:id - Usuń zlecenie
+app.delete('/api/jobs/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    // Dzięki "ON DELETE CASCADE" w definicji bazy, usunięcie zlecenia z tabeli 'jobs'
+    // automatycznie usunie powiązany z nim wiersz ze szczegółami (np. z 'well_details').
+    const result = await pool.query('DELETE FROM jobs WHERE id = $1', [id]);
+    if (result.rowCount === 0) {
+      return res.status(404).json({ message: 'Nie znaleziono zlecenia' });
+    }
+    res.status(204).send();
+  } catch (err) {
+    console.error(`Błąd w DELETE /api/jobs/${req.params.id}:`, err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
+
+// PUT /api/jobs/:id - Aktualizuj istniejące zlecenie
+app.put('/api/jobs/:id', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  const { clientId, jobType, jobDate, details } = req.body;
+  if (!clientId || !jobType || !jobDate || !details) {
+    return res
+      .status(400)
+      .json({ error: 'Brak wszystkich wymaganych danych dla zlecenia.' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // 1. Zaktualizuj główny wpis w tabeli 'jobs'
+    const jobSql = `UPDATE jobs SET client_id = $1, job_date = $2 WHERE id = $3 RETURNING details_id`;
+    const jobResult = await client.query(jobSql, [clientId, jobDate, id]);
+    if (jobResult.rows.length === 0)
+      throw new Error('Nie znaleziono zlecenia o podanym ID.');
+    const detailsId = jobResult.rows[0].details_id;
+
+    // 2. Zaktualizuj wpis w odpowiedniej tabeli ze szczegółami
+    let detailsTable = '';
+    let detailsColumns = [];
+    let detailsValues = [];
+    if (jobType === 'well_drilling') {
+      detailsTable = 'well_details';
+      detailsColumns = [
+        'miejscowosc',
+        'pracownicy',
+        'informacje',
+        'srednica',
+        'ilosc_metrow',
+        'lustro_statyczne',
+        'lustro_dynamiczne',
+        'wydajnosc',
+      ];
+      detailsValues = detailsColumns.map((col) => details[col] || null);
+    } // ... Tutaj w przyszłości dodamy logikę dla innych typów zleceń
+
+    if (detailsTable) {
+      const setClauses = detailsColumns
+        .map((col, i) => `${col} = $${i + 1}`)
+        .join(', ');
+      const detailsSql = `UPDATE ${detailsTable} SET ${setClauses} WHERE id = $${detailsColumns.length + 1}`;
+      await client.query(detailsSql, [...detailsValues, detailsId]);
+    }
+
+    await client.query('COMMIT');
+    res.status(200).json({ message: 'Pomyślnie zaktualizowano zlecenie.' });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error(`Błąd w PUT /api/jobs/${id}:`, err);
+    res
+      .status(500)
+      .json({ error: 'Wystąpił błąd serwera podczas aktualizacji zlecenia.' });
+  } finally {
+    client.release();
+  }
+});
+
+// DELETE /api/jobs/:id - Usuń zlecenie
+app.delete('/api/jobs/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    // Dzięki "ON DELETE CASCADE" w definicji bazy, usunięcie zlecenia z tabeli 'jobs'
+    // automatycznie usunie powiązany z nim wiersz ze szczegółami (np. z 'well_details').
+    const result = await pool.query('DELETE FROM jobs WHERE id = $1', [id]);
+    if (result.rowCount === 0) {
+      return res.status(404).json({ message: 'Nie znaleziono zlecenia' });
+    }
+    res.status(204).send();
+  } catch (err) {
+    console.error(`Błąd w DELETE /api/jobs/${req.params.id}:`, err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
+
 // =================================================================
 // --- API MAGAZYNU ---
 // =================================================================
