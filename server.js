@@ -1,12 +1,17 @@
+// =================================================================
+// --- IMPORTY I PODSTAWOWA KONFIGURACJA ---
+// =================================================================
 const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET =
   process.env.JWT_SECRET || 'bardzo-tajny-klucz-do-zmiany-na-produkcji';
+
 app.use(cors());
 app.use(express.json());
 
@@ -20,32 +25,52 @@ const pool = new Pool({
   port: 5432,
 });
 
+// =================================================================
+// --- INICJALIZACJA BAZY DANYCH I TWORZENIE TABEL ---
+// =================================================================
 const initializeDatabase = async () => {
   let client;
   try {
     client = await pool.connect();
     console.log('Połączono z bazą danych PostgreSQL');
+
+    // TWORZENIE NOWEJ STRUKTURY
     await client.query(
-      `CREATE TABLE IF NOT EXISTS prace (id SERIAL PRIMARY KEY, od_kogo TEXT, pracownicy TEXT, numer_tel TEXT, miejscowosc TEXT, informacje TEXT, srednica REAL, data_rozpoczecia DATE, data_zakonczenia DATE NOT NULL, lustro_statyczne REAL, lustro_dynamiczne REAL, wydajnosc REAL, ilosc_metrow REAL)`
+      `CREATE TABLE IF NOT EXISTS clients (id SERIAL PRIMARY KEY, name TEXT, phone_number TEXT NOT NULL UNIQUE, address TEXT, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`
     );
-    console.log('Tabela "prace" jest gotowa.');
+    console.log('Tabela "clients" jest gotowa.');
+
+    await client.query(
+      `CREATE TABLE IF NOT EXISTS jobs (id SERIAL PRIMARY KEY, client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE, job_type TEXT NOT NULL, job_date DATE NOT NULL, details_id INTEGER NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`
+    );
+    console.log('Tabela "jobs" jest gotowa.');
+
+    await client.query(
+      `CREATE TABLE IF NOT EXISTS well_details (id SERIAL PRIMARY KEY, job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE, miejscowosc TEXT, pracownicy TEXT, informacje TEXT, srednica REAL, ilosc_metrow REAL, lustro_statyczne REAL, lustro_dynamiczne REAL, wydajnosc REAL)`
+    );
+    console.log('Tabela "well_details" jest gotowa.');
+
+    await client.query(
+      `CREATE TABLE IF NOT EXISTS connection_details (id SERIAL PRIMARY KEY, job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE, well_depth REAL, diameter REAL, pump_depth REAL, pump_model TEXT, controller_model TEXT, hydrophore_model TEXT, materials_invoice_url TEXT, client_offer_url TEXT, revenue REAL, casing_cost REAL, equipment_cost REAL, labor_cost REAL, wholesale_materials_cost REAL)`
+    );
+    console.log('Tabela "connection_details" jest gotowa.');
+
+    await client.query(
+      `CREATE TABLE IF NOT EXISTS treatment_station_details (id SERIAL PRIMARY KEY, job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE, station_model TEXT, uv_lamp_model TEXT, carbon_filter TEXT, filter_types TEXT, materials_invoice_url TEXT, client_offer_url TEXT, revenue REAL, equipment_cost REAL, labor_cost REAL, wholesale_materials_cost REAL)`
+    );
+    console.log('Tabela "treatment_station_details" jest gotowa.');
+
+    // ISTNIEJĄCE TABELE
     await client.query(
       `CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL)`
     );
     console.log('Tabela "users" jest gotowa.');
+
     await client.query(
-      `CREATE TABLE IF NOT EXISTS inventory_items (id SERIAL PRIMARY KEY, name TEXT NOT NULL UNIQUE, quantity REAL NOT NULL DEFAULT 0, unit TEXT NOT NULL, min_stock_level REAL NOT NULL DEFAULT 0, last_delivery_date DATE)`
+      `CREATE TABLE IF NOT EXISTS inventory_items (id SERIAL PRIMARY KEY, name TEXT NOT NULL UNIQUE, quantity REAL NOT NULL DEFAULT 0, unit TEXT NOT NULL, min_stock_level REAL NOT NULL DEFAULT 0, last_delivery_date DATE, is_ordered BOOLEAN DEFAULT FALSE NOT NULL)`
     );
     console.log('Tabela "inventory_items" jest gotowa.');
-    const res = await client.query(
-      "SELECT column_name FROM information_schema.columns WHERE table_name='inventory_items' AND column_name='is_ordered'"
-    );
-    if (res.rows.length === 0) {
-      await client.query(
-        'ALTER TABLE inventory_items ADD COLUMN is_ordered BOOLEAN DEFAULT FALSE NOT NULL'
-      );
-      console.log('Dodano kolumnę "is_ordered" do tabeli "inventory_items".');
-    }
+
     await client.query(
       `CREATE TABLE IF NOT EXISTS stock_history (id SERIAL PRIMARY KEY, item_id INTEGER NOT NULL REFERENCES inventory_items(id) ON DELETE CASCADE, change_quantity REAL NOT NULL, operation_type TEXT NOT NULL, operation_date TIMESTAMPTZ NOT NULL DEFAULT NOW(), user_id INTEGER REFERENCES users(id))`
     );
@@ -58,6 +83,10 @@ const initializeDatabase = async () => {
   }
 };
 initializeDatabase();
+
+// =================================================================
+// --- "STRAŻNIK" (MIDDLEWARE WERYFIKUJĄCY TOKEN) ---
+// =================================================================
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
@@ -69,6 +98,9 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
+// =================================================================
+// --- API UŻYTKOWNIKÓW (Rejestracja, Logowanie) ---
+// =================================================================
 app.post('/api/register', async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -129,194 +161,100 @@ app.post('/api/login', async (req, res) => {
     res.status(500).json({ error: 'Wystąpił błąd serwera.' });
   }
 });
-app.get('/api/prace', authenticateToken, async (req, res) => {
-  const page = parseInt(req.query.page) || 1;
-  const limit = parseInt(req.query.limit) || 15;
-  const offset = (page - 1) * limit;
-  const search = req.query.search || '';
-  const sortBy = req.query.sortBy || 'data_zakonczenia';
-  const sortOrder = req.query.sortOrder === 'asc' ? 'ASC' : 'DESC';
-  const allowedSortBy = ['id', 'od_kogo', 'miejscowosc', 'data_zakonczenia'];
-  if (!allowedSortBy.includes(sortBy)) {
-    return res.status(400).json({ error: 'Niedozwolona kolumna sortowania.' });
-  }
+
+// =================================================================
+// --- API KLIENTÓW ---
+// =================================================================
+// GET /api/clients - Pobierz wszystkich klientów
+app.get('/api/clients', authenticateToken, async (req, res) => {
   try {
-    let whereClauses = [];
-    let searchParams = [];
-    if (search) {
-      const searchTerm = `%${search}%`;
-      const searchableColumns = [
-        'od_kogo',
-        'miejscowosc',
-        'pracownicy',
-        'numer_tel',
-      ];
-      let paramIndex = 1;
-      searchableColumns.forEach((col) => {
-        whereClauses.push(`${col} ILIKE $${paramIndex++}`);
-      });
-      searchParams = Array(searchableColumns.length).fill(searchTerm);
-    }
-    const whereString =
-      whereClauses.length > 0 ? `WHERE ${whereClauses.join(' OR ')}` : '';
-    const countSql = `SELECT COUNT(*) as count FROM prace ${whereString}`;
-    const countResult = await pool.query(countSql, searchParams);
-    const totalItems = parseInt(countResult.rows[0].count);
-    const totalPages = Math.ceil(totalItems / limit);
-    const dataSql = `SELECT * FROM prace ${whereString} ORDER BY ${sortBy} ${sortOrder} NULLS LAST, id DESC LIMIT $${searchParams.length + 1} OFFSET $${searchParams.length + 2}`;
-    const finalDataParams = [...searchParams, limit, offset];
-    const dataResult = await pool.query(dataSql, finalDataParams);
-    res.json({
-      message: 'success',
-      data: dataResult.rows,
-      pagination: {
-        totalItems,
-        totalPages,
-        currentPage: page,
-        itemsPerPage: limit,
-      },
-    });
+    // Na razie proste pobieranie wszystkich. W przyszłości dodamy tu paginację, jeśli będzie potrzeba.
+    const result = await pool.query('SELECT * FROM clients ORDER BY name ASC');
+    res.json(result.rows);
   } catch (err) {
-    console.error('Błąd w GET /api/prace:', err);
+    console.error('Błąd w GET /api/clients:', err);
     res.status(500).json({ error: 'Wystąpił błąd serwera' });
   }
 });
-app.get('/api/prace/:id', authenticateToken, async (req, res) => {
+
+// POST /api/clients - Dodaj nowego klienta
+app.post('/api/clients', authenticateToken, async (req, res) => {
+  try {
+    const { name, phone_number, address, notes } = req.body;
+
+    // Walidacja na serwerze
+    if (!phone_number) {
+      return res.status(400).json({ error: 'Numer telefonu jest wymagany.' });
+    }
+
+    const sql = `INSERT INTO clients (name, phone_number, address, notes) VALUES ($1, $2, $3, $4) RETURNING *`;
+    const params = [name, phone_number, address, notes];
+    const result = await pool.query(sql, params);
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    if (err.code === '23505') {
+      // Błąd unikalności dla numeru telefonu
+      return res
+        .status(400)
+        .json({ error: 'Klient z tym numerem telefonu już istnieje.' });
+    }
+    console.error('Błąd w POST /api/clients:', err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
+
+// PUT /api/clients/:id - Aktualizuj klienta
+app.put('/api/clients/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const result = await pool.query('SELECT * FROM prace WHERE id = $1', [id]);
+    const { name, phone_number, address, notes } = req.body;
+    if (!phone_number) {
+      return res.status(400).json({ error: 'Numer telefonu jest wymagany.' });
+    }
+    const sql = `UPDATE clients SET name = $1, phone_number = $2, address = $3, notes = $4 WHERE id = $5 RETURNING *`;
+    const params = [name, phone_number, address, notes, id];
+    const result = await pool.query(sql, params);
     if (result.rows.length === 0) {
       return res
         .status(404)
-        .json({ error: 'Nie znaleziono wpisu o podanym ID.' });
+        .json({ error: 'Nie znaleziono klienta o podanym ID.' });
     }
-    res.json({ message: 'success', data: result.rows[0] });
+    res.status(200).json(result.rows[0]);
   } catch (err) {
-    console.error(`Błąd w GET /api/prace/${req.params.id}:`, err);
+    if (err.code === '23505') {
+      return res
+        .status(400)
+        .json({ error: 'Klient z tym numerem telefonu już istnieje.' });
+    }
+    console.error(`Błąd w PUT /api/clients/${req.params.id}:`, err);
     res.status(500).json({ error: 'Wystąpił błąd serwera' });
   }
 });
-app.post('/api/prace', authenticateToken, async (req, res) => {
-  try {
-    const {
-      od_kogo,
-      pracownicy,
-      numer_tel,
-      miejscowosc,
-      informacje,
-      srednica,
-      data_rozpoczecia,
-      data_zakonczenia,
-      lustro_statyczne,
-      lustro_dynamiczne,
-      wydajnosc,
-      ilosc_metrow,
-    } = req.body;
-    if (!od_kogo || !data_zakonczenia) {
-      return res
-        .status(400)
-        .json({ error: "Pola 'Od kogo' i 'Data zakończenia' są wymagane." });
-    }
-    if (numer_tel && numer_tel.length > 0) {
-      const phoneDigits = numer_tel.replace(/[\s-]/g, '');
-      if (!/^\d{9}$/.test(phoneDigits)) {
-        return res
-          .status(400)
-          .json({ error: 'Niepoprawny format numeru telefonu.' });
-      }
-    }
-    const sql = `INSERT INTO prace (od_kogo, pracownicy, numer_tel, miejscowosc, informacje, srednica, data_rozpoczecia, data_zakonczenia, lustro_statyczne, lustro_dynamiczne, wydajnosc, ilosc_metrow) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`;
-    const params = [
-      od_kogo,
-      pracownicy,
-      numer_tel,
-      miejscowosc,
-      informacje,
-      srednica || null,
-      data_rozpoczecia || null,
-      data_zakonczenia,
-      lustro_statyczne || null,
-      lustro_dynamiczne || null,
-      wydajnosc || null,
-      ilosc_metrow || null,
-    ];
-    const result = await pool.query(sql, params);
-    res.status(201).json({ message: 'success', data: result.rows[0] });
-  } catch (err) {
-    console.error('Błąd w POST /api/prace:', err);
-    res
-      .status(500)
-      .json({ error: 'Wystąpił błąd serwera podczas dodawania wpisu.' });
-  }
-});
-app.put('/api/prace/:id', authenticateToken, async (req, res) => {
+
+// DELETE /api/clients/:id - Usuń klienta
+app.delete('/api/clients/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const {
-      od_kogo,
-      pracownicy,
-      numer_tel,
-      miejscowosc,
-      informacje,
-      srednica,
-      data_rozpoczecia,
-      data_zakonczenia,
-      lustro_statyczne,
-      lustro_dynamiczne,
-      wydajnosc,
-      ilosc_metrow,
-    } = req.body;
-    if (!od_kogo || !data_zakonczenia) {
-      return res
-        .status(400)
-        .json({ error: "Pola 'Od kogo' i 'Data zakończenia' są wymagane." });
-    }
-    if (numer_tel && numer_tel.length > 0) {
-      const phoneDigits = numer_tel.replace(/[\s-]/g, '');
-      if (!/^\d{9}$/.test(phoneDigits)) {
-        return res
-          .status(400)
-          .json({ error: 'Niepoprawny format numeru telefonu.' });
-      }
-    }
-    const sql = `UPDATE prace SET od_kogo = $1, pracownicy = $2, numer_tel = $3, miejscowosc = $4, informacje = $5, srednica = $6, data_rozpoczecia = $7, data_zakonczenia = $8, lustro_statyczne = $9, lustro_dynamiczne = $10, wydajnosc = $11, ilosc_metrow = $12 WHERE id = $13 RETURNING *`;
-    const params = [
-      od_kogo,
-      pracownicy,
-      numer_tel,
-      miejscowosc,
-      informacje,
-      srednica || null,
-      data_rozpoczecia || null,
-      data_zakonczenia,
-      lustro_statyczne || null,
-      lustro_dynamiczne || null,
-      wydajnosc || null,
-      ilosc_metrow || null,
-      id,
-    ];
-    const result = await pool.query(sql, params);
-    res.json({ message: 'updated', data: result.rows[0] });
-  } catch (err) {
-    console.error(`Błąd w PUT /api/prace/${req.params.id}:`, err);
-    res
-      .status(500)
-      .json({ error: 'Wystąpił błąd serwera podczas aktualizacji.' });
-  }
-});
-app.delete('/api/prace/:id', authenticateToken, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const result = await pool.query('DELETE FROM prace WHERE id = $1', [id]);
+    // Uwaga: Usunięcie klienta spowoduje usunięcie wszystkich jego zleceń (dzięki ON DELETE CASCADE)
+    const result = await pool.query('DELETE FROM clients WHERE id = $1', [id]);
     if (result.rowCount === 0) {
-      return res.status(404).json({ message: 'not_found' });
+      return res.status(404).json({ message: 'Nie znaleziono klienta' });
     }
-    res.json({ message: 'deleted' });
+    res.status(204).send(); // Sukces, brak zawartości
   } catch (err) {
-    console.error(`Błąd w DELETE /api/prace/${req.params.id}:`, err);
-    res.status(500).json({ error: 'Wystąpił błąd serwera podczas usuwania.' });
+    console.error(`Błąd w DELETE /api/clients/${req.params.id}:`, err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
   }
 });
+
+// =================================================================
+// --- API ZLECEŃ ---
+// =================================================================
+// Tę sekcję wypełnimy kodem w przyszłości
+
+// =================================================================
+// --- API MAGAZYNU ---
+// =================================================================
 app.get('/api/inventory', authenticateToken, async (req, res) => {
   try {
     const result = await pool.query(
@@ -336,8 +274,8 @@ app.post('/api/inventory', authenticateToken, async (req, res) => {
         .status(400)
         .json({ error: 'Nazwa i jednostka miary są wymagane.' });
     }
-    const sql = `INSERT INTO inventory_items (name, quantity, unit, min_stock_level) VALUES ($1, $2, $3, $4) RETURNING *`;
-    const params = [name, quantity || 0, unit, min_stock_level || 0];
+    const sql = `INSERT INTO inventory_items (name, quantity, unit, min_stock_level, is_ordered) VALUES ($1, $2, $3, $4, $5) RETURNING *`;
+    const params = [name, quantity || 0, unit, min_stock_level || 0, false];
     const result = await pool.query(sql, params);
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -404,19 +342,14 @@ app.delete('/api/inventory/:id', authenticateToken, async (req, res) => {
 app.post('/api/inventory/operation', authenticateToken, async (req, res) => {
   const { itemId, operationType, quantity } = req.body;
   const client = await pool.connect();
-
   try {
-    await client.query('BEGIN'); // Rozpocznij transakcję
-
+    await client.query('BEGIN');
     let updatedItem;
-
     if (operationType === 'delivery' || operationType === 'withdrawal') {
-      // Logika dla przyjęcia/wydania (pozostaje taka sama)
       if (!quantity || quantity <= 0)
         throw new Error('Ilość musi być dodatnia.');
       const changeQuantity =
         operationType === 'delivery' ? Math.abs(quantity) : -Math.abs(quantity);
-
       const updateQuery = `UPDATE inventory_items SET quantity = quantity + $1, last_delivery_date = CASE WHEN $2 = 'delivery' THEN NOW() ELSE last_delivery_date END WHERE id = $3 RETURNING *`;
       const updateResult = await client.query(updateQuery, [
         changeQuantity,
@@ -424,7 +357,6 @@ app.post('/api/inventory/operation', authenticateToken, async (req, res) => {
         itemId,
       ]);
       updatedItem = updateResult.rows[0];
-
       const historyQuery = `INSERT INTO stock_history (item_id, change_quantity, operation_type, user_id) VALUES ($1, $2, $3, $4)`;
       await client.query(historyQuery, [
         itemId,
@@ -433,13 +365,10 @@ app.post('/api/inventory/operation', authenticateToken, async (req, res) => {
         req.user.userId,
       ]);
     } else if (operationType === 'toggle_ordered') {
-      // NOWA LOGIKA: Zmiana statusu "zamówione"
       const updateQuery = `UPDATE inventory_items SET is_ordered = NOT is_ordered WHERE id = $1 RETURNING *`;
       const updateResult = await client.query(updateQuery, [itemId]);
       updatedItem = updateResult.rows[0];
-
       const historyQuery = `INSERT INTO stock_history (item_id, change_quantity, operation_type, user_id) VALUES ($1, $2, $3, $4)`;
-      // Zapisujemy operację z ilością 0, aby nie wpływała na stan
       await client.query(historyQuery, [
         itemId,
         0,
@@ -449,82 +378,11 @@ app.post('/api/inventory/operation', authenticateToken, async (req, res) => {
     } else {
       throw new Error('Nieznany typ operacji.');
     }
-
     if (!updatedItem) {
       throw new Error('Nie znaleziono przedmiotu.');
     }
-
-    await client.query('COMMIT'); // Zatwierdź transakcję
-    res.status(200).json(updatedItem);
-  } catch (err) {
-    await client.query('ROLLBACK'); // Wycofaj transakcję w razie błędu
-    console.error('Błąd w /api/inventory/operation:', err);
-    res
-      .status(500)
-      .json({ error: 'Wystąpił błąd serwera podczas operacji magazynowej.' });
-  } finally {
-    client.release();
-  }
-});
-app.get('/api/inventory/:id/history', authenticateToken, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const sql = `
-      SELECT sh.change_quantity, sh.operation_type, sh.operation_date, u.username
-      FROM stock_history sh
-      LEFT JOIN users u ON sh.user_id = u.id
-      WHERE sh.item_id = $1
-      ORDER BY sh.operation_date DESC
-    `;
-    const result = await pool.query(sql, [id]);
-    res.json(result.rows);
-  } catch (err) {
-    console.error(`Błąd w GET /api/inventory/${req.params.id}/history:`, err);
-    res.status(500).json({ error: 'Wystąpił błąd serwera' });
-  }
-});
-app.delete('/api/inventory/:id', authenticateToken, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const result = await pool.query(
-      'DELETE FROM inventory_items WHERE id = $1',
-      [id]
-    );
-    if (result.rowCount === 0) {
-      return res.status(404).json({ message: 'Nie znaleziono przedmiotu' });
-    }
-    res.status(204).send(); // Sukces, brak zawartości
-  } catch (err) {
-    console.error(`Błąd w DELETE /api/inventory/${req.params.id}:`, err);
-    res.status(500).json({ error: 'Wystąpił błąd serwera' });
-  }
-});
-
-// POST /api/inventory/operation - Zarejestruj operację (przyjęcie/wydanie)
-app.post('/api/inventory/operation', authenticateToken, async (req, res) => {
-  const { itemId, operationType, quantity } = req.body;
-  const changeQuantity =
-    operationType === 'delivery' ? Math.abs(quantity) : -Math.abs(quantity);
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const updateQuery = `UPDATE inventory_items SET quantity = quantity + $1 WHERE id = $2 RETURNING *`;
-    const updatedItem = await client.query(updateQuery, [
-      changeQuantity,
-      itemId,
-    ]);
-    if (updatedItem.rows.length === 0) {
-      throw new Error('Nie znaleziono przedmiotu.');
-    }
-    const historyQuery = `INSERT INTO stock_history (item_id, change_quantity, operation_type, user_id) VALUES ($1, $2, $3, $4)`;
-    await client.query(historyQuery, [
-      itemId,
-      changeQuantity,
-      operationType,
-      req.user.userId,
-    ]);
     await client.query('COMMIT');
-    res.status(200).json(updatedItem.rows[0]);
+    res.status(200).json(updatedItem);
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('Błąd w /api/inventory/operation:', err);
@@ -535,18 +393,10 @@ app.post('/api/inventory/operation', authenticateToken, async (req, res) => {
     client.release();
   }
 });
-
-// GET /api/inventory/:id/history - Pobierz historię operacji dla jednego przedmiotu
 app.get('/api/inventory/:id/history', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const sql = `
-      SELECT sh.change_quantity, sh.operation_type, sh.operation_date, u.username
-      FROM stock_history sh
-      LEFT JOIN users u ON sh.user_id = u.id
-      WHERE sh.item_id = $1
-      ORDER BY sh.operation_date DESC
-    `;
+    const sql = `SELECT sh.change_quantity, sh.operation_type, sh.operation_date, u.username FROM stock_history sh LEFT JOIN users u ON sh.user_id = u.id WHERE sh.item_id = $1 ORDER BY sh.operation_date DESC`;
     const result = await pool.query(sql, [id]);
     res.json(result.rows);
   } catch (err) {
@@ -554,6 +404,10 @@ app.get('/api/inventory/:id/history', authenticateToken, async (req, res) => {
     res.status(500).json({ error: 'Wystąpił błąd serwera' });
   }
 });
+
+// =================================================================
+// --- URUCHOMIENIE SERWERA ---
+// =================================================================
 app.listen(PORT, () => {
   console.log(`Serwer został uruchomiony na porcie ${PORT}`);
 });

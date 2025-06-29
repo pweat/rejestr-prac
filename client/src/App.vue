@@ -14,7 +14,9 @@ const handleLogout = () => {
   <header class="main-header">
     <nav class="main-nav">
       <template v-if="isAuthenticated">
-        <RouterLink to="/">Studnie</RouterLink>
+        <RouterLink to="/">Pulpit</RouterLink>
+        <RouterLink to="/klienci">Klienci</RouterLink>
+        <RouterLink to="/zlecenia">Zlecenia</RouterLink>
         <RouterLink to="/magazyn">Magazyn</RouterLink>
       </template>
     </nav>

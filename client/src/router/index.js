@@ -1,5 +1,4 @@
 import { createRouter, createWebHistory } from 'vue-router';
-import HomeView from '../views/HomeView.vue';
 import { isAuthenticated } from '../auth/auth.js';
 
 const router = createRouter({
@@ -7,21 +6,32 @@ const router = createRouter({
   routes: [
     {
       path: '/',
-      name: 'home',
-      component: HomeView,
+      name: 'dashboard',
+      component: () => import('../views/DashboardView.vue'), // Nowa strona główna
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/zlecenia',
+      name: 'jobs',
+      component: () => import('../views/JobsView.vue'), // Nowy widok zleceń
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/klienci',
+      name: 'clients',
+      component: () => import('../views/ClientsView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/magazyn',
+      name: 'inventory',
+      component: () => import('../views/InventoryView.vue'),
       meta: { requiresAuth: true },
     },
     {
       path: '/praca/:id',
       name: 'workDetails',
       component: () => import('../views/WorkDetailsView.vue'),
-      meta: { requiresAuth: true },
-    },
-    // ZMIANA: Nowa trasa dla modułu magazynowego
-    {
-      path: '/magazyn',
-      name: 'inventory',
-      component: () => import('../views/InventoryView.vue'),
       meta: { requiresAuth: true },
     },
     {
