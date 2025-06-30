@@ -9,8 +9,7 @@ const jwt = require('jsonwebtoken');
 // =================================================================
 const app = express();
 const PORT = process.env.PORT || 3000;
-const JWT_SECRET =
-  process.env.JWT_SECRET || 'bardzo-tajny-klucz-do-zmiany-na-produkcji';
+const JWT_SECRET = process.env.JWT_SECRET || 'bardzo-tajny-klucz-do-zmiany-na-produkcji';
 
 app.use(cors());
 app.use(express.json());
@@ -59,18 +58,12 @@ const initializeDatabase = async () => {
     );
     console.log('Tabela "treatment_station_details" jest gotowa.');
 
-    await client.query(
-      `CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL)`
-    );
+    await client.query(`CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL)`);
     console.log('Tabela "users" jest gotowa.');
 
-    const res = await client.query(
-      "SELECT column_name FROM information_schema.columns WHERE table_name='inventory_items' AND column_name='is_ordered'"
-    );
+    const res = await client.query("SELECT column_name FROM information_schema.columns WHERE table_name='inventory_items' AND column_name='is_ordered'");
     if (res.rows.length === 0) {
-      await client.query(
-        'ALTER TABLE inventory_items ADD COLUMN is_ordered BOOLEAN DEFAULT FALSE NOT NULL'
-      );
+      await client.query('ALTER TABLE inventory_items ADD COLUMN is_ordered BOOLEAN DEFAULT FALSE NOT NULL');
       console.log('Zaktualizowano tabelę "inventory_items".');
     } else {
       console.log('Tabela "inventory_items" jest gotowa.');
@@ -117,22 +110,15 @@ app.post('/api/register', async (req, res) => {
   try {
     const { username, password } = req.body;
     if (!username || !password) {
-      return res
-        .status(400)
-        .json({ error: 'Nazwa użytkownika i hasło są wymagane.' });
+      return res.status(400).json({ error: 'Nazwa użytkownika i hasło są wymagane.' });
     }
     const salt = await bcrypt.genSalt(10);
     const password_hash = await bcrypt.hash(password, salt);
-    const newUser = await pool.query(
-      'INSERT INTO users (username, password_hash) VALUES ($1, $2) RETURNING id, username',
-      [username, password_hash]
-    );
+    const newUser = await pool.query('INSERT INTO users (username, password_hash) VALUES ($1, $2) RETURNING id, username', [username, password_hash]);
     res.status(201).json(newUser.rows[0]);
   } catch (err) {
     if (err.code === '23505') {
-      return res
-        .status(400)
-        .json({ error: 'Użytkownik o tej nazwie już istnieje.' });
+      return res.status(400).json({ error: 'Użytkownik o tej nazwie już istnieje.' });
     }
     console.error('Błąd w /api/register:', err);
     res.status(500).json({ error: 'Wystąpił błąd serwera.' });
@@ -142,31 +128,18 @@ app.post('/api/login', async (req, res) => {
   try {
     const { username, password } = req.body;
     if (!username || !password) {
-      return res
-        .status(400)
-        .json({ error: 'Nazwa użytkownika i hasło są wymagane.' });
+      return res.status(400).json({ error: 'Nazwa użytkownika i hasło są wymagane.' });
     }
-    const userResult = await pool.query(
-      'SELECT * FROM users WHERE username = $1',
-      [username]
-    );
+    const userResult = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
     if (userResult.rows.length === 0) {
-      return res
-        .status(401)
-        .json({ error: 'Nieprawidłowa nazwa użytkownika lub hasło.' });
+      return res.status(401).json({ error: 'Nieprawidłowa nazwa użytkownika lub hasło.' });
     }
     const user = userResult.rows[0];
     const isMatch = await bcrypt.compare(password, user.password_hash);
     if (!isMatch) {
-      return res
-        .status(401)
-        .json({ error: 'Nieprawidłowa nazwa użytkownika lub hasło.' });
+      return res.status(401).json({ error: 'Nieprawidłowa nazwa użytkownika lub hasło.' });
     }
-    const token = jwt.sign(
-      { userId: user.id, username: user.username },
-      JWT_SECRET,
-      { expiresIn: '24h' }
-    );
+    const token = jwt.sign({ userId: user.id, username: user.username }, JWT_SECRET, { expiresIn: '24h' });
     res.json({ token });
   } catch (err) {
     console.error('Błąd w /api/login:', err);
@@ -198,9 +171,7 @@ app.post('/api/clients', authenticateToken, async (req, res) => {
     res.status(201).json(result.rows[0]);
   } catch (err) {
     if (err.code === '23505') {
-      return res
-        .status(400)
-        .json({ error: 'Klient z tym numerem telefonu już istnieje.' });
+      return res.status(400).json({ error: 'Klient z tym numerem telefonu już istnieje.' });
     }
     console.error('Błąd w POST /api/clients:', err);
     res.status(500).json({ error: 'Wystąpił błąd serwera' });
@@ -217,16 +188,12 @@ app.put('/api/clients/:id', authenticateToken, async (req, res) => {
     const params = [name, phone_number, address, notes, id];
     const result = await pool.query(sql, params);
     if (result.rows.length === 0) {
-      return res
-        .status(404)
-        .json({ error: 'Nie znaleziono klienta o podanym ID.' });
+      return res.status(404).json({ error: 'Nie znaleziono klienta o podanym ID.' });
     }
     res.status(200).json(result.rows[0]);
   } catch (err) {
     if (err.code === '23505') {
-      return res
-        .status(400)
-        .json({ error: 'Klient z tym numerem telefonu już istnieje.' });
+      return res.status(400).json({ error: 'Klient z tym numerem telefonu już istnieje.' });
     }
     console.error(`Błąd w PUT /api/clients/${req.params.id}:`, err);
     res.status(500).json({ error: 'Wystąpił błąd serwera' });
@@ -252,9 +219,7 @@ app.delete('/api/clients/:id', authenticateToken, async (req, res) => {
 app.post('/api/jobs', authenticateToken, async (req, res) => {
   const { clientId, jobType, jobDate, details } = req.body;
   if (!clientId || !jobType || !jobDate || !details) {
-    return res
-      .status(400)
-      .json({ error: 'Brak wszystkich wymaganych danych dla zlecenia.' });
+    return res.status(400).json({ error: 'Brak wszystkich wymaganych danych dla zlecenia.' });
   }
   const client = await pool.connect();
   try {
@@ -264,20 +229,8 @@ app.post('/api/jobs', authenticateToken, async (req, res) => {
     let detailsValues = [];
     if (jobType === 'well_drilling') {
       detailsTable = 'well_details';
-      detailsColumns = [
-        'job_id',
-        'miejscowosc',
-        'pracownicy',
-        'informacje',
-        'srednica',
-        'ilosc_metrow',
-        'lustro_statyczne',
-        'lustro_dynamiczne',
-        'wydajnosc',
-      ];
-      detailsValues = detailsColumns
-        .slice(1)
-        .map((col) => details[col] || null);
+      detailsColumns = ['job_id', 'miejscowosc', 'pracownicy', 'informacje', 'srednica', 'ilosc_metrow', 'lustro_statyczne', 'lustro_dynamiczne', 'wydajnosc'];
+      detailsValues = detailsColumns.slice(1).map((col) => details[col] || null);
     } else if (jobType === 'connection') {
       detailsTable = 'connection_details';
       detailsColumns = [
@@ -296,9 +249,7 @@ app.post('/api/jobs', authenticateToken, async (req, res) => {
         'labor_cost',
         'wholesale_materials_cost',
       ];
-      detailsValues = detailsColumns
-        .slice(1)
-        .map((col) => details[col] || null);
+      detailsValues = detailsColumns.slice(1).map((col) => details[col] || null);
     } else if (jobType === 'treatment_station') {
       detailsTable = 'treatment_station_details';
       detailsColumns = [
@@ -314,38 +265,25 @@ app.post('/api/jobs', authenticateToken, async (req, res) => {
         'labor_cost',
         'wholesale_materials_cost',
       ];
-      detailsValues = detailsColumns
-        .slice(1)
-        .map((col) => details[col] || null);
+      detailsValues = detailsColumns.slice(1).map((col) => details[col] || null);
     } else {
       throw new Error('Nieznany typ zlecenia.');
     }
-    const detailsPlaceholders = detailsValues
-      .map((_, i) => `$${i + 1}`)
-      .join(', ');
+    const detailsPlaceholders = detailsValues.map((_, i) => `$${i + 1}`).join(', ');
     const detailsSql = `INSERT INTO ${detailsTable} (${detailsColumns.slice(1).join(', ')}) VALUES (${detailsPlaceholders}) RETURNING id`;
     const detailsResult = await client.query(detailsSql, detailsValues);
     const detailsId = detailsResult.rows[0].id;
     const jobSql = `INSERT INTO jobs (client_id, job_type, job_date, details_id) VALUES ($1, $2, $3, $4) RETURNING id`;
-    const jobResult = await client.query(jobSql, [
-      clientId,
-      jobType,
-      jobDate,
-      detailsId,
-    ]);
+    const jobResult = await client.query(jobSql, [clientId, jobType, jobDate, detailsId]);
     const jobId = jobResult.rows[0].id;
     const updateDetailsSql = `UPDATE ${detailsTable} SET job_id = $1 WHERE id = $2`;
     await client.query(updateDetailsSql, [jobId, detailsId]);
     await client.query('COMMIT');
-    res
-      .status(201)
-      .json({ message: 'Pomyślnie dodano nowe zlecenie.', jobId: jobId });
+    res.status(201).json({ message: 'Pomyślnie dodano nowe zlecenie.', jobId: jobId });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('Błąd w POST /api/jobs:', err);
-    res
-      .status(500)
-      .json({ error: 'Wystąpił błąd serwera podczas tworzenia zlecenia.' });
+    res.status(500).json({ error: 'Wystąpił błąd serwera podczas tworzenia zlecenia.' });
   } finally {
     client.release();
   }
@@ -366,17 +304,13 @@ app.get('/api/jobs/:id', authenticateToken, async (req, res) => {
     const jobSql = `SELECT j.id, j.job_type, j.job_date, j.details_id, c.id as client_id, c.name as client_name, c.phone_number as client_phone, c.address as client_address, c.notes as client_notes FROM jobs j JOIN clients c ON j.client_id = c.id WHERE j.id = $1`;
     const jobResult = await pool.query(jobSql, [id]);
     if (jobResult.rows.length === 0) {
-      return res
-        .status(404)
-        .json({ error: 'Nie znaleziono zlecenia o podanym ID.' });
+      return res.status(404).json({ error: 'Nie znaleziono zlecenia o podanym ID.' });
     }
     const jobData = jobResult.rows[0];
     let detailsTable = '';
     if (jobData.job_type === 'well_drilling') detailsTable = 'well_details';
-    else if (jobData.job_type === 'connection')
-      detailsTable = 'connection_details';
-    else if (jobData.job_type === 'treatment_station')
-      detailsTable = 'treatment_station_details';
+    else if (jobData.job_type === 'connection') detailsTable = 'connection_details';
+    else if (jobData.job_type === 'treatment_station') detailsTable = 'treatment_station_details';
     let detailsData = {};
     if (detailsTable) {
       const detailsSql = `SELECT * FROM ${detailsTable} WHERE id = $1`;
@@ -396,38 +330,20 @@ app.put('/api/jobs/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
   const { clientId, jobDate, details } = req.body;
   if (!clientId || !jobDate || !details) {
-    return res
-      .status(400)
-      .json({ error: 'Brak wszystkich wymaganych danych dla zlecenia.' });
+    return res.status(400).json({ error: 'Brak wszystkich wymaganych danych dla zlecenia.' });
   }
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const jobInfoRes = await pool.query(
-      'SELECT job_type, details_id FROM jobs WHERE id = $1',
-      [id]
-    );
-    if (jobInfoRes.rows.length === 0)
-      throw new Error('Nie znaleziono zlecenia o podanym ID.');
+    const jobInfoRes = await pool.query('SELECT job_type, details_id FROM jobs WHERE id = $1', [id]);
+    if (jobInfoRes.rows.length === 0) throw new Error('Nie znaleziono zlecenia o podanym ID.');
     const { job_type, details_id } = jobInfoRes.rows[0];
-    await client.query(
-      `UPDATE jobs SET client_id = $1, job_date = $2 WHERE id = $3`,
-      [clientId, jobDate, id]
-    );
+    await client.query(`UPDATE jobs SET client_id = $1, job_date = $2 WHERE id = $3`, [clientId, jobDate, id]);
     let detailsTable = '';
     let detailsColumns = [];
     if (job_type === 'well_drilling') {
       detailsTable = 'well_details';
-      detailsColumns = [
-        'miejscowosc',
-        'pracownicy',
-        'informacje',
-        'srednica',
-        'ilosc_metrow',
-        'lustro_statyczne',
-        'lustro_dynamiczne',
-        'wydajnosc',
-      ];
+      detailsColumns = ['miejscowosc', 'pracownicy', 'informacje', 'srednica', 'ilosc_metrow', 'lustro_statyczne', 'lustro_dynamiczne', 'wydajnosc'];
     } else if (job_type === 'connection') {
       detailsTable = 'connection_details';
       detailsColumns = [
@@ -459,11 +375,10 @@ app.put('/api/jobs/:id', authenticateToken, async (req, res) => {
         'labor_cost',
         'wholesale_materials_cost',
       ];
+      detailsValues = detailsColumns.map((col) => details[col] || null);
     }
     if (detailsTable) {
-      const setClauses = detailsColumns
-        .map((col, i) => `${col} = $${i + 1}`)
-        .join(', ');
+      const setClauses = detailsColumns.map((col, i) => `${col} = $${i + 1}`).join(', ');
       const detailsValues = detailsColumns.map((col) => details[col] || null);
       const detailsSql = `UPDATE ${detailsTable} SET ${setClauses} WHERE id = $${detailsColumns.length + 1}`;
       await client.query(detailsSql, [...detailsValues, details_id]);
@@ -475,18 +390,12 @@ app.put('/api/jobs/:id', authenticateToken, async (req, res) => {
     );
     const finalJobData = finalDataResult.rows[0];
     const detailsSqlFinal = `SELECT * FROM ${detailsTable} WHERE id = $1`;
-    const detailsResultFinal = await pool.query(detailsSqlFinal, [
-      finalJobData.details_id,
-    ]);
-    res
-      .status(200)
-      .json({ ...finalJobData, details: detailsResultFinal.rows[0] });
+    const detailsResultFinal = await pool.query(detailsSqlFinal, [finalJobData.details_id]);
+    res.status(200).json({ ...finalJobData, details: detailsResultFinal.rows[0] });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error(`Błąd w PUT /api/jobs/${id}:`, err);
-    res
-      .status(500)
-      .json({ error: 'Wystąpił błąd serwera podczas aktualizacji zlecenia.' });
+    res.status(500).json({ error: 'Wystąpił błąd serwera podczas aktualizacji zlecenia.' });
   } finally {
     client.release();
   }
@@ -510,9 +419,7 @@ app.delete('/api/jobs/:id', authenticateToken, async (req, res) => {
 // =================================================================
 app.get('/api/inventory', authenticateToken, async (req, res) => {
   try {
-    const result = await pool.query(
-      'SELECT * FROM inventory_items ORDER BY name ASC'
-    );
+    const result = await pool.query('SELECT * FROM inventory_items ORDER BY name ASC');
     res.json(result.rows);
   } catch (err) {
     console.error('Błąd w GET /api/inventory:', err);
@@ -523,9 +430,7 @@ app.post('/api/inventory', authenticateToken, async (req, res) => {
   try {
     const { name, quantity, unit, min_stock_level } = req.body;
     if (!name || !unit) {
-      return res
-        .status(400)
-        .json({ error: 'Nazwa i jednostka miary są wymagane.' });
+      return res.status(400).json({ error: 'Nazwa i jednostka miary są wymagane.' });
     }
     const sql = `INSERT INTO inventory_items (name, quantity, unit, min_stock_level) VALUES ($1, $2, $3, $4) RETURNING *`;
     const params = [name, quantity || 0, unit, min_stock_level || 0];
@@ -533,9 +438,7 @@ app.post('/api/inventory', authenticateToken, async (req, res) => {
     res.status(201).json(result.rows[0]);
   } catch (err) {
     if (err.code === '23505') {
-      return res
-        .status(400)
-        .json({ error: 'Przedmiot o tej nazwie już istnieje w magazynie.' });
+      return res.status(400).json({ error: 'Przedmiot o tej nazwie już istnieje w magazynie.' });
     }
     console.error('Błąd w POST /api/inventory:', err);
     res.status(500).json({ error: 'Wystąpił błąd serwera' });
@@ -546,31 +449,18 @@ app.put('/api/inventory/:id', authenticateToken, async (req, res) => {
     const { id } = req.params;
     const { name, quantity, unit, min_stock_level, is_ordered } = req.body;
     if (!name || !unit) {
-      return res
-        .status(400)
-        .json({ error: 'Nazwa i jednostka miary są wymagane.' });
+      return res.status(400).json({ error: 'Nazwa i jednostka miary są wymagane.' });
     }
     const sql = `UPDATE inventory_items SET name = $1, quantity = $2, unit = $3, min_stock_level = $4, is_ordered = $5 WHERE id = $6 RETURNING *`;
-    const params = [
-      name,
-      quantity || 0,
-      unit,
-      min_stock_level || 0,
-      is_ordered || false,
-      id,
-    ];
+    const params = [name, quantity || 0, unit, min_stock_level || 0, is_ordered || false, id];
     const result = await pool.query(sql, params);
     if (result.rows.length === 0) {
-      return res
-        .status(404)
-        .json({ error: 'Nie znaleziono przedmiotu o podanym ID.' });
+      return res.status(404).json({ error: 'Nie znaleziono przedmiotu o podanym ID.' });
     }
     res.status(200).json(result.rows[0]);
   } catch (err) {
     if (err.code === '23505') {
-      return res
-        .status(400)
-        .json({ error: 'Przedmiot o tej nazwie już istnieje w magazynie.' });
+      return res.status(400).json({ error: 'Przedmiot o tej nazwie już istnieje w magazynie.' });
     }
     console.error(`Błąd w PUT /api/inventory/${req.params.id}:`, err);
     res.status(500).json({ error: 'Wystąpił błąd serwera' });
@@ -579,10 +469,7 @@ app.put('/api/inventory/:id', authenticateToken, async (req, res) => {
 app.delete('/api/inventory/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const result = await pool.query(
-      'DELETE FROM inventory_items WHERE id = $1',
-      [id]
-    );
+    const result = await pool.query('DELETE FROM inventory_items WHERE id = $1', [id]);
     if (result.rowCount === 0) {
       return res.status(404).json({ message: 'Nie znaleziono przedmiotu' });
     }
@@ -599,35 +486,19 @@ app.post('/api/inventory/operation', authenticateToken, async (req, res) => {
     await client.query('BEGIN');
     let updatedItem;
     if (operationType === 'delivery' || operationType === 'withdrawal') {
-      if (!quantity || quantity <= 0)
-        throw new Error('Ilość musi być dodatnia.');
-      const changeQuantity =
-        operationType === 'delivery' ? Math.abs(quantity) : -Math.abs(quantity);
+      if (!quantity || quantity <= 0) throw new Error('Ilość musi być dodatnia.');
+      const changeQuantity = operationType === 'delivery' ? Math.abs(quantity) : -Math.abs(quantity);
       const updateQuery = `UPDATE inventory_items SET quantity = quantity + $1, last_delivery_date = CASE WHEN $2 = 'delivery' THEN NOW() ELSE last_delivery_date END WHERE id = $3 RETURNING *`;
-      const updateResult = await client.query(updateQuery, [
-        changeQuantity,
-        operationType,
-        itemId,
-      ]);
+      const updateResult = await client.query(updateQuery, [changeQuantity, operationType, itemId]);
       updatedItem = updateResult.rows[0];
       const historyQuery = `INSERT INTO stock_history (item_id, change_quantity, operation_type, user_id) VALUES ($1, $2, $3, $4)`;
-      await client.query(historyQuery, [
-        itemId,
-        changeQuantity,
-        operationType,
-        req.user.userId,
-      ]);
+      await client.query(historyQuery, [itemId, changeQuantity, operationType, req.user.userId]);
     } else if (operationType === 'toggle_ordered') {
       const updateQuery = `UPDATE inventory_items SET is_ordered = NOT is_ordered WHERE id = $1 RETURNING *`;
       const updateResult = await client.query(updateQuery, [itemId]);
       updatedItem = updateResult.rows[0];
       const historyQuery = `INSERT INTO stock_history (item_id, change_quantity, operation_type, user_id) VALUES ($1, $2, $3, $4)`;
-      await client.query(historyQuery, [
-        itemId,
-        0,
-        `status_changed_to_${updatedItem.is_ordered}`,
-        req.user.userId,
-      ]);
+      await client.query(historyQuery, [itemId, 0, `status_changed_to_${updatedItem.is_ordered}`, req.user.userId]);
     } else {
       throw new Error('Nieznany typ operacji.');
     }
@@ -639,9 +510,7 @@ app.post('/api/inventory/operation', authenticateToken, async (req, res) => {
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('Błąd w /api/inventory/operation:', err);
-    res
-      .status(500)
-      .json({ error: 'Wystąpił błąd serwera podczas operacji magazynowej.' });
+    res.status(500).json({ error: 'Wystąpił błąd serwera podczas operacji magazynowej.' });
   } finally {
     client.release();
   }
