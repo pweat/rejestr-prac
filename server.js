@@ -1,12 +1,12 @@
-// =================================================================
-// --- IMPORTY I PODSTAWOWA KONFIGURACJA ---
-// =================================================================
 const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
+// =================================================================
+// --- KONFIGURACJA I START APLIKACJI ---
+// =================================================================
 const app = express();
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET =
@@ -21,7 +21,7 @@ const pool = new Pool({
   user: 'postgres',
   host: 'localhost',
   database: 'rejestr_prac',
-  password: 'admin', // <-- Pamiętaj o swoim lokalnym haśle
+  password: 'admin',
   port: 5432,
 });
 
@@ -34,7 +34,6 @@ const initializeDatabase = async () => {
     client = await pool.connect();
     console.log('Połączono z bazą danych PostgreSQL');
 
-    // TWORZENIE NOWEJ STRUKTURY
     await client.query(
       `CREATE TABLE IF NOT EXISTS clients (id SERIAL PRIMARY KEY, name TEXT, phone_number TEXT NOT NULL UNIQUE, address TEXT, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`
     );
@@ -45,47 +44,37 @@ const initializeDatabase = async () => {
     );
     console.log('Tabela "jobs" jest gotowa.');
 
-    // ZMIANA: Usunięto `NOT NULL` z `job_id` w poniższych tabelach
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS well_details (
-        id SERIAL PRIMARY KEY,
-        job_id INTEGER REFERENCES jobs(id) ON DELETE CASCADE,
-        miejscowosc TEXT, pracownicy TEXT, informacje TEXT, srednica REAL,
-        ilosc_metrow REAL, lustro_statyczne REAL, lustro_dynamiczne REAL, wydajnosc REAL
-      )`);
+    await client.query(
+      `CREATE TABLE IF NOT EXISTS well_details (id SERIAL PRIMARY KEY, job_id INTEGER REFERENCES jobs(id) ON DELETE CASCADE, miejscowosc TEXT, pracownicy TEXT, informacje TEXT, srednica REAL, ilosc_metrow REAL, lustro_statyczne REAL, lustro_dynamiczne REAL, wydajnosc REAL)`
+    );
     console.log('Tabela "well_details" jest gotowa.');
 
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS connection_details (
-        id SERIAL PRIMARY KEY,
-        job_id INTEGER REFERENCES jobs(id) ON DELETE CASCADE,
-        well_depth REAL, diameter REAL, pump_depth REAL, pump_model TEXT,
-        controller_model TEXT, hydrophore_model TEXT, materials_invoice_url TEXT,
-        client_offer_url TEXT, revenue REAL, casing_cost REAL, equipment_cost REAL,
-        labor_cost REAL, wholesale_materials_cost REAL
-      )`);
+    await client.query(
+      `CREATE TABLE IF NOT EXISTS connection_details (id SERIAL PRIMARY KEY, job_id INTEGER REFERENCES jobs(id) ON DELETE CASCADE, well_depth REAL, diameter REAL, pump_depth REAL, pump_model TEXT, controller_model TEXT, hydrophore_model TEXT, materials_invoice_url TEXT, client_offer_url TEXT, revenue REAL, casing_cost REAL, equipment_cost REAL, labor_cost REAL, wholesale_materials_cost REAL)`
+    );
     console.log('Tabela "connection_details" jest gotowa.');
 
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS treatment_station_details (
-        id SERIAL PRIMARY KEY,
-        job_id INTEGER REFERENCES jobs(id) ON DELETE CASCADE,
-        station_model TEXT, uv_lamp_model TEXT, carbon_filter TEXT, filter_types TEXT,
-        materials_invoice_url TEXT, client_offer_url TEXT, revenue REAL,
-        equipment_cost REAL, labor_cost REAL, wholesale_materials_cost REAL
-      )`);
+    await client.query(
+      `CREATE TABLE IF NOT EXISTS treatment_station_details (id SERIAL PRIMARY KEY, job_id INTEGER REFERENCES jobs(id) ON DELETE CASCADE, station_model TEXT, uv_lamp_model TEXT, carbon_filter TEXT, filter_types TEXT, materials_invoice_url TEXT, client_offer_url TEXT, revenue REAL, equipment_cost REAL, labor_cost REAL, wholesale_materials_cost REAL)`
+    );
     console.log('Tabela "treatment_station_details" jest gotowa.');
 
-    // ISTNIEJĄCE TABELE
     await client.query(
       `CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL)`
     );
     console.log('Tabela "users" jest gotowa.');
 
-    await client.query(
-      `CREATE TABLE IF NOT EXISTS inventory_items (id SERIAL PRIMARY KEY, name TEXT NOT NULL UNIQUE, quantity REAL NOT NULL DEFAULT 0, unit TEXT NOT NULL, min_stock_level REAL NOT NULL DEFAULT 0, last_delivery_date DATE, is_ordered BOOLEAN DEFAULT FALSE NOT NULL)`
+    const res = await client.query(
+      "SELECT column_name FROM information_schema.columns WHERE table_name='inventory_items' AND column_name='is_ordered'"
     );
-    console.log('Tabela "inventory_items" jest gotowa.');
+    if (res.rows.length === 0) {
+      await client.query(
+        'ALTER TABLE inventory_items ADD COLUMN is_ordered BOOLEAN DEFAULT FALSE NOT NULL'
+      );
+      console.log('Zaktualizowano tabelę "inventory_items".');
+    } else {
+      console.log('Tabela "inventory_items" jest gotowa.');
+    }
 
     await client.query(
       `CREATE TABLE IF NOT EXISTS stock_history (id SERIAL PRIMARY KEY, item_id INTEGER NOT NULL REFERENCES inventory_items(id) ON DELETE CASCADE, change_quantity REAL NOT NULL, operation_type TEXT NOT NULL, operation_date TIMESTAMPTZ NOT NULL DEFAULT NOW(), user_id INTEGER REFERENCES users(id))`
@@ -113,6 +102,13 @@ const authenticateToken = (req, res, next) => {
     next();
   });
 };
+
+// =================================================================
+// --- API - HEALTH CHECK (DLA UPTIME ROBOT) ---
+// =================================================================
+app.get('/api/health', (req, res) => {
+  res.status(200).json({ status: 'ok', timestamp: new Date() });
+});
 
 // =================================================================
 // --- API UŻYTKOWNIKÓW (Rejestracja, Logowanie) ---
@@ -181,10 +177,8 @@ app.post('/api/login', async (req, res) => {
 // =================================================================
 // --- API KLIENTÓW ---
 // =================================================================
-// GET /api/clients - Pobierz wszystkich klientów
 app.get('/api/clients', authenticateToken, async (req, res) => {
   try {
-    // Na razie proste pobieranie wszystkich. W przyszłości dodamy tu paginację, jeśli będzie potrzeba.
     const result = await pool.query('SELECT * FROM clients ORDER BY name ASC');
     res.json(result.rows);
   } catch (err) {
@@ -192,24 +186,18 @@ app.get('/api/clients', authenticateToken, async (req, res) => {
     res.status(500).json({ error: 'Wystąpił błąd serwera' });
   }
 });
-
-// POST /api/clients - Dodaj nowego klienta
 app.post('/api/clients', authenticateToken, async (req, res) => {
   try {
     const { name, phone_number, address, notes } = req.body;
-
-    // Walidacja na serwerze
     if (!phone_number) {
       return res.status(400).json({ error: 'Numer telefonu jest wymagany.' });
     }
-
     const sql = `INSERT INTO clients (name, phone_number, address, notes) VALUES ($1, $2, $3, $4) RETURNING *`;
     const params = [name, phone_number, address, notes];
     const result = await pool.query(sql, params);
     res.status(201).json(result.rows[0]);
   } catch (err) {
     if (err.code === '23505') {
-      // Błąd unikalności dla numeru telefonu
       return res
         .status(400)
         .json({ error: 'Klient z tym numerem telefonu już istnieje.' });
@@ -218,8 +206,6 @@ app.post('/api/clients', authenticateToken, async (req, res) => {
     res.status(500).json({ error: 'Wystąpił błąd serwera' });
   }
 });
-
-// PUT /api/clients/:id - Aktualizuj klienta
 app.put('/api/clients/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
@@ -246,17 +232,14 @@ app.put('/api/clients/:id', authenticateToken, async (req, res) => {
     res.status(500).json({ error: 'Wystąpił błąd serwera' });
   }
 });
-
-// DELETE /api/clients/:id - Usuń klienta
 app.delete('/api/clients/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    // Uwaga: Usunięcie klienta spowoduje usunięcie wszystkich jego zleceń (dzięki ON DELETE CASCADE)
     const result = await pool.query('DELETE FROM clients WHERE id = $1', [id]);
     if (result.rowCount === 0) {
       return res.status(404).json({ message: 'Nie znaleziono klienta' });
     }
-    res.status(204).send(); // Sukces, brak zawartości
+    res.status(204).send();
   } catch (err) {
     console.error(`Błąd w DELETE /api/clients/${req.params.id}:`, err);
     res.status(500).json({ error: 'Wystąpił błąd serwera' });
@@ -266,7 +249,6 @@ app.delete('/api/clients/:id', authenticateToken, async (req, res) => {
 // =================================================================
 // --- API ZLECEŃ ---
 // =================================================================
-// POST /api/jobs - Dodaj nowe zlecenie (dowolnego typu)
 app.post('/api/jobs', authenticateToken, async (req, res) => {
   const { clientId, jobType, jobDate, details } = req.body;
   if (!clientId || !jobType || !jobDate || !details) {
@@ -274,17 +256,12 @@ app.post('/api/jobs', authenticateToken, async (req, res) => {
       .status(400)
       .json({ error: 'Brak wszystkich wymaganych danych dla zlecenia.' });
   }
-
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-
     let detailsTable = '';
     let detailsColumns = [];
     let detailsValues = [];
-    let paramIndex = 1;
-
-    // Przygotuj zapytanie w zależności od typu zlecenia
     if (jobType === 'well_drilling') {
       detailsTable = 'well_details';
       detailsColumns = [
@@ -298,33 +275,57 @@ app.post('/api/jobs', authenticateToken, async (req, res) => {
         'lustro_dynamiczne',
         'wydajnosc',
       ];
-      detailsValues = [
-        details.miejscowosc || null,
-        details.pracownicy || null,
-        details.informacje || null,
-        details.srednica || null,
-        details.ilosc_metrow || null,
-        details.lustro_statyczne || null,
-        details.lustro_dynamiczne || null,
-        details.wydajnosc || null,
-      ];
+      detailsValues = detailsColumns
+        .slice(1)
+        .map((col) => details[col] || null);
     } else if (jobType === 'connection') {
       detailsTable = 'connection_details';
-      // ... dodamy logikę dla innych typów w przyszłości
+      detailsColumns = [
+        'job_id',
+        'well_depth',
+        'diameter',
+        'pump_depth',
+        'pump_model',
+        'controller_model',
+        'hydrophore_model',
+        'materials_invoice_url',
+        'client_offer_url',
+        'revenue',
+        'casing_cost',
+        'equipment_cost',
+        'labor_cost',
+        'wholesale_materials_cost',
+      ];
+      detailsValues = detailsColumns
+        .slice(1)
+        .map((col) => details[col] || null);
+    } else if (jobType === 'treatment_station') {
+      detailsTable = 'treatment_station_details';
+      detailsColumns = [
+        'job_id',
+        'station_model',
+        'uv_lamp_model',
+        'carbon_filter',
+        'filter_types',
+        'materials_invoice_url',
+        'client_offer_url',
+        'revenue',
+        'equipment_cost',
+        'labor_cost',
+        'wholesale_materials_cost',
+      ];
+      detailsValues = detailsColumns
+        .slice(1)
+        .map((col) => details[col] || null);
     } else {
       throw new Error('Nieznany typ zlecenia.');
     }
-
-    // 1. Dodaj wpis do tabeli ze szczegółami i pobierz jego ID
-    // Pierwszy parametr ($1) będzie dla job_id, który jeszcze nie istnieje, więc go pomijamy
     const detailsPlaceholders = detailsValues
-      .map(() => `$${paramIndex++}`)
+      .map((_, i) => `$${i + 1}`)
       .join(', ');
     const detailsSql = `INSERT INTO ${detailsTable} (${detailsColumns.slice(1).join(', ')}) VALUES (${detailsPlaceholders}) RETURNING id`;
     const detailsResult = await client.query(detailsSql, detailsValues);
     const detailsId = detailsResult.rows[0].id;
-
-    // 2. Dodaj główne zlecenie do tabeli 'jobs'
     const jobSql = `INSERT INTO jobs (client_id, job_type, job_date, details_id) VALUES ($1, $2, $3, $4) RETURNING id`;
     const jobResult = await client.query(jobSql, [
       clientId,
@@ -333,11 +334,8 @@ app.post('/api/jobs', authenticateToken, async (req, res) => {
       detailsId,
     ]);
     const jobId = jobResult.rows[0].id;
-
-    // 3. Zaktualizuj wpis w tabeli szczegółów o poprawne job_id
     const updateDetailsSql = `UPDATE ${detailsTable} SET job_id = $1 WHERE id = $2`;
     await client.query(updateDetailsSql, [jobId, detailsId]);
-
     await client.query('COMMIT');
     res
       .status(201)
@@ -352,17 +350,9 @@ app.post('/api/jobs', authenticateToken, async (req, res) => {
     client.release();
   }
 });
-
-// GET /api/jobs - Pobierz listę wszystkich zleceń
 app.get('/api/jobs', authenticateToken, async (req, res) => {
   try {
-    // To zapytanie łączy tabele jobs i clients, aby od razu mieć nazwę klienta
-    const sql = `
-      SELECT j.id, j.job_type, j.job_date, c.name as client_name, c.phone_number as client_phone
-      FROM jobs j
-      JOIN clients c ON j.client_id = c.id
-      ORDER BY j.job_date DESC
-    `;
+    const sql = `SELECT j.id, j.job_type, j.job_date, c.name as client_name, c.phone_number as client_phone FROM jobs j JOIN clients c ON j.client_id = c.id ORDER BY j.job_date DESC`;
     const result = await pool.query(sql);
     res.json(result.rows);
   } catch (err) {
@@ -370,37 +360,23 @@ app.get('/api/jobs', authenticateToken, async (req, res) => {
     res.status(500).json({ error: 'Wystąpił błąd serwera' });
   }
 });
-
-// GET /api/jobs/:id - Pobierz szczegóły jednego zlecenia
 app.get('/api/jobs/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-
-    // 1. Pobierz główne dane zlecenia i klienta
-    const jobSql = `
-      SELECT j.id, j.job_type, j.job_date, j.details_id, c.id as client_id, c.name as client_name, c.phone_number as client_phone, c.address as client_address, c.notes as client_notes
-      FROM jobs j
-      JOIN clients c ON j.client_id = c.id
-      WHERE j.id = $1
-    `;
+    const jobSql = `SELECT j.id, j.job_type, j.job_date, j.details_id, c.id as client_id, c.name as client_name, c.phone_number as client_phone, c.address as client_address, c.notes as client_notes FROM jobs j JOIN clients c ON j.client_id = c.id WHERE j.id = $1`;
     const jobResult = await pool.query(jobSql, [id]);
-
     if (jobResult.rows.length === 0) {
       return res
         .status(404)
         .json({ error: 'Nie znaleziono zlecenia o podanym ID.' });
     }
     const jobData = jobResult.rows[0];
-
-    // 2. Pobierz specyficzne szczegóły w zależności od typu zlecenia
     let detailsTable = '';
     if (jobData.job_type === 'well_drilling') detailsTable = 'well_details';
     else if (jobData.job_type === 'connection')
       detailsTable = 'connection_details';
     else if (jobData.job_type === 'treatment_station')
       detailsTable = 'treatment_station_details';
-    // ... inne typy w przyszłości
-
     let detailsData = {};
     if (detailsTable) {
       const detailsSql = `SELECT * FROM ${detailsTable} WHERE id = $1`;
@@ -409,46 +385,38 @@ app.get('/api/jobs/:id', authenticateToken, async (req, res) => {
         detailsData = detailsResult.rows[0];
       }
     }
-
-    // 3. Połącz wszystko w jeden obiekt i zwróć
-    const fullJobData = {
-      ...jobData,
-      details: detailsData,
-    };
-
+    const fullJobData = { ...jobData, details: detailsData };
     res.json(fullJobData);
   } catch (err) {
     console.error(`Błąd w GET /api/jobs/${req.params.id}:`, err);
     res.status(500).json({ error: 'Wystąpił błąd serwera' });
   }
 });
-
-// PUT /api/jobs/:id - Aktualizuj istniejące zlecenie
 app.put('/api/jobs/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
-  const { clientId, jobType, jobDate, details } = req.body;
-  if (!clientId || !jobType || !jobDate || !details) {
+  const { clientId, jobDate, details } = req.body;
+  if (!clientId || !jobDate || !details) {
     return res
       .status(400)
       .json({ error: 'Brak wszystkich wymaganych danych dla zlecenia.' });
   }
-
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-
-    // 1. Zaktualizuj główny wpis w tabeli 'jobs'
-    const jobSql = `UPDATE jobs SET client_id = $1, job_date = $2 WHERE id = $3 RETURNING details_id`;
-    const jobResult = await client.query(jobSql, [clientId, jobDate, id]);
-    if (jobResult.rows.length === 0)
+    const jobInfoRes = await pool.query(
+      'SELECT job_type, details_id FROM jobs WHERE id = $1',
+      [id]
+    );
+    if (jobInfoRes.rows.length === 0)
       throw new Error('Nie znaleziono zlecenia o podanym ID.');
-    const detailsId = jobResult.rows[0].details_id;
-
-    // 2. Zaktualizuj wpis w odpowiedniej tabeli ze szczegółami
+    const { job_type, details_id } = jobInfoRes.rows[0];
+    await client.query(
+      `UPDATE jobs SET client_id = $1, job_date = $2 WHERE id = $3`,
+      [clientId, jobDate, id]
+    );
     let detailsTable = '';
     let detailsColumns = [];
-    let detailsValues = [];
-    if (jobType === 'well_drilling') {
+    if (job_type === 'well_drilling') {
       detailsTable = 'well_details';
       detailsColumns = [
         'miejscowosc',
@@ -460,97 +428,59 @@ app.put('/api/jobs/:id', authenticateToken, async (req, res) => {
         'lustro_dynamiczne',
         'wydajnosc',
       ];
-      detailsValues = detailsColumns.map((col) => details[col] || null);
-    } // ... Tutaj w przyszłości dodamy logikę dla innych typów zleceń
-
-    if (detailsTable) {
-      const setClauses = detailsColumns
-        .map((col, i) => `${col} = $${i + 1}`)
-        .join(', ');
-      const detailsSql = `UPDATE ${detailsTable} SET ${setClauses} WHERE id = $${detailsColumns.length + 1}`;
-      await client.query(detailsSql, [...detailsValues, detailsId]);
-    }
-
-    await client.query('COMMIT');
-    res.status(200).json({ message: 'Pomyślnie zaktualizowano zlecenie.' });
-  } catch (err) {
-    await client.query('ROLLBACK');
-    console.error(`Błąd w PUT /api/jobs/${id}:`, err);
-    res
-      .status(500)
-      .json({ error: 'Wystąpił błąd serwera podczas aktualizacji zlecenia.' });
-  } finally {
-    client.release();
-  }
-});
-
-// DELETE /api/jobs/:id - Usuń zlecenie
-app.delete('/api/jobs/:id', authenticateToken, async (req, res) => {
-  try {
-    const { id } = req.params;
-    // Dzięki "ON DELETE CASCADE" w definicji bazy, usunięcie zlecenia z tabeli 'jobs'
-    // automatycznie usunie powiązany z nim wiersz ze szczegółami (np. z 'well_details').
-    const result = await pool.query('DELETE FROM jobs WHERE id = $1', [id]);
-    if (result.rowCount === 0) {
-      return res.status(404).json({ message: 'Nie znaleziono zlecenia' });
-    }
-    res.status(204).send();
-  } catch (err) {
-    console.error(`Błąd w DELETE /api/jobs/${req.params.id}:`, err);
-    res.status(500).json({ error: 'Wystąpił błąd serwera' });
-  }
-});
-
-// PUT /api/jobs/:id - Aktualizuj istniejące zlecenie
-app.put('/api/jobs/:id', authenticateToken, async (req, res) => {
-  const { id } = req.params;
-  const { clientId, jobType, jobDate, details } = req.body;
-  if (!clientId || !jobType || !jobDate || !details) {
-    return res
-      .status(400)
-      .json({ error: 'Brak wszystkich wymaganych danych dla zlecenia.' });
-  }
-
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-
-    // 1. Zaktualizuj główny wpis w tabeli 'jobs'
-    const jobSql = `UPDATE jobs SET client_id = $1, job_date = $2 WHERE id = $3 RETURNING details_id`;
-    const jobResult = await client.query(jobSql, [clientId, jobDate, id]);
-    if (jobResult.rows.length === 0)
-      throw new Error('Nie znaleziono zlecenia o podanym ID.');
-    const detailsId = jobResult.rows[0].details_id;
-
-    // 2. Zaktualizuj wpis w odpowiedniej tabeli ze szczegółami
-    let detailsTable = '';
-    let detailsColumns = [];
-    let detailsValues = [];
-    if (jobType === 'well_drilling') {
-      detailsTable = 'well_details';
+    } else if (job_type === 'connection') {
+      detailsTable = 'connection_details';
       detailsColumns = [
-        'miejscowosc',
-        'pracownicy',
-        'informacje',
-        'srednica',
-        'ilosc_metrow',
-        'lustro_statyczne',
-        'lustro_dynamiczne',
-        'wydajnosc',
+        'well_depth',
+        'diameter',
+        'pump_depth',
+        'pump_model',
+        'controller_model',
+        'hydrophore_model',
+        'materials_invoice_url',
+        'client_offer_url',
+        'revenue',
+        'casing_cost',
+        'equipment_cost',
+        'labor_cost',
+        'wholesale_materials_cost',
       ];
-      detailsValues = detailsColumns.map((col) => details[col] || null);
-    } // ... Tutaj w przyszłości dodamy logikę dla innych typów zleceń
-
+    } else if (job_type === 'treatment_station') {
+      detailsTable = 'treatment_station_details';
+      detailsColumns = [
+        'station_model',
+        'uv_lamp_model',
+        'carbon_filter',
+        'filter_types',
+        'materials_invoice_url',
+        'client_offer_url',
+        'revenue',
+        'equipment_cost',
+        'labor_cost',
+        'wholesale_materials_cost',
+      ];
+    }
     if (detailsTable) {
       const setClauses = detailsColumns
         .map((col, i) => `${col} = $${i + 1}`)
         .join(', ');
+      const detailsValues = detailsColumns.map((col) => details[col] || null);
       const detailsSql = `UPDATE ${detailsTable} SET ${setClauses} WHERE id = $${detailsColumns.length + 1}`;
-      await client.query(detailsSql, [...detailsValues, detailsId]);
+      await client.query(detailsSql, [...detailsValues, details_id]);
     }
-
     await client.query('COMMIT');
-    res.status(200).json({ message: 'Pomyślnie zaktualizowano zlecenie.' });
+    const finalDataResult = await pool.query(
+      `SELECT j.id, j.job_type, j.job_date, j.details_id, c.id as client_id, c.name as client_name, c.phone_number as client_phone FROM jobs j JOIN clients c ON j.client_id = c.id WHERE j.id = $1`,
+      [id]
+    );
+    const finalJobData = finalDataResult.rows[0];
+    const detailsSqlFinal = `SELECT * FROM ${detailsTable} WHERE id = $1`;
+    const detailsResultFinal = await pool.query(detailsSqlFinal, [
+      finalJobData.details_id,
+    ]);
+    res
+      .status(200)
+      .json({ ...finalJobData, details: detailsResultFinal.rows[0] });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error(`Błąd w PUT /api/jobs/${id}:`, err);
@@ -561,13 +491,9 @@ app.put('/api/jobs/:id', authenticateToken, async (req, res) => {
     client.release();
   }
 });
-
-// DELETE /api/jobs/:id - Usuń zlecenie
 app.delete('/api/jobs/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    // Dzięki "ON DELETE CASCADE" w definicji bazy, usunięcie zlecenia z tabeli 'jobs'
-    // automatycznie usunie powiązany z nim wiersz ze szczegółami (np. z 'well_details').
     const result = await pool.query('DELETE FROM jobs WHERE id = $1', [id]);
     if (result.rowCount === 0) {
       return res.status(404).json({ message: 'Nie znaleziono zlecenia' });
@@ -601,8 +527,8 @@ app.post('/api/inventory', authenticateToken, async (req, res) => {
         .status(400)
         .json({ error: 'Nazwa i jednostka miary są wymagane.' });
     }
-    const sql = `INSERT INTO inventory_items (name, quantity, unit, min_stock_level, is_ordered) VALUES ($1, $2, $3, $4, $5) RETURNING *`;
-    const params = [name, quantity || 0, unit, min_stock_level || 0, false];
+    const sql = `INSERT INTO inventory_items (name, quantity, unit, min_stock_level) VALUES ($1, $2, $3, $4) RETURNING *`;
+    const params = [name, quantity || 0, unit, min_stock_level || 0];
     const result = await pool.query(sql, params);
     res.status(201).json(result.rows[0]);
   } catch (err) {
