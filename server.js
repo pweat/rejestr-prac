@@ -69,6 +69,12 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
+app.get('/api/health', (req, res) => {
+  // Ten endpoint nie wymaga autoryzacji.
+  // Po prostu odpowiada statusem 200 OK i aktualną datą.
+  res.status(200).json({ status: 'ok', timestamp: new Date() });
+});
+
 app.post('/api/register', async (req, res) => {
   try {
     const { username, password } = req.body;
