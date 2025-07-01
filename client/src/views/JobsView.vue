@@ -315,6 +315,7 @@ onMounted(() => {
               <div class="form-group"><label>Wypłaty:</label><input type="number" step="any" v-model.number="newJobData.details.labor_cost" /></div>
               <div class="form-group"><label>Materiały z hurtowni:</label><input type="number" step="any" v-model.number="newJobData.details.wholesale_materials_cost" /></div>
             </div>
+
             <div v-else-if="newJobData.jobType === 'treatment_station'" class="form-grid">
               <div class="form-group"><label>Model stacji:</label><input type="text" v-model="newJobData.details.station_model" /></div>
               <div class="form-group"><label>Model lampy UV:</label><input type="text" v-model="newJobData.details.uv_lamp_model" /></div>
@@ -327,6 +328,12 @@ onMounted(() => {
               <div class="form-group"><label>Koszt osprzętu:</label><input type="number" step="any" v-model.number="newJobData.details.equipment_cost" /></div>
               <div class="form-group"><label>Wypłaty:</label><input type="number" step="any" v-model.number="newJobData.details.labor_cost" /></div>
               <div class="form-group"><label>Materiały z hurtowni:</label><input type="number" step="any" v-model.number="newJobData.details.wholesale_materials_cost" /></div>
+            </div>
+            <div v-else-if="newJobData.jobType === 'service'" class="form-grid">
+              <div class="form-group full-width">
+                <label>Opis wykonanych prac serwisowych:</label>
+                <textarea v-model="newJobData.details.description" rows="5" placeholder="np. Przegląd roczny, wymiana filtra, czyszczenie..."></textarea>
+              </div>
             </div>
           </div>
         </div>
@@ -524,6 +531,15 @@ onMounted(() => {
               </p>
             </div>
           </div>
+          <div v-else-if="selectedJobDetails.job_type === 'service'" class="details-section full-width">
+            <h4>Szczegóły Serwisu</h4>
+            <div class="details-grid-inner">
+              <p class="full-width-p">
+                <strong>Opis wykonanych prac:</strong>
+                {{ selectedJobDetails.details.description || '-' }}
+              </p>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -601,6 +617,13 @@ onMounted(() => {
                 <div class="form-group"><label>Koszt osprzętu:</label><input type="number" step="any" v-model.number="editedJobData.details.equipment_cost" /></div>
                 <div class="form-group"><label>Wypłaty:</label><input type="number" step="any" v-model.number="editedJobData.details.labor_cost" /></div>
                 <div class="form-group"><label>Materiały z hurtowni:</label><input type="number" step="any" v-model.number="editedJobData.details.wholesale_materials_cost" /></div>
+              </div>
+
+              <div v-else-if="editedJobData.job_type === 'service'" class="form-grid">
+                <div class="form-group full-width">
+                  <label>Opis wykonanych prac serwisowych:</label>
+                  <textarea v-model="editedJobData.details.description" rows="5"></textarea>
+                </div>
               </div>
             </div>
           </div>

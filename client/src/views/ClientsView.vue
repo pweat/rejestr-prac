@@ -90,12 +90,7 @@ async function handleUpdateClient() {
 }
 
 async function handleDeleteClient(clientId) {
-  if (
-    !confirm(
-      'Czy na pewno chcesz usunąć tego klienta? Usunięcie go skasuje również WSZYSTKIE jego zlecenia.'
-    )
-  )
-    return;
+  if (!confirm('Czy na pewno chcesz usunąć tego klienta? Usunięcie go skasuje również WSZYSTKIE jego zlecenia.')) return;
   try {
     const response = await fetch(`${API_URL}/api/clients/${clientId}`, {
       method: 'DELETE',
@@ -120,13 +115,7 @@ onMounted(() => {
   <div class="container">
     <div class="header">
       <h1>Klienci ({{ clients.length }})</h1>
-      <button
-        class="add-new-btn"
-        @click="handleShowAddModal"
-        :disabled="isLoading"
-      >
-        &#43; Dodaj Klienta
-      </button>
+      <button class="add-new-btn" @click="handleShowAddModal" :disabled="isLoading">&#43; Dodaj Klienta</button>
     </div>
 
     <div v-if="isLoading" class="loading-container">
@@ -155,12 +144,8 @@ onMounted(() => {
                 {{ client.notes || '-' }}
               </td>
               <td data-label="Akcje" class="actions-cell">
-                <button class="edytuj" @click="handleShowEditModal(client)">
-                  Edytuj
-                </button>
-                <button class="usun" @click="handleDeleteClient(client.id)">
-                  Usuń
-                </button>
+                <button class="edytuj" @click="handleShowEditModal(client)">Edytuj</button>
+                <button class="usun" @click="handleDeleteClient(client.id)">Usuń</button>
               </td>
             </tr>
           </tbody>
@@ -176,51 +161,30 @@ onMounted(() => {
     <div class="modal-content">
       <div class="modal-header">
         <h3>Edytuj klienta</h3>
-        <button class="close-button" @click="showEditModal = false">
-          &times;
-        </button>
+        <button class="close-button" @click="showEditModal = false">&times;</button>
       </div>
       <form @submit.prevent="handleUpdateClient">
         <div class="form-grid-single-col">
           <div class="form-group">
             <label for="editClientName">Nazwa klienta (opcjonalnie)</label>
-            <input
-              type="text"
-              id="editClientName"
-              v-model="edytowanyKlient.name"
-            />
+            <input type="text" id="editClientName" v-model="edytowanyKlient.name" />
           </div>
           <div class="form-group">
             <label for="editClientPhone">Numer telefonu (wymagane)</label>
-            <input
-              type="text"
-              id="editClientPhone"
-              v-model="edytowanyKlient.phone_number"
-              required
-            />
+            <input type="text" id="editClientPhone" v-model="edytowanyKlient.phone_number" required />
           </div>
           <div class="form-group">
             <label for="editClientAddress">Adres</label>
-            <input
-              type="text"
-              id="editClientAddress"
-              v-model="edytowanyKlient.address"
-            />
+            <input type="text" id="editClientAddress" v-model="edytowanyKlient.address" />
           </div>
           <div class="form-group">
             <label for="editClientNotes">Notatki</label>
-            <textarea
-              id="editClientNotes"
-              v-model="edytowanyKlient.notes"
-              rows="3"
-            ></textarea>
+            <textarea id="editClientNotes" v-model="edytowanyKlient.notes" rows="3"></textarea>
           </div>
         </div>
         <div class="modal-actions">
           <button type="submit" class="zapisz">Zapisz zmiany</button>
-          <button type="button" class="anuluj" @click="showEditModal = false">
-            Anuluj
-          </button>
+          <button type="button" class="anuluj" @click="showEditModal = false">Anuluj</button>
         </div>
       </form>
     </div>
@@ -230,9 +194,7 @@ onMounted(() => {
     <div class="modal-content">
       <div class="modal-header">
         <h3>Dodaj nowego klienta</h3>
-        <button class="close-button" @click="showAddModal = false">
-          &times;
-        </button>
+        <button class="close-button" @click="showAddModal = false">&times;</button>
       </div>
       <form @submit.prevent="handleAddClient">
         <div class="form-grid-single-col">
@@ -242,35 +204,20 @@ onMounted(() => {
           </div>
           <div class="form-group">
             <label for="clientPhone">Numer telefonu (wymagane)</label>
-            <input
-              type="text"
-              id="clientPhone"
-              v-model="nowyKlient.phone_number"
-              required
-            />
+            <input type="text" id="clientPhone" v-model="nowyKlient.phone_number" required />
           </div>
           <div class="form-group">
             <label for="clientAddress">Adres</label>
-            <input
-              type="text"
-              id="clientAddress"
-              v-model="nowyKlient.address"
-            />
+            <input type="text" id="clientAddress" v-model="nowyKlient.address" />
           </div>
           <div class="form-group">
             <label for="clientNotes">Notatki</label>
-            <textarea
-              id="clientNotes"
-              v-model="nowyKlient.notes"
-              rows="3"
-            ></textarea>
+            <textarea id="clientNotes" v-model="nowyKlient.notes" rows="3"></textarea>
           </div>
         </div>
         <div class="modal-actions">
           <button type="submit" class="zapisz">Dodaj Klienta</button>
-          <button type="button" class="anuluj" @click="showAddModal = false">
-            Anuluj
-          </button>
+          <button type="button" class="anuluj" @click="showAddModal = false">Anuluj</button>
         </div>
       </form>
     </div>

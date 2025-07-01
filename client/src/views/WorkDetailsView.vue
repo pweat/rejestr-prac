@@ -14,9 +14,7 @@ const showPrintControls = ref(false);
 
 const handleAuthError = (error) => {
   if (error.message.includes('401') || error.message.includes('403')) {
-    alert(
-      'Twoja sesja wygasła lub jest nieprawidłowa. Proszę zalogować się ponownie.'
-    );
+    alert('Twoja sesja wygasła lub jest nieprawidłowa. Proszę zalogować się ponownie.');
     removeToken();
     router.push('/login');
     return true;
@@ -65,11 +63,8 @@ onMounted(async () => {
       headers: getAuthHeaders(),
     });
     if (!response.ok) {
-      if (response.status === 404)
-        throw new Error('Nie znaleziono zlecenia o podanym ID.');
-      throw new Error(
-        `Błąd podczas pobierania danych. Status: ${response.status}`
-      );
+      if (response.status === 404) throw new Error('Nie znaleziono zlecenia o podanym ID.');
+      throw new Error(`Błąd podczas pobierania danych. Status: ${response.status}`);
     }
     const result = await response.json();
     if (result && result.data) {
@@ -97,28 +92,13 @@ onMounted(async () => {
         <RouterLink to="/" class="btn btn-secondary">Wróć do listy</RouterLink>
       </div>
       <div v-else-if="praca && praca.id" class="work-card-wrapper">
-        <div class="view-actions">
-          <button
-            class="btn btn-secondary"
-            @click="showPrintControls = !showPrintControls"
-          >
-            Ustawienia Druku</button
-          ><RouterLink to="/" class="btn btn-primary">Wróć do listy</RouterLink>
-        </div>
+        <div class="view-actions"><button class="btn btn-secondary" @click="showPrintControls = !showPrintControls">Ustawienia Druku</button><RouterLink to="/" class="btn btn-primary">Wróć do listy</RouterLink></div>
         <div v-if="showPrintControls" class="print-controls">
           <h3>Pola do druku</h3>
           <p>Wybierz, które informacje mają znaleźć się na wydruku.</p>
           <div class="checkbox-grid">
-            <div
-              v-for="(isVisible, field) in visibleFields"
-              :key="field"
-              class="checkbox-item"
-            >
-              <input
-                type="checkbox"
-                :id="field"
-                v-model="visibleFields[field]"
-              /><label :for="field">{{ formatFieldName(field) }}</label>
+            <div v-for="(isVisible, field) in visibleFields" :key="field" class="checkbox-item">
+              <input type="checkbox" :id="field" v-model="visibleFields[field]" /><label :for="field">{{ formatFieldName(field) }}</label>
             </div>
           </div>
         </div>
@@ -166,9 +146,7 @@ onMounted(async () => {
             </div>
             <div v-if="visibleFields.wydajnosc" class="card-item">
               <strong>Wydajność:</strong>
-              <span>{{
-                praca.wydajnosc ? praca.wydajnosc + ' m³/h' : ''
-              }}</span>
+              <span>{{ praca.wydajnosc ? praca.wydajnosc + ' m³/h' : '' }}</span>
             </div>
           </div>
         </div>

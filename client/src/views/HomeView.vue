@@ -43,9 +43,7 @@ const itemsPerPage = ref(15);
 const sortBy = ref('data_zakonczenia');
 const sortOrder = ref('desc');
 
-const isFormInvalid = computed(
-  () => Object.keys(validationErrors.value).length > 0
-);
+const isFormInvalid = computed(() => Object.keys(validationErrors.value).length > 0);
 
 async function pobierzPrace() {
   isLoading.value = true;
@@ -119,8 +117,7 @@ async function handleSubmit() {
       headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
       body: JSON.stringify(nowaPraca.value),
     });
-    if (!response.ok)
-      throw new Error(`Błąd podczas zapisywania. Status: ${response.status}`);
+    if (!response.ok) throw new Error(`Błąd podczas zapisywania. Status: ${response.status}`);
     await pobierzPrace();
     nowaPraca.value = inicjalizujPustaPrace();
     showAddModal.value = false;
@@ -159,16 +156,12 @@ async function handleUpdate() {
   if (isFormInvalid.value) return;
   if (!edytowaneDane.value.id) return;
   try {
-    const response = await fetch(
-      `${API_URL}/api/prace/${edytowaneDane.value.id}`,
-      {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-        body: JSON.stringify(edytowaneDane.value),
-      }
-    );
-    if (!response.ok)
-      throw new Error(`Błąd podczas aktualizacji. Status: ${response.status}`);
+    const response = await fetch(`${API_URL}/api/prace/${edytowaneDane.value.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      body: JSON.stringify(edytowaneDane.value),
+    });
+    if (!response.ok) throw new Error(`Błąd podczas aktualizacji. Status: ${response.status}`);
     await pobierzPrace();
     showEditModal.value = false;
   } catch (error) {
@@ -186,8 +179,7 @@ async function handleDelete(idPracy) {
       method: 'DELETE',
       headers: getAuthHeaders(),
     });
-    if (!response.ok)
-      throw new Error(`Błąd podczas usuwania. Status: ${response.status}`);
+    if (!response.ok) throw new Error(`Błąd podczas usuwania. Status: ${response.status}`);
     if (prace.value.length === 1 && currentPage.value > 1) {
       currentPage.value--;
     } else {
@@ -211,22 +203,11 @@ onMounted(() => {
     <div class="header">
       <h1>Ilość studni: {{ totalItems }}</h1>
       <div class="header-actions">
-        <button
-          class="add-new-btn"
-          @click="handleShowAddModal"
-          :disabled="isLoading"
-        >
-          &#43; Dodaj nową pracę
-        </button>
+        <button class="add-new-btn" @click="handleShowAddModal" :disabled="isLoading">&#43; Dodaj nową pracę</button>
       </div>
     </div>
     <div class="search-container">
-      <input
-        type="text"
-        v-model="searchQuery"
-        placeholder="Szukaj..."
-        :disabled="isLoading"
-      />
+      <input type="text" v-model="searchQuery" placeholder="Szukaj..." :disabled="isLoading" />
     </div>
 
     <div v-if="isLoading" class="loading-container">
@@ -241,25 +222,19 @@ onMounted(() => {
             <tr>
               <th @click="changeSort('od_kogo')" class="sortable">
                 Od kogo
-                <span v-if="sortBy === 'od_kogo'">{{
-                  sortOrder === 'asc' ? '▲' : '▼'
-                }}</span>
+                <span v-if="sortBy === 'od_kogo'">{{ sortOrder === 'asc' ? '▲' : '▼' }}</span>
               </th>
               <th class="col-pracownicy">Pracownicy</th>
               <th class="col-telefon">Telefon</th>
               <th @click="changeSort('miejscowosc')" class="sortable">
                 Miejscowość
-                <span v-if="sortBy === 'miejscowosc'">{{
-                  sortOrder === 'asc' ? '▲' : '▼'
-                }}</span>
+                <span v-if="sortBy === 'miejscowosc'">{{ sortOrder === 'asc' ? '▲' : '▼' }}</span>
               </th>
               <th class="col-informacje">Informacje</th>
               <th>Data Rozp.</th>
               <th @click="changeSort('data_zakonczenia')" class="sortable">
                 Data Zakoń.
-                <span v-if="sortBy === 'data_zakonczenia'">{{
-                  sortOrder === 'asc' ? '▲' : '▼'
-                }}</span>
+                <span v-if="sortBy === 'data_zakonczenia'">{{ sortOrder === 'asc' ? '▲' : '▼' }}</span>
               </th>
               <th>Średnica Ø</th>
               <th>L. statyczne</th>
@@ -298,15 +273,9 @@ onMounted(() => {
               <td data-label="Wydajność">{{ praca.wydajnosc || '-' }}</td>
               <td data-label="Metry">{{ praca.ilosc_metrow || '-' }}</td>
               <td data-label="Akcje" class="actions-cell">
-                <RouterLink :to="`/praca/${praca.id}`"
-                  ><button class="pokaż">Pokaż</button></RouterLink
-                >
-                <button class="edytuj" @click="handleEdit(praca)">
-                  Edytuj
-                </button>
-                <button class="usun" @click="handleDelete(praca.id)">
-                  Usuń
-                </button>
+                <RouterLink :to="`/praca/${praca.id}`"><button class="pokaż">Pokaż</button></RouterLink>
+                <button class="edytuj" @click="handleEdit(praca)">Edytuj</button>
+                <button class="usun" @click="handleDelete(praca.id)">Usuń</button>
               </td>
             </tr>
           </tbody>
@@ -316,13 +285,9 @@ onMounted(() => {
         </div>
       </div>
       <div v-if="totalPages > 1" class="pagination-controls">
-        <button @click="currentPage--" :disabled="currentPage === 1">
-          &laquo; Poprzednia
-        </button>
+        <button @click="currentPage--" :disabled="currentPage === 1">&laquo; Poprzednia</button>
         <span>Strona {{ currentPage }} z {{ totalPages }}</span>
-        <button @click="currentPage++" :disabled="currentPage === totalPages">
-          Następna &raquo;
-        </button>
+        <button @click="currentPage++" :disabled="currentPage === totalPages">Następna &raquo;</button>
       </div>
     </div>
   </div>
@@ -335,97 +300,32 @@ onMounted(() => {
       </div>
       <form @submit.prevent="handleSubmit">
         <div class="form-grid">
-          <div class="form-group">
-            <label>Od kogo:</label
-            ><input type="text" v-model="nowaPraca.od_kogo" required />
-          </div>
-          <div class="form-group">
-            <label>Pracownicy:</label
-            ><input type="text" v-model="nowaPraca.pracownicy" />
-          </div>
+          <div class="form-group"><label>Od kogo:</label><input type="text" v-model="nowaPraca.od_kogo" required /></div>
+          <div class="form-group"><label>Pracownicy:</label><input type="text" v-model="nowaPraca.pracownicy" /></div>
           <div class="form-group">
             <label>Numer tel.:</label>
-            <input
-              type="text"
-              v-model="nowaPraca.numer_tel"
-              @input="validateForm(nowaPraca)"
-            />
+            <input type="text" v-model="nowaPraca.numer_tel" @input="validateForm(nowaPraca)" />
             <p v-if="validationErrors.numer_tel" class="error-message">
               {{ validationErrors.numer_tel }}
             </p>
           </div>
-          <div class="form-group">
-            <label>Miejscowość:</label
-            ><input type="text" v-model="nowaPraca.miejscowosc" />
-          </div>
-          <div class="form-group full-width">
-            <label>Informacje:</label
-            ><textarea v-model="nowaPraca.informacje" rows="3"></textarea>
-          </div>
-          <div class="form-group">
-            <label>Data rozpoczęcia:</label
-            ><input type="date" v-model="nowaPraca.data_rozpoczecia" />
-          </div>
+          <div class="form-group"><label>Miejscowość:</label><input type="text" v-model="nowaPraca.miejscowosc" /></div>
+          <div class="form-group full-width"><label>Informacje:</label><textarea v-model="nowaPraca.informacje" rows="3"></textarea></div>
+          <div class="form-group"><label>Data rozpoczęcia:</label><input type="date" v-model="nowaPraca.data_rozpoczecia" /></div>
           <div class="form-group">
             <label>Data zakończenia:</label>
-            <input
-              type="date"
-              v-model="nowaPraca.data_zakonczenia"
-              @input="validateForm(nowaPraca)"
-              required
-            />
+            <input type="date" v-model="nowaPraca.data_zakonczenia" @input="validateForm(nowaPraca)" required />
             <p v-if="validationErrors.data_zakonczenia" class="error-message">
               {{ validationErrors.data_zakonczenia }}
             </p>
           </div>
-          <div class="form-group">
-            <label>Średnica Ø:</label
-            ><input
-              type="number"
-              step="any"
-              v-model.number="nowaPraca.srednica"
-            />
-          </div>
-          <div class="form-group">
-            <label>Ilość metrów:</label
-            ><input
-              type="number"
-              step="any"
-              v-model.number="nowaPraca.ilosc_metrow"
-            />
-          </div>
-          <div class="form-group">
-            <label>Lustro statyczne:</label
-            ><input
-              type="number"
-              step="any"
-              v-model.number="nowaPraca.lustro_statyczne"
-            />
-          </div>
-          <div class="form-group">
-            <label>Lustro dynamiczne:</label
-            ><input
-              type="number"
-              step="any"
-              v-model.number="nowaPraca.lustro_dynamiczne"
-            />
-          </div>
-          <div class="form-group">
-            <label>Wydajność (m³/h):</label
-            ><input
-              type="number"
-              step="any"
-              v-model.number="nowaPraca.wydajnosc"
-            />
-          </div>
+          <div class="form-group"><label>Średnica Ø:</label><input type="number" step="any" v-model.number="nowaPraca.srednica" /></div>
+          <div class="form-group"><label>Ilość metrów:</label><input type="number" step="any" v-model.number="nowaPraca.ilosc_metrow" /></div>
+          <div class="form-group"><label>Lustro statyczne:</label><input type="number" step="any" v-model.number="nowaPraca.lustro_statyczne" /></div>
+          <div class="form-group"><label>Lustro dynamiczne:</label><input type="number" step="any" v-model.number="nowaPraca.lustro_dynamiczne" /></div>
+          <div class="form-group"><label>Wydajność (m³/h):</label><input type="number" step="any" v-model.number="nowaPraca.wydajnosc" /></div>
         </div>
-        <div class="modal-actions">
-          <button type="submit" class="zapisz" :disabled="isFormInvalid">
-            Zapisz pracę</button
-          ><button type="button" class="anuluj" @click="handleCancelAdd">
-            Anuluj
-          </button>
-        </div>
+        <div class="modal-actions"><button type="submit" class="zapisz" :disabled="isFormInvalid">Zapisz pracę</button><button type="button" class="anuluj" @click="handleCancelAdd">Anuluj</button></div>
       </form>
     </div>
   </div>
@@ -438,97 +338,32 @@ onMounted(() => {
       </div>
       <form @submit.prevent="handleUpdate">
         <div class="form-grid">
-          <div class="form-group">
-            <label>Od kogo:</label
-            ><input type="text" v-model="edytowaneDane.od_kogo" required />
-          </div>
-          <div class="form-group">
-            <label>Pracownicy:</label
-            ><input type="text" v-model="edytowaneDane.pracownicy" />
-          </div>
+          <div class="form-group"><label>Od kogo:</label><input type="text" v-model="edytowaneDane.od_kogo" required /></div>
+          <div class="form-group"><label>Pracownicy:</label><input type="text" v-model="edytowaneDane.pracownicy" /></div>
           <div class="form-group">
             <label>Numer tel.:</label>
-            <input
-              type="text"
-              v-model="edytowaneDane.numer_tel"
-              @input="validateForm(edytowaneDane)"
-            />
+            <input type="text" v-model="edytowaneDane.numer_tel" @input="validateForm(edytowaneDane)" />
             <p v-if="validationErrors.numer_tel" class="error-message">
               {{ validationErrors.numer_tel }}
             </p>
           </div>
-          <div class="form-group">
-            <label>Miejscowość:</label
-            ><input type="text" v-model="edytowaneDane.miejscowosc" />
-          </div>
-          <div class="form-group full-width">
-            <label>Informacje:</label
-            ><textarea v-model="edytowaneDane.informacje" rows="3"></textarea>
-          </div>
-          <div class="form-group">
-            <label>Data rozpoczęcia:</label
-            ><input type="date" v-model="edytowaneDane.data_rozpoczecia" />
-          </div>
+          <div class="form-group"><label>Miejscowość:</label><input type="text" v-model="edytowaneDane.miejscowosc" /></div>
+          <div class="form-group full-width"><label>Informacje:</label><textarea v-model="edytowaneDane.informacje" rows="3"></textarea></div>
+          <div class="form-group"><label>Data rozpoczęcia:</label><input type="date" v-model="edytowaneDane.data_rozpoczecia" /></div>
           <div class="form-group">
             <label>Data zakończenia:</label>
-            <input
-              type="date"
-              v-model="edytowaneDane.data_zakonczenia"
-              @input="validateForm(edytowaneDane)"
-              required
-            />
+            <input type="date" v-model="edytowaneDane.data_zakonczenia" @input="validateForm(edytowaneDane)" required />
             <p v-if="validationErrors.data_zakonczenia" class="error-message">
               {{ validationErrors.data_zakonczenia }}
             </p>
           </div>
-          <div class="form-group">
-            <label>Średnica Ø:</label
-            ><input
-              type="number"
-              step="any"
-              v-model.number="edytowaneDane.srednica"
-            />
-          </div>
-          <div class="form-group">
-            <label>Ilość metrów:</label
-            ><input
-              type="number"
-              step="any"
-              v-model.number="edytowaneDane.ilosc_metrow"
-            />
-          </div>
-          <div class="form-group">
-            <label>Lustro statyczne:</label
-            ><input
-              type="number"
-              step="any"
-              v-model.number="edytowaneDane.lustro_statyczne"
-            />
-          </div>
-          <div class="form-group">
-            <label>Lustro dynamiczne:</label
-            ><input
-              type="number"
-              step="any"
-              v-model.number="edytowaneDane.lustro_dynamiczne"
-            />
-          </div>
-          <div class="form-group">
-            <label>Wydajność (m³/h):</label
-            ><input
-              type="number"
-              step="any"
-              v-model.number="edytowaneDane.wydajnosc"
-            />
-          </div>
+          <div class="form-group"><label>Średnica Ø:</label><input type="number" step="any" v-model.number="edytowaneDane.srednica" /></div>
+          <div class="form-group"><label>Ilość metrów:</label><input type="number" step="any" v-model.number="edytowaneDane.ilosc_metrow" /></div>
+          <div class="form-group"><label>Lustro statyczne:</label><input type="number" step="any" v-model.number="edytowaneDane.lustro_statyczne" /></div>
+          <div class="form-group"><label>Lustro dynamiczne:</label><input type="number" step="any" v-model.number="edytowaneDane.lustro_dynamiczne" /></div>
+          <div class="form-group"><label>Wydajność (m³/h):</label><input type="number" step="any" v-model.number="edytowaneDane.wydajnosc" /></div>
         </div>
-        <div class="modal-actions">
-          <button type="submit" class="zapisz" :disabled="isFormInvalid">
-            Zapisz zmiany</button
-          ><button type="button" class="anuluj" @click="handleCancelEdit">
-            Anuluj
-          </button>
-        </div>
+        <div class="modal-actions"><button type="submit" class="zapisz" :disabled="isFormInvalid">Zapisz zmiany</button><button type="button" class="anuluj" @click="handleCancelEdit">Anuluj</button></div>
       </form>
     </div>
   </div>
@@ -557,9 +392,7 @@ html {
   box-sizing: inherit;
 }
 body {
-  font-family:
-    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial,
-    sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   color: var(--text-color);
   background-color: var(--background-page);
   margin: 0;

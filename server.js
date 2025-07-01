@@ -33,19 +33,13 @@ const initializeDatabase = async () => {
     client = await pool.connect();
     console.log('Połączono z bazą danych PostgreSQL');
 
-    await client.query(
-      `CREATE TABLE IF NOT EXISTS clients (id SERIAL PRIMARY KEY, name TEXT, phone_number TEXT NOT NULL UNIQUE, address TEXT, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`
-    );
+    await client.query(`CREATE TABLE IF NOT EXISTS clients (id SERIAL PRIMARY KEY, name TEXT, phone_number TEXT NOT NULL UNIQUE, address TEXT, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
     console.log('Tabela "clients" jest gotowa.');
 
-    await client.query(
-      `CREATE TABLE IF NOT EXISTS jobs (id SERIAL PRIMARY KEY, client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE, job_type TEXT NOT NULL, job_date DATE NOT NULL, details_id INTEGER NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`
-    );
+    await client.query(`CREATE TABLE IF NOT EXISTS jobs (id SERIAL PRIMARY KEY, client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE, job_type TEXT NOT NULL, job_date DATE NOT NULL, details_id INTEGER NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
     console.log('Tabela "jobs" jest gotowa.');
 
-    await client.query(
-      `CREATE TABLE IF NOT EXISTS well_details (id SERIAL PRIMARY KEY, job_id INTEGER REFERENCES jobs(id) ON DELETE CASCADE, miejscowosc TEXT, pracownicy TEXT, informacje TEXT, srednica REAL, ilosc_metrow REAL, lustro_statyczne REAL, lustro_dynamiczne REAL, wydajnosc REAL)`
-    );
+    await client.query(`CREATE TABLE IF NOT EXISTS well_details (id SERIAL PRIMARY KEY, job_id INTEGER REFERENCES jobs(id) ON DELETE CASCADE, miejscowosc TEXT, pracownicy TEXT, informacje TEXT, srednica REAL, ilosc_metrow REAL, lustro_statyczne REAL, lustro_dynamiczne REAL, wydajnosc REAL)`);
     console.log('Tabela "well_details" jest gotowa.');
 
     await client.query(
@@ -57,6 +51,14 @@ const initializeDatabase = async () => {
       `CREATE TABLE IF NOT EXISTS treatment_station_details (id SERIAL PRIMARY KEY, job_id INTEGER REFERENCES jobs(id) ON DELETE CASCADE, station_model TEXT, uv_lamp_model TEXT, carbon_filter TEXT, filter_types TEXT, materials_invoice_url TEXT, client_offer_url TEXT, revenue REAL, equipment_cost REAL, labor_cost REAL, wholesale_materials_cost REAL)`
     );
     console.log('Tabela "treatment_station_details" jest gotowa.');
+
+    await client.query(`
+  CREATE TABLE IF NOT EXISTS service_details (
+    id SERIAL PRIMARY KEY,
+    job_id INTEGER REFERENCES jobs(id) ON DELETE CASCADE,
+    description TEXT
+  )`);
+    console.log('Tabela "service_details" jest gotowa.');
 
     await client.query(`CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL)`);
     console.log('Tabela "users" jest gotowa.');
@@ -233,38 +235,15 @@ app.post('/api/jobs', authenticateToken, async (req, res) => {
       detailsValues = detailsColumns.slice(1).map((col) => details[col] || null);
     } else if (jobType === 'connection') {
       detailsTable = 'connection_details';
-      detailsColumns = [
-        'job_id',
-        'well_depth',
-        'diameter',
-        'pump_depth',
-        'pump_model',
-        'controller_model',
-        'hydrophore_model',
-        'materials_invoice_url',
-        'client_offer_url',
-        'revenue',
-        'casing_cost',
-        'equipment_cost',
-        'labor_cost',
-        'wholesale_materials_cost',
-      ];
+      detailsColumns = ['job_id', 'well_depth', 'diameter', 'pump_depth', 'pump_model', 'controller_model', 'hydrophore_model', 'materials_invoice_url', 'client_offer_url', 'revenue', 'casing_cost', 'equipment_cost', 'labor_cost', 'wholesale_materials_cost'];
       detailsValues = detailsColumns.slice(1).map((col) => details[col] || null);
     } else if (jobType === 'treatment_station') {
       detailsTable = 'treatment_station_details';
-      detailsColumns = [
-        'job_id',
-        'station_model',
-        'uv_lamp_model',
-        'carbon_filter',
-        'filter_types',
-        'materials_invoice_url',
-        'client_offer_url',
-        'revenue',
-        'equipment_cost',
-        'labor_cost',
-        'wholesale_materials_cost',
-      ];
+      detailsColumns = ['job_id', 'station_model', 'uv_lamp_model', 'carbon_filter', 'filter_types', 'materials_invoice_url', 'client_offer_url', 'revenue', 'equipment_cost', 'labor_cost', 'wholesale_materials_cost'];
+      detailsValues = detailsColumns.slice(1).map((col) => details[col] || null);
+    } else if (jobType === 'service') {
+      detailsTable = 'service_details';
+      detailsColumns = ['job_id', 'description'];
       detailsValues = detailsColumns.slice(1).map((col) => details[col] || null);
     } else {
       throw new Error('Nieznany typ zlecenia.');
@@ -311,6 +290,7 @@ app.get('/api/jobs/:id', authenticateToken, async (req, res) => {
     if (jobData.job_type === 'well_drilling') detailsTable = 'well_details';
     else if (jobData.job_type === 'connection') detailsTable = 'connection_details';
     else if (jobData.job_type === 'treatment_station') detailsTable = 'treatment_station_details';
+    else if (jobData.job_type === 'service') detailsTable = 'service_details';
     let detailsData = {};
     if (detailsTable) {
       const detailsSql = `SELECT * FROM ${detailsTable} WHERE id = $1`;
@@ -346,35 +326,14 @@ app.put('/api/jobs/:id', authenticateToken, async (req, res) => {
       detailsColumns = ['miejscowosc', 'pracownicy', 'informacje', 'srednica', 'ilosc_metrow', 'lustro_statyczne', 'lustro_dynamiczne', 'wydajnosc'];
     } else if (job_type === 'connection') {
       detailsTable = 'connection_details';
-      detailsColumns = [
-        'well_depth',
-        'diameter',
-        'pump_depth',
-        'pump_model',
-        'controller_model',
-        'hydrophore_model',
-        'materials_invoice_url',
-        'client_offer_url',
-        'revenue',
-        'casing_cost',
-        'equipment_cost',
-        'labor_cost',
-        'wholesale_materials_cost',
-      ];
+      detailsColumns = ['well_depth', 'diameter', 'pump_depth', 'pump_model', 'controller_model', 'hydrophore_model', 'materials_invoice_url', 'client_offer_url', 'revenue', 'casing_cost', 'equipment_cost', 'labor_cost', 'wholesale_materials_cost'];
     } else if (job_type === 'treatment_station') {
       detailsTable = 'treatment_station_details';
-      detailsColumns = [
-        'station_model',
-        'uv_lamp_model',
-        'carbon_filter',
-        'filter_types',
-        'materials_invoice_url',
-        'client_offer_url',
-        'revenue',
-        'equipment_cost',
-        'labor_cost',
-        'wholesale_materials_cost',
-      ];
+      detailsColumns = ['station_model', 'uv_lamp_model', 'carbon_filter', 'filter_types', 'materials_invoice_url', 'client_offer_url', 'revenue', 'equipment_cost', 'labor_cost', 'wholesale_materials_cost'];
+      detailsValues = detailsColumns.map((col) => details[col] || null);
+    } else if (job_type === 'service') {
+      detailsTable = 'service_details';
+      detailsColumns = ['description'];
       detailsValues = detailsColumns.map((col) => details[col] || null);
     }
     if (detailsTable) {
@@ -384,10 +343,7 @@ app.put('/api/jobs/:id', authenticateToken, async (req, res) => {
       await client.query(detailsSql, [...detailsValues, details_id]);
     }
     await client.query('COMMIT');
-    const finalDataResult = await pool.query(
-      `SELECT j.id, j.job_type, j.job_date, j.details_id, c.id as client_id, c.name as client_name, c.phone_number as client_phone FROM jobs j JOIN clients c ON j.client_id = c.id WHERE j.id = $1`,
-      [id]
-    );
+    const finalDataResult = await pool.query(`SELECT j.id, j.job_type, j.job_date, j.details_id, c.id as client_id, c.name as client_name, c.phone_number as client_phone FROM jobs j JOIN clients c ON j.client_id = c.id WHERE j.id = $1`, [id]);
     const finalJobData = finalDataResult.rows[0];
     const detailsSqlFinal = `SELECT * FROM ${detailsTable} WHERE id = $1`;
     const detailsResultFinal = await pool.query(detailsSqlFinal, [finalJobData.details_id]);
