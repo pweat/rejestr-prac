@@ -1,14 +1,19 @@
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, watch } from 'vue';
 import { getAuthHeaders } from '../auth/auth.js';
+import { useRouter } from 'vue-router'; // Dodajemy import
+import PaginationControls from '../components/PaginationControls.vue';
 
 const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
+const router = useRouter(); // Tworzymy instancję routera
 
 const isLoading = ref(true);
 const clients = ref([]);
 const showAddModal = ref(false);
 const showEditModal = ref(false);
 const edytowanyKlient = ref(null);
+const currentPage = ref(1);
+const totalPages = ref(1);
 
 const inicjalizujNowegoKlienta = () => ({
   name: '',
@@ -22,14 +27,17 @@ const nowyKlient = ref(inicjalizujNowegoKlienta());
 async function fetchClients() {
   isLoading.value = true;
   try {
-    const response = await fetch(`${API_URL}/api/clients`, {
-      headers: getAuthHeaders(),
-    });
+    const params = new URLSearchParams({ page: currentPage.value, limit: 15 });
+    const response = await fetch(`${API_URL}/api/clients?${params.toString()}`, { headers: getAuthHeaders() });
     if (!response.ok) throw new Error('Błąd pobierania listy klientów');
-    clients.value = await response.json();
+    const result = await response.json();
+    clients.value = result.data;
+    totalPages.value = result.pagination.totalPages;
   } catch (error) {
-    console.error('Błąd podczas pobierania klientów:', error);
-    alert('Nie udało się pobrać listy klientów.');
+    if (!handleAuthError(error)) {
+      // Zakładając, że masz tu handleAuthError
+      alert('Nie udało się pobrać listy klientów.');
+    }
   } finally {
     isLoading.value = false;
   }
@@ -59,7 +67,9 @@ async function handleAddClient() {
     showAddModal.value = false; // Zamknij modal
   } catch (error) {
     console.error('Błąd podczas dodawania klienta:', error);
-    alert(error.message);
+    if (!handleAuthError(error)) {
+      alert(error.message);
+    }
   }
 }
 
@@ -85,7 +95,9 @@ async function handleUpdateClient() {
     showEditModal.value = false;
   } catch (error) {
     console.error('Błąd podczas aktualizacji klienta:', error);
-    alert(error.message);
+    if (!handleAuthError(error)) {
+      alert(error.message);
+    }
   }
 }
 
@@ -102,9 +114,31 @@ async function handleDeleteClient(clientId) {
     await fetchClients();
   } catch (error) {
     console.error('Błąd podczas usuwania klienta:', error);
-    alert(error.message);
+    if (!handleAuthError(error)) {
+      alert(error.message);
+    }
   }
 }
+
+const handleLogout = () => {
+  removeToken();
+  router.push('/login');
+};
+
+const handleAuthError = (error) => {
+  if (error.message.includes('401') || error.message.includes('403')) {
+    alert('Twoja sesja wygasła lub jest nieprawidłowa. Proszę zalogować się ponownie.');
+    handleLogout();
+    return true;
+  }
+  return false;
+};
+
+function handlePageChange(newPage) {
+  currentPage.value = newPage;
+}
+
+watch(currentPage, fetchClients);
 
 onMounted(() => {
   fetchClients();
@@ -154,6 +188,7 @@ onMounted(() => {
           <p>Brak klientów w bazie. Dodaj pierwszego, aby rozpocząć.</p>
         </div>
       </div>
+      <PaginationControls v-if="totalPages > 1" :current-page="currentPage" :total-pages="totalPages" @page-changed="handlePageChange" />
     </div>
   </div>
 

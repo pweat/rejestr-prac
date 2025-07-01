@@ -3,6 +3,7 @@ import { ref, onMounted, computed, watch } from 'vue';
 import { RouterLink } from 'vue-router';
 import { getAuthHeaders } from '../auth/auth.js';
 import { formatDate } from '../utils/formatters.js';
+import PaginationControls from '../components/PaginationControls.vue';
 
 const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
 const isLoading = ref(true);
@@ -15,6 +16,8 @@ const selectedJobDetails = ref(null);
 const isDetailsLoading = ref(false);
 const showEditJobModal = ref(false);
 const editedJobData = ref(null);
+const currentPage = ref(1);
+const totalPages = ref(1);
 
 const inicjalizujNoweZlecenie = () => ({
   clientId: null,
@@ -33,14 +36,25 @@ function translateJobType(type) {
   return types[type] || type;
 }
 
+function handlePageChange(newPage) {
+  currentPage.value = newPage;
+  // Funkcja `watch` automatycznie wywoła `pobierzPrace`
+}
+
 async function fetchJobs() {
   isLoading.value = true;
   try {
-    const response = await fetch(`${API_URL}/api/jobs`, {
+    const params = new URLSearchParams({
+      page: currentPage.value,
+      limit: 15, // Możemy tu w przyszłości dodać selektor ilości na stronę
+    });
+    const response = await fetch(`${API_URL}/api/jobs?${params.toString()}`, {
       headers: getAuthHeaders(),
     });
     if (!response.ok) throw new Error('Błąd pobierania listy zleceń');
-    jobs.value = await response.json();
+    const result = await response.json();
+    jobs.value = result.data;
+    totalPages.value = result.pagination.totalPages;
   } catch (error) {
     console.error('Błąd podczas pobierania zleceń:', error);
     alert('Nie udało się pobrać listy zleceń.');
@@ -213,6 +227,8 @@ watch(
   }
 );
 
+watch(currentPage, fetchJobs);
+
 onMounted(() => {
   fetchJobs();
   fetchClientsForSelect();
@@ -265,6 +281,7 @@ onMounted(() => {
           <p>Brak zleceń w bazie. Dodaj pierwsze, aby rozpocząć.</p>
         </div>
       </div>
+      <PaginationControls v-if="totalPages > 1" :current-page="currentPage" :total-pages="totalPages" @page-changed="handlePageChange" />
     </div>
   </div>
 

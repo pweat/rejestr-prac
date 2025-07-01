@@ -1,7 +1,8 @@
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, watch } from 'vue';
 import { getAuthHeaders } from '../auth/auth.js';
 import { formatDate } from '../utils/formatters.js';
+import PaginationControls from '../components/PaginationControls.vue';
 
 const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
 
@@ -18,6 +19,8 @@ const showHistoryModal = ref(false);
 const itemHistory = ref([]);
 const currentItemForHistory = ref(null);
 const isHistoryLoading = ref(false);
+const currentPage = ref(1);
+const totalPages = ref(1);
 
 const inicjalizujNowyPrzedmiot = () => ({
   name: '',
@@ -36,15 +39,23 @@ function formatOperationType(type) {
   return 'Korekta';
 }
 
+const processPaginatedResponse = (result) => {
+  inventoryItems.value = result.data;
+  totalPages.value = result.pagination.totalPages;
+  currentPage.value = result.pagination.currentPage;
+};
+
 async function pobierzPrzedmioty() {
   isLoading.value = true;
   try {
-    const response = await fetch(`${API_URL}/api/inventory`, { headers: getAuthHeaders() });
-    if (!response.ok) throw new Error('Błąd pobierania danych z magazynu');
-    inventoryItems.value = await response.json();
+    const params = new URLSearchParams({ page: currentPage.value, limit: 15 });
+    const response = await fetch(`${API_URL}/api/inventory?${params.toString()}`, { headers: getAuthHeaders() });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Błąd pobierania danych z magazynu');
+    processPaginatedResponse(result);
   } catch (error) {
     console.error('Błąd podczas pobierania przedmiotów z magazynu:', error);
-    alert('Nie udało się pobrać danych z magazynu.');
+    alert('Nie udało się pobrać danych z magazynu: ' + error.message);
   } finally {
     isLoading.value = false;
   }
@@ -61,16 +72,14 @@ async function handleAddItem() {
     return;
   }
   try {
-    const response = await fetch(`${API_URL}/api/inventory`, {
+    const response = await fetch(`${API_URL}/api/inventory?page=${currentPage.value}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
       body: JSON.stringify(nowyPrzedmiot.value),
     });
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || 'Błąd podczas dodawania przedmiotu.');
-    }
-    await pobierzPrzedmioty();
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Błąd podczas dodawania przedmiotu.');
+    processPaginatedResponse(result);
     showAddItemModal.value = false;
   } catch (error) {
     console.error('Błąd podczas dodawania przedmiotu:', error);
@@ -86,23 +95,14 @@ function handleShowEditModal(item) {
 async function handleUpdateItem() {
   if (!edytowanyPrzedmiot.value) return;
   try {
-    const item = edytowanyPrzedmiot.value;
-    const response = await fetch(`${API_URL}/api/inventory/${item.id}`, {
+    const response = await fetch(`${API_URL}/api/inventory/${edytowanyPrzedmiot.value.id}?page=${currentPage.value}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-      body: JSON.stringify({
-        name: item.name,
-        quantity: item.quantity,
-        unit: item.unit,
-        min_stock_level: item.min_stock_level,
-        is_ordered: item.is_ordered, // is_ordered jest teraz częścią głównego obiektu
-      }),
+      body: JSON.stringify(edytowanyPrzedmiot.value),
     });
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || 'Błąd podczas aktualizacji przedmiotu.');
-    }
-    await pobierzPrzedmioty();
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Błąd podczas aktualizacji przedmiotu.');
+    processPaginatedResponse(result);
     showEditItemModal.value = false;
   } catch (error) {
     console.error('Błąd podczas aktualizacji przedmiotu:', error);
@@ -113,14 +113,15 @@ async function handleUpdateItem() {
 async function handleDeleteItem(itemId) {
   if (!confirm('Czy na pewno chcesz trwale usunąć ten przedmiot z magazynu? Usunie to również całą jego historię operacji.')) return;
   try {
-    const response = await fetch(`${API_URL}/api/inventory/${itemId}`, {
+    const response = await fetch(`${API_URL}/api/inventory/${itemId}?page=${currentPage.value}`, {
       method: 'DELETE',
       headers: getAuthHeaders(),
     });
-    if (!response.ok && response.status !== 204) {
-      throw new Error('Nie udało się usunąć przedmiotu.');
+    const result = await response.json();
+    if (!response.ok && response.status !== 200) {
+      throw new Error(result.error || 'Nie udało się usunąć przedmiotu.');
     }
-    await pobierzPrzedmioty();
+    processPaginatedResponse(result);
   } catch (error) {
     console.error('Błąd podczas usuwania przedmiotu:', error);
     alert(error.message);
@@ -140,7 +141,7 @@ async function handleProcessOperation() {
     return;
   }
   try {
-    const response = await fetch(`${API_URL}/api/inventory/operation`, {
+    const response = await fetch(`${API_URL}/api/inventory/operation?page=${currentPage.value}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
       body: JSON.stringify({
@@ -149,11 +150,9 @@ async function handleProcessOperation() {
         quantity: operationQuantity.value || 0,
       }),
     });
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || 'Błąd podczas wykonywania operacji.');
-    }
-    await pobierzPrzedmioty();
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Błąd podczas wykonywania operacji.');
+    processPaginatedResponse(result);
     showOperationModal.value = false;
   } catch (error) {
     console.error('Błąd podczas operacji magazynowej:', error);
@@ -194,6 +193,11 @@ const getItemStatus = (item) => {
   return status;
 };
 
+function handlePageChange(newPage) {
+  currentPage.value = newPage;
+}
+watch(currentPage, pobierzPrzedmioty);
+
 onMounted(() => {
   pobierzPrzedmioty();
 });
@@ -206,45 +210,48 @@ onMounted(() => {
       <button class="add-new-btn" @click="handleShowAddItemModal" :disabled="isLoading">&#43; Dodaj Przedmiot</button>
     </div>
 
-    <div v-if="isLoading" class="loading-container">
-      <div class="spinner"></div>
-      <p>Ładowanie danych...</p>
-    </div>
+    <div class="main-content-wrapper">
+      <div v-if="isLoading" class="loading-overlay">
+        <div class="spinner"></div>
+      </div>
 
-    <div v-else>
-      <div class="table-container">
-        <table>
-          <thead>
-            <tr>
-              <th>Nazwa Przedmiotu</th>
-              <th>Ilość</th>
-              <th>Jednostka</th>
-              <th>Status</th>
-              <th>Akcje</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="item in inventoryItems" :key="item.id" :class="{ 'low-stock-row': getItemStatus(item).class === 'status-low', 'out-of-stock-row': getItemStatus(item).class === 'status-out' }">
-              <td data-label="Nazwa Przedmiotu">{{ item.name }}</td>
-              <td data-label="Ilość" class="quantity-cell">{{ item.quantity }}</td>
-              <td data-label="Jednostka">{{ item.unit }}</td>
-              <td data-label="Status">
-                <span class="status-badge" :class="getItemStatus(item).class">
-                  {{ getItemStatus(item).text }}
-                </span>
-              </td>
-              <td data-label="Akcje" class="actions-cell">
-                <button class="btn-secondary" @click="handleShowOperationModal(item)">Operacje</button>
-                <button class="pokaż" @click="handleShowHistory(item)">Historia</button>
-                <button class="edytuj" @click="handleShowEditModal(item)">Edytuj</button>
-                <button class="usun" @click="handleDeleteItem(item.id)">Usuń</button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-        <div v-if="!inventoryItems.length" class="empty-table-message">
-          <p>Brak przedmiotów w magazynie. Dodaj pierwszy, aby rozpocząć.</p>
+      <div class="table-and-pagination" :class="{ 'is-loading': isLoading }">
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Nazwa Przedmiotu</th>
+                <th>Ilość</th>
+                <th>Jednostka</th>
+                <th>Status</th>
+                <th>Akcje</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="item in inventoryItems" :key="item.id" :class="{ 'low-stock-row': getItemStatus(item).class === 'status-low', 'out-of-stock-row': getItemStatus(item).class === 'status-out' }">
+                <td data-label="Nazwa Przedmiotu">{{ item.name }}</td>
+                <td data-label="Ilość" class="quantity-cell">{{ item.quantity }}</td>
+                <td data-label="Jednostka">{{ item.unit }}</td>
+                <td data-label="Status">
+                  <span class="status-badge" :class="getItemStatus(item).class">
+                    {{ getItemStatus(item).text }}
+                  </span>
+                </td>
+                <td data-label="Akcje" class="actions-cell">
+                  <button class="btn-secondary" @click="handleShowOperationModal(item)">Operacje</button>
+                  <button class="pokaż" @click="handleShowHistory(item)">Historia</button>
+                  <button class="edytuj" @click="handleShowEditModal(item)">Edytuj</button>
+                  <button class="usun" @click="handleDeleteItem(item.id)">Usuń</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <div v-if="!inventoryItems.length && !isLoading" class="empty-table-message">
+            <p>Brak przedmiotów w magazynie. Dodaj pierwszy, aby rozpocząć.</p>
+          </div>
         </div>
+
+        <PaginationControls v-if="totalPages > 1" :current-page="currentPage" :total-pages="totalPages" @page-changed="handlePageChange" />
       </div>
     </div>
   </div>
@@ -353,12 +360,6 @@ onMounted(() => {
   flex-direction: column;
   gap: 20px;
 }
-.btn-success {
-  background-color: var(--green);
-}
-.btn-warning {
-  background-color: #ffc107;
-}
 .btn-secondary {
   background-color: var(--grey);
 }
@@ -419,7 +420,8 @@ onMounted(() => {
 .history-quantity.delivery {
   color: var(--green);
 }
-.history-quantity.withdrawal {
+.history-quantity.withdrawal,
+.history-entry.withdrawal {
   color: var(--red);
 }
 .modal-body {
@@ -430,5 +432,25 @@ onMounted(() => {
   justify-content: center;
   align-items: center;
   min-height: 150px;
+}
+.main-content-wrapper {
+  position: relative;
+}
+.table-and-pagination.is-loading {
+  opacity: 0.4;
+  pointer-events: none;
+  transition: opacity 0.3s ease-in-out;
+}
+.loading-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 10;
+  padding-top: 50px;
 }
 </style>

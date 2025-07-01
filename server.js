@@ -1,12 +1,12 @@
+// =================================================================
+// --- IMPORTY I PODSTAWOWA KONFIGURACJA ---
+// =================================================================
 const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
-// =================================================================
-// --- KONFIGURACJA I START APLIKACJI ---
-// =================================================================
 const app = express();
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'bardzo-tajny-klucz-do-zmiany-na-produkcji';
@@ -20,7 +20,7 @@ const pool = new Pool({
   user: 'postgres',
   host: 'localhost',
   database: 'rejestr_prac',
-  password: 'admin',
+  password: 'admin', // Twoje hasło do lokalnej bazy PostgreSQL
   port: 5432,
 });
 
@@ -52,24 +52,14 @@ const initializeDatabase = async () => {
     );
     console.log('Tabela "treatment_station_details" jest gotowa.');
 
-    await client.query(`
-  CREATE TABLE IF NOT EXISTS service_details (
-    id SERIAL PRIMARY KEY,
-    job_id INTEGER REFERENCES jobs(id) ON DELETE CASCADE,
-    description TEXT
-  )`);
+    await client.query(`CREATE TABLE IF NOT EXISTS service_details (id SERIAL PRIMARY KEY, job_id INTEGER REFERENCES jobs(id) ON DELETE CASCADE, description TEXT)`);
     console.log('Tabela "service_details" jest gotowa.');
 
     await client.query(`CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL)`);
     console.log('Tabela "users" jest gotowa.');
 
-    const res = await client.query("SELECT column_name FROM information_schema.columns WHERE table_name='inventory_items' AND column_name='is_ordered'");
-    if (res.rows.length === 0) {
-      await client.query('ALTER TABLE inventory_items ADD COLUMN is_ordered BOOLEAN DEFAULT FALSE NOT NULL');
-      console.log('Zaktualizowano tabelę "inventory_items".');
-    } else {
-      console.log('Tabela "inventory_items" jest gotowa.');
-    }
+    await client.query(`CREATE TABLE IF NOT EXISTS inventory_items (id SERIAL PRIMARY KEY, name TEXT NOT NULL UNIQUE, quantity REAL NOT NULL DEFAULT 0, unit TEXT NOT NULL, min_stock_level REAL NOT NULL DEFAULT 0, last_delivery_date DATE, is_ordered BOOLEAN DEFAULT FALSE NOT NULL)`);
+    console.log('Tabela "inventory_items" jest gotowa.');
 
     await client.query(
       `CREATE TABLE IF NOT EXISTS stock_history (id SERIAL PRIMARY KEY, item_id INTEGER NOT NULL REFERENCES inventory_items(id) ON DELETE CASCADE, change_quantity REAL NOT NULL, operation_type TEXT NOT NULL, operation_date TIMESTAMPTZ NOT NULL DEFAULT NOW(), user_id INTEGER REFERENCES users(id))`
@@ -154,8 +144,14 @@ app.post('/api/login', async (req, res) => {
 // =================================================================
 app.get('/api/clients', authenticateToken, async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM clients ORDER BY name ASC');
-    res.json(result.rows);
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 15;
+    const offset = (page - 1) * limit;
+    const countResult = await pool.query('SELECT COUNT(*) FROM clients');
+    const totalItems = parseInt(countResult.rows[0].count);
+    const totalPages = Math.ceil(totalItems / limit);
+    const dataResult = await pool.query('SELECT * FROM clients ORDER BY name ASC LIMIT $1 OFFSET $2', [limit, offset]);
+    res.json({ data: dataResult.rows, pagination: { totalItems, totalPages, currentPage: page } });
   } catch (err) {
     console.error('Błąd w GET /api/clients:', err);
     res.status(500).json({ error: 'Wystąpił błąd serwera' });
@@ -218,17 +214,14 @@ app.delete('/api/clients/:id', authenticateToken, async (req, res) => {
 // =================================================================
 // --- API ZLECEŃ ---
 // =================================================================
-// Zastąp ten endpoint nową wersją
 app.post('/api/jobs', authenticateToken, async (req, res) => {
   const { clientId, jobType, jobDate, details } = req.body;
   if (!clientId || !jobType || !jobDate || !details) {
     return res.status(400).json({ error: 'Brak wszystkich wymaganych danych dla zlecenia.' });
   }
-
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-
     let detailsTable = '';
     let detailsColumns = [];
     let detailsValues = [];
@@ -251,33 +244,20 @@ app.post('/api/jobs', authenticateToken, async (req, res) => {
     } else {
       throw new Error('Nieznany typ zlecenia.');
     }
-
     const detailsPlaceholders = detailsValues.map((_, i) => `$${i + 1}`).join(', ');
     const detailsSql = `INSERT INTO ${detailsTable} (${detailsColumns.slice(1).join(', ')}) VALUES (${detailsPlaceholders}) RETURNING id`;
     const detailsResult = await client.query(detailsSql, detailsValues);
     const detailsId = detailsResult.rows[0].id;
-
     const jobSql = `INSERT INTO jobs (client_id, job_type, job_date, details_id) VALUES ($1, $2, $3, $4) RETURNING id`;
     const jobResult = await client.query(jobSql, [clientId, jobType, jobDate, detailsId]);
     const jobId = jobResult.rows[0].id;
-
     const updateDetailsSql = `UPDATE ${detailsTable} SET job_id = $1 WHERE id = $2`;
     await client.query(updateDetailsSql, [jobId, detailsId]);
-
     await client.query('COMMIT');
-
-    // ZMIANA: Pobierz i zwróć pełne dane nowo utworzonego zlecenia
     const finalDataResult = await pool.query(
-      `
-      SELECT j.id, j.job_type, j.job_date, c.name as client_name, c.phone_number as client_phone, wd.miejscowosc
-      FROM jobs j
-      JOIN clients c ON j.client_id = c.id
-      LEFT JOIN well_details wd ON j.details_id = wd.id AND j.job_type = 'well_drilling'
-      WHERE j.id = $1
-    `,
+      `SELECT j.id, j.job_type, j.job_date, c.name as client_name, c.phone_number as client_phone, wd.miejscowosc FROM jobs j JOIN clients c ON j.client_id = c.id LEFT JOIN well_details wd ON j.details_id = wd.id AND j.job_type = 'well_drilling' WHERE j.id = $1`,
       [jobId]
     );
-
     res.status(201).json(finalDataResult.rows[0]);
   } catch (err) {
     await client.query('ROLLBACK');
@@ -287,25 +267,17 @@ app.post('/api/jobs', authenticateToken, async (req, res) => {
     client.release();
   }
 });
-// Zastąp ten endpoint nową wersją
 app.get('/api/jobs', authenticateToken, async (req, res) => {
   try {
-    // To zapytanie łączy tabele jobs, clients i warunkowo well_details
-    const sql = `
-      SELECT 
-        j.id, 
-        j.job_type, 
-        j.job_date, 
-        c.name as client_name, 
-        c.phone_number as client_phone,
-        wd.miejscowosc
-      FROM jobs j
-      JOIN clients c ON j.client_id = c.id
-      LEFT JOIN well_details wd ON j.details_id = wd.id AND j.job_type = 'well_drilling'
-      ORDER BY j.job_date DESC
-    `;
-    const result = await pool.query(sql);
-    res.json(result.rows);
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 15;
+    const offset = (page - 1) * limit;
+    const countResult = await pool.query('SELECT COUNT(*) FROM jobs');
+    const totalItems = parseInt(countResult.rows[0].count);
+    const totalPages = Math.ceil(totalItems / limit);
+    const sql = `SELECT j.id, j.job_type, j.job_date, c.name as client_name, c.phone_number as client_phone, wd.miejscowosc FROM jobs j JOIN clients c ON j.client_id = c.id LEFT JOIN well_details wd ON j.details_id = wd.id AND j.job_type = 'well_drilling' ORDER BY j.job_date DESC LIMIT $1 OFFSET $2`;
+    const dataResult = await pool.query(sql, [limit, offset]);
+    res.json({ data: dataResult.rows, pagination: { totalItems, totalPages, currentPage: page } });
   } catch (err) {
     console.error('Błąd w GET /api/jobs:', err);
     res.status(500).json({ error: 'Wystąpił błąd serwera' });
@@ -364,11 +336,9 @@ app.put('/api/jobs/:id', authenticateToken, async (req, res) => {
     } else if (job_type === 'treatment_station') {
       detailsTable = 'treatment_station_details';
       detailsColumns = ['station_model', 'uv_lamp_model', 'carbon_filter', 'filter_types', 'materials_invoice_url', 'client_offer_url', 'revenue', 'equipment_cost', 'labor_cost', 'wholesale_materials_cost'];
-      detailsValues = detailsColumns.map((col) => details[col] || null);
     } else if (job_type === 'service') {
       detailsTable = 'service_details';
       detailsColumns = ['description'];
-      detailsValues = detailsColumns.map((col) => details[col] || null);
     }
     if (detailsTable) {
       const setClauses = detailsColumns.map((col, i) => `${col} = $${i + 1}`).join(', ');
@@ -377,11 +347,11 @@ app.put('/api/jobs/:id', authenticateToken, async (req, res) => {
       await client.query(detailsSql, [...detailsValues, details_id]);
     }
     await client.query('COMMIT');
-    const finalDataResult = await pool.query(`SELECT j.id, j.job_type, j.job_date, j.details_id, c.id as client_id, c.name as client_name, c.phone_number as client_phone FROM jobs j JOIN clients c ON j.client_id = c.id WHERE j.id = $1`, [id]);
-    const finalJobData = finalDataResult.rows[0];
-    const detailsSqlFinal = `SELECT * FROM ${detailsTable} WHERE id = $1`;
-    const detailsResultFinal = await pool.query(detailsSqlFinal, [finalJobData.details_id]);
-    res.status(200).json({ ...finalJobData, details: detailsResultFinal.rows[0] });
+    const finalDataResult = await pool.query(
+      `SELECT j.id, j.job_type, j.job_date, j.details_id, c.id as client_id, c.name as client_name, c.phone_number as client_phone, wd.miejscowosc FROM jobs j JOIN clients c ON j.client_id = c.id LEFT JOIN well_details wd ON j.details_id = wd.id AND j.job_type = 'well_drilling' WHERE j.id = $1`,
+      [id]
+    );
+    res.status(200).json(finalDataResult.rows[0]);
   } catch (err) {
     await client.query('ROLLBACK');
     console.error(`Błąd w PUT /api/jobs/${id}:`, err);
@@ -405,12 +375,35 @@ app.delete('/api/jobs/:id', authenticateToken, async (req, res) => {
 });
 
 // =================================================================
+// --- API POWIADOMIEŃ ---
+// =================================================================
+app.get('/api/service-reminders', authenticateToken, async (req, res) => {
+  try {
+    const sql = ` SELECT j.id, j.job_date, c.name as client_name, c.phone_number as client_phone FROM jobs j JOIN clients c ON j.client_id = c.id WHERE j.job_type = 'treatment_station' AND j.job_date < NOW() - INTERVAL '11 months' ORDER BY j.job_date ASC; `;
+    const result = await pool.query(sql);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Błąd w GET /api/service-reminders:', err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
+
+// =================================================================
 // --- API MAGAZYNU ---
 // =================================================================
+const getPaginatedInventory = async (page = 1) => {
+  const limit = 15;
+  const offset = (page - 1) * limit;
+  const countResult = await pool.query('SELECT COUNT(*) FROM inventory_items');
+  const totalItems = parseInt(countResult.rows[0].count);
+  const totalPages = Math.ceil(totalItems / limit);
+  const dataResult = await pool.query('SELECT * FROM inventory_items ORDER BY name ASC LIMIT $1 OFFSET $2', [limit, offset]);
+  return { data: dataResult.rows, pagination: { totalItems, totalPages, currentPage: page } };
+};
 app.get('/api/inventory', authenticateToken, async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM inventory_items ORDER BY name ASC');
-    res.json(result.rows);
+    const paginatedData = await getPaginatedInventory(parseInt(req.query.page) || 1);
+    res.json(paginatedData);
   } catch (err) {
     console.error('Błąd w GET /api/inventory:', err);
     res.status(500).json({ error: 'Wystąpił błąd serwera' });
@@ -422,10 +415,10 @@ app.post('/api/inventory', authenticateToken, async (req, res) => {
     if (!name || !unit) {
       return res.status(400).json({ error: 'Nazwa i jednostka miary są wymagane.' });
     }
-    const sql = `INSERT INTO inventory_items (name, quantity, unit, min_stock_level) VALUES ($1, $2, $3, $4) RETURNING *`;
-    const params = [name, quantity || 0, unit, min_stock_level || 0];
-    const result = await pool.query(sql, params);
-    res.status(201).json(result.rows[0]);
+    const sql = `INSERT INTO inventory_items (name, quantity, unit, min_stock_level) VALUES ($1, $2, $3, $4)`;
+    await pool.query(sql, [name, quantity || 0, unit, min_stock_level || 0]);
+    const paginatedData = await getPaginatedInventory(1);
+    res.status(201).json(paginatedData);
   } catch (err) {
     if (err.code === '23505') {
       return res.status(400).json({ error: 'Przedmiot o tej nazwie już istnieje w magazynie.' });
@@ -441,13 +434,10 @@ app.put('/api/inventory/:id', authenticateToken, async (req, res) => {
     if (!name || !unit) {
       return res.status(400).json({ error: 'Nazwa i jednostka miary są wymagane.' });
     }
-    const sql = `UPDATE inventory_items SET name = $1, quantity = $2, unit = $3, min_stock_level = $4, is_ordered = $5 WHERE id = $6 RETURNING *`;
-    const params = [name, quantity || 0, unit, min_stock_level || 0, is_ordered || false, id];
-    const result = await pool.query(sql, params);
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Nie znaleziono przedmiotu o podanym ID.' });
-    }
-    res.status(200).json(result.rows[0]);
+    const sql = `UPDATE inventory_items SET name = $1, quantity = $2, unit = $3, min_stock_level = $4, is_ordered = $5 WHERE id = $6`;
+    await pool.query(sql, [name, quantity || 0, unit, min_stock_level || 0, is_ordered || false, id]);
+    const paginatedData = await getPaginatedInventory(parseInt(req.query.page) || 1);
+    res.status(200).json(paginatedData);
   } catch (err) {
     if (err.code === '23505') {
       return res.status(400).json({ error: 'Przedmiot o tej nazwie już istnieje w magazynie.' });
@@ -459,11 +449,9 @@ app.put('/api/inventory/:id', authenticateToken, async (req, res) => {
 app.delete('/api/inventory/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const result = await pool.query('DELETE FROM inventory_items WHERE id = $1', [id]);
-    if (result.rowCount === 0) {
-      return res.status(404).json({ message: 'Nie znaleziono przedmiotu' });
-    }
-    res.status(204).send();
+    await pool.query('DELETE FROM inventory_items WHERE id = $1', [id]);
+    const paginatedData = await getPaginatedInventory(parseInt(req.query.page) || 1);
+    res.status(200).json(paginatedData);
   } catch (err) {
     console.error(`Błąd w DELETE /api/inventory/${req.params.id}:`, err);
     res.status(500).json({ error: 'Wystąpił błąd serwera' });
@@ -474,29 +462,21 @@ app.post('/api/inventory/operation', authenticateToken, async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    let updatedItem;
     if (operationType === 'delivery' || operationType === 'withdrawal') {
       if (!quantity || quantity <= 0) throw new Error('Ilość musi być dodatnia.');
       const changeQuantity = operationType === 'delivery' ? Math.abs(quantity) : -Math.abs(quantity);
-      const updateQuery = `UPDATE inventory_items SET quantity = quantity + $1, last_delivery_date = CASE WHEN $2 = 'delivery' THEN NOW() ELSE last_delivery_date END WHERE id = $3 RETURNING *`;
-      const updateResult = await client.query(updateQuery, [changeQuantity, operationType, itemId]);
-      updatedItem = updateResult.rows[0];
-      const historyQuery = `INSERT INTO stock_history (item_id, change_quantity, operation_type, user_id) VALUES ($1, $2, $3, $4)`;
-      await client.query(historyQuery, [itemId, changeQuantity, operationType, req.user.userId]);
+      await client.query(`UPDATE inventory_items SET quantity = quantity + $1, last_delivery_date = CASE WHEN $2 = 'delivery' THEN NOW() ELSE last_delivery_date END WHERE id = $3`, [changeQuantity, operationType, itemId]);
+      await client.query(`INSERT INTO stock_history (item_id, change_quantity, operation_type, user_id) VALUES ($1, $2, $3, $4)`, [itemId, changeQuantity, operationType, req.user.userId]);
     } else if (operationType === 'toggle_ordered') {
-      const updateQuery = `UPDATE inventory_items SET is_ordered = NOT is_ordered WHERE id = $1 RETURNING *`;
-      const updateResult = await client.query(updateQuery, [itemId]);
-      updatedItem = updateResult.rows[0];
-      const historyQuery = `INSERT INTO stock_history (item_id, change_quantity, operation_type, user_id) VALUES ($1, $2, $3, $4)`;
-      await client.query(historyQuery, [itemId, 0, `status_changed_to_${updatedItem.is_ordered}`, req.user.userId]);
+      const updateResult = await client.query(`UPDATE inventory_items SET is_ordered = NOT is_ordered WHERE id = $1 RETURNING is_ordered`, [itemId]);
+      const newStatus = updateResult.rows[0].is_ordered;
+      await client.query(`INSERT INTO stock_history (item_id, change_quantity, operation_type, user_id) VALUES ($1, $2, $3, $4)`, [itemId, 0, `status_changed_to_${newStatus}`, req.user.userId]);
     } else {
       throw new Error('Nieznany typ operacji.');
     }
-    if (!updatedItem) {
-      throw new Error('Nie znaleziono przedmiotu.');
-    }
     await client.query('COMMIT');
-    res.status(200).json(updatedItem);
+    const paginatedData = await getPaginatedInventory(parseInt(req.query.page) || 1);
+    res.status(200).json(paginatedData);
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('Błąd w /api/inventory/operation:', err);
@@ -508,7 +488,7 @@ app.post('/api/inventory/operation', authenticateToken, async (req, res) => {
 app.get('/api/inventory/:id/history', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const sql = `SELECT sh.change_quantity, sh.operation_type, sh.operation_date, u.username FROM stock_history sh LEFT JOIN users u ON sh.user_id = u.id WHERE sh.item_id = $1 ORDER BY sh.operation_date DESC`;
+    const sql = ` SELECT sh.change_quantity, sh.operation_type, sh.operation_date, u.username FROM stock_history sh LEFT JOIN users u ON sh.user_id = u.id WHERE sh.item_id = $1 ORDER BY sh.operation_date DESC`;
     const result = await pool.query(sql, [id]);
     res.json(result.rows);
   } catch (err) {
