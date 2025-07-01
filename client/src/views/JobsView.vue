@@ -81,7 +81,9 @@ async function handleAddJob() {
       const errorData = await response.json();
       throw new Error(errorData.error || 'Błąd podczas tworzenia zlecenia.');
     }
-    await fetchJobs();
+    // Zamiast przeładowywać wszystko, dodajemy tylko nowy wiersz
+    const newJob = await response.json();
+    jobs.value.unshift(newJob); // Dodajemy na początek listy
     showAddJobModal.value = false;
   } catch (error) {
     console.error('Błąd w handleAddJob():', error);
@@ -164,15 +166,18 @@ async function handleUpdateJob() {
       const errorData = await response.json();
       throw new Error(errorData.error || 'Błąd podczas aktualizacji zlecenia.');
     }
+
     const updatedJobData = await response.json();
     const index = jobs.value.findIndex((j) => j.id === updatedJobData.id);
     if (index !== -1) {
+      // Podmieniamy tylko zaktualizowany wiersz na liście
       jobs.value[index] = {
         id: updatedJobData.id,
         job_type: updatedJobData.job_type,
         job_date: updatedJobData.job_date,
         client_name: updatedJobData.client_name,
         client_phone: updatedJobData.client_phone,
+        miejscowosc: updatedJobData.miejscowosc,
       };
     }
     showEditJobModal.value = false;
@@ -231,6 +236,7 @@ onMounted(() => {
             <tr>
               <th>Klient</th>
               <th>Telefon Klienta</th>
+              <th>Miejscowość</th>
               <th>Typ Zlecenia</th>
               <th>Data</th>
               <th>Akcje</th>
@@ -240,6 +246,7 @@ onMounted(() => {
             <tr v-for="job in jobs" :key="job.id">
               <td data-label="Klient">{{ job.client_name || '-' }}</td>
               <td data-label="Telefon Klienta">{{ job.client_phone }}</td>
+              <td data-label="Miejscowość">{{ job.miejscowosc || '-' }}</td>
               <td data-label="Typ Zlecenia">
                 <span class="job-type-badge" :class="job.job_type">
                   {{ translateJobType(job.job_type) }}

@@ -218,14 +218,17 @@ app.delete('/api/clients/:id', authenticateToken, async (req, res) => {
 // =================================================================
 // --- API ZLECEŃ ---
 // =================================================================
+// Zastąp ten endpoint nową wersją
 app.post('/api/jobs', authenticateToken, async (req, res) => {
   const { clientId, jobType, jobDate, details } = req.body;
   if (!clientId || !jobType || !jobDate || !details) {
     return res.status(400).json({ error: 'Brak wszystkich wymaganych danych dla zlecenia.' });
   }
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+
     let detailsTable = '';
     let detailsColumns = [];
     let detailsValues = [];
@@ -248,17 +251,34 @@ app.post('/api/jobs', authenticateToken, async (req, res) => {
     } else {
       throw new Error('Nieznany typ zlecenia.');
     }
+
     const detailsPlaceholders = detailsValues.map((_, i) => `$${i + 1}`).join(', ');
     const detailsSql = `INSERT INTO ${detailsTable} (${detailsColumns.slice(1).join(', ')}) VALUES (${detailsPlaceholders}) RETURNING id`;
     const detailsResult = await client.query(detailsSql, detailsValues);
     const detailsId = detailsResult.rows[0].id;
+
     const jobSql = `INSERT INTO jobs (client_id, job_type, job_date, details_id) VALUES ($1, $2, $3, $4) RETURNING id`;
     const jobResult = await client.query(jobSql, [clientId, jobType, jobDate, detailsId]);
     const jobId = jobResult.rows[0].id;
+
     const updateDetailsSql = `UPDATE ${detailsTable} SET job_id = $1 WHERE id = $2`;
     await client.query(updateDetailsSql, [jobId, detailsId]);
+
     await client.query('COMMIT');
-    res.status(201).json({ message: 'Pomyślnie dodano nowe zlecenie.', jobId: jobId });
+
+    // ZMIANA: Pobierz i zwróć pełne dane nowo utworzonego zlecenia
+    const finalDataResult = await pool.query(
+      `
+      SELECT j.id, j.job_type, j.job_date, c.name as client_name, c.phone_number as client_phone, wd.miejscowosc
+      FROM jobs j
+      JOIN clients c ON j.client_id = c.id
+      LEFT JOIN well_details wd ON j.details_id = wd.id AND j.job_type = 'well_drilling'
+      WHERE j.id = $1
+    `,
+      [jobId]
+    );
+
+    res.status(201).json(finalDataResult.rows[0]);
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('Błąd w POST /api/jobs:', err);
@@ -267,9 +287,23 @@ app.post('/api/jobs', authenticateToken, async (req, res) => {
     client.release();
   }
 });
+// Zastąp ten endpoint nową wersją
 app.get('/api/jobs', authenticateToken, async (req, res) => {
   try {
-    const sql = `SELECT j.id, j.job_type, j.job_date, c.name as client_name, c.phone_number as client_phone FROM jobs j JOIN clients c ON j.client_id = c.id ORDER BY j.job_date DESC`;
+    // To zapytanie łączy tabele jobs, clients i warunkowo well_details
+    const sql = `
+      SELECT 
+        j.id, 
+        j.job_type, 
+        j.job_date, 
+        c.name as client_name, 
+        c.phone_number as client_phone,
+        wd.miejscowosc
+      FROM jobs j
+      JOIN clients c ON j.client_id = c.id
+      LEFT JOIN well_details wd ON j.details_id = wd.id AND j.job_type = 'well_drilling'
+      ORDER BY j.job_date DESC
+    `;
     const result = await pool.query(sql);
     res.json(result.rows);
   } catch (err) {
