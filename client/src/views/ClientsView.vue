@@ -3,6 +3,7 @@ import { ref, onMounted, watch } from 'vue';
 import { getAuthHeaders } from '../auth/auth.js';
 import { useRouter } from 'vue-router'; // Dodajemy import
 import PaginationControls from '../components/PaginationControls.vue';
+import { RouterLink } from 'vue-router';
 
 const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
 const router = useRouter(); // Tworzymy instancję routera
@@ -178,6 +179,7 @@ onMounted(() => {
                 {{ client.notes || '-' }}
               </td>
               <td data-label="Akcje" class="actions-cell">
+                <RouterLink :to="`/zlecenia?clientId=${client.id}`"><button class="pokaż">Zlecenia</button></RouterLink>
                 <button class="edytuj" @click="handleShowEditModal(client)">Edytuj</button>
                 <button class="usun" @click="handleDeleteClient(client.id)">Usuń</button>
               </td>

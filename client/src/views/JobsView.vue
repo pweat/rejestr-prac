@@ -4,6 +4,7 @@ import { RouterLink } from 'vue-router';
 import { getAuthHeaders } from '../auth/auth.js';
 import { formatDate } from '../utils/formatters.js';
 import PaginationControls from '../components/PaginationControls.vue';
+import { useRoute } from 'vue-router';
 
 const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
 const isLoading = ref(true);
@@ -18,6 +19,7 @@ const showEditJobModal = ref(false);
 const editedJobData = ref(null);
 const currentPage = ref(1);
 const totalPages = ref(1);
+const route = useRoute();
 
 const inicjalizujNoweZlecenie = () => ({
   clientId: null,
@@ -46,8 +48,12 @@ async function fetchJobs() {
   try {
     const params = new URLSearchParams({
       page: currentPage.value,
-      limit: 15, // Możemy tu w przyszłości dodać selektor ilości na stronę
+      limit: 15,
     });
+    // Jeśli w adresie URL jest clientId, dodajemy go do parametrów zapytania
+    if (route.query.clientId) {
+      params.append('clientId', route.query.clientId);
+    }
     const response = await fetch(`${API_URL}/api/jobs?${params.toString()}`, {
       headers: getAuthHeaders(),
     });

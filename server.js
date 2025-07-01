@@ -267,22 +267,49 @@ app.post('/api/jobs', authenticateToken, async (req, res) => {
     client.release();
   }
 });
+// Zastąp ten endpoint nową wersją
 app.get('/api/jobs', authenticateToken, async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 15;
     const offset = (page - 1) * limit;
-    const countResult = await pool.query('SELECT COUNT(*) FROM jobs');
+    const clientId = req.query.clientId || null; // Pobieramy opcjonalne ID klienta
+
+    let whereClause = '';
+    let queryParams = [];
+
+    if (clientId) {
+      whereClause = 'WHERE j.client_id = $1';
+      queryParams.push(clientId);
+    }
+
+    const countSql = `SELECT COUNT(*) FROM jobs j ${whereClause}`;
+    const countResult = await pool.query(countSql, queryParams);
     const totalItems = parseInt(countResult.rows[0].count);
     const totalPages = Math.ceil(totalItems / limit);
-    const sql = `SELECT j.id, j.job_type, j.job_date, c.name as client_name, c.phone_number as client_phone, wd.miejscowosc FROM jobs j JOIN clients c ON j.client_id = c.id LEFT JOIN well_details wd ON j.details_id = wd.id AND j.job_type = 'well_drilling' ORDER BY j.job_date DESC LIMIT $1 OFFSET $2`;
-    const dataResult = await pool.query(sql, [limit, offset]);
-    res.json({ data: dataResult.rows, pagination: { totalItems, totalPages, currentPage: page } });
+
+    const dataSql = `
+      SELECT j.id, j.job_type, j.job_date, c.name as client_name, c.phone_number as client_phone, wd.miejscowosc
+      FROM jobs j
+      JOIN clients c ON j.client_id = c.id
+      LEFT JOIN well_details wd ON j.details_id = wd.id AND j.job_type = 'well_drilling'
+      ${whereClause}
+      ORDER BY j.job_date DESC
+      LIMIT $${queryParams.length + 1} OFFSET $${queryParams.length + 2}
+    `;
+    const finalDataParams = [...queryParams, limit, offset];
+    const dataResult = await pool.query(dataSql, finalDataParams);
+
+    res.json({
+      data: dataResult.rows,
+      pagination: { totalItems, totalPages, currentPage: page },
+    });
   } catch (err) {
     console.error('Błąd w GET /api/jobs:', err);
     res.status(500).json({ error: 'Wystąpił błąd serwera' });
   }
 });
+
 app.get('/api/jobs/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
