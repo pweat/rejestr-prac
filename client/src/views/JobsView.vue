@@ -5,6 +5,7 @@ import { getAuthHeaders } from '../auth/auth.js';
 import { formatDate } from '../utils/formatters.js';
 import PaginationControls from '../components/PaginationControls.vue';
 import { useRoute } from 'vue-router';
+import vSelect from 'vue-select';
 
 const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
 const isLoading = ref(true);
@@ -38,6 +39,18 @@ function translateJobType(type) {
   return types[type] || type;
 }
 
+const filterClients = (options, search) => {
+  const lowerSearch = search.toLowerCase();
+  return options.filter((client) => {
+    // Sprawdź, czy nazwa klienta pasuje
+    const nameMatch = client.name && client.name.toLowerCase().includes(lowerSearch);
+    // Sprawdź, czy numer telefonu pasuje
+    const phoneMatch = client.phone_number && client.phone_number.includes(lowerSearch);
+    // Zwróć klienta, jeśli którekolwiek z pól pasuje
+    return nameMatch || phoneMatch;
+  });
+};
+
 function handlePageChange(newPage) {
   currentPage.value = newPage;
   // Funkcja `watch` automatycznie wywoła `pobierzPrace`
@@ -69,12 +82,14 @@ async function fetchJobs() {
   }
 }
 
+// Zastąp tę funkcję nową wersją
 async function fetchClientsForSelect() {
   try {
-    const response = await fetch(`${API_URL}/api/clients`, {
+    const response = await fetch(`${API_URL}/api/clients-for-select`, {
       headers: getAuthHeaders(),
     });
     if (!response.ok) throw new Error('Błąd pobierania listy klientów');
+    // Teraz odpowiedź to prosta lista, więc przypisujemy ją bezpośrednio
     availableClients.value = await response.json();
   } catch (error) {
     console.error('Błąd podczas pobierania klientów do formularza:', error);
@@ -300,11 +315,21 @@ onMounted(() => {
       <form @submit.prevent="handleAddJob">
         <div class="form-grid-single-col">
           <div class="form-group">
-            <label for="clientSelect">1. Wybierz klienta</label
-            ><select id="clientSelect" v-model="newJobData.clientId" required>
-              <option :value="null" disabled>-- Wybierz z listy --</option>
-              <option v-for="client in availableClients" :key="client.id" :value="client.id">{{ client.name }} ({{ client.phone_number }})</option>
-            </select>
+            <label for="clientSelect">1. Wybierz klienta (zacznij pisać, aby wyszukać)</label>
+            <v-select id="clientSelect" :options="availableClients" :get-option-label="(option) => option.name" :filter="filterClients" :reduce="(client) => client.id" v-model="newJobData.clientId" placeholder="-- Wyszukaj klienta po nazwie lub telefonie --">
+              <template #option="{ name, phone_number }">
+                <div style="display: flex; flex-direction: column">
+                  <strong>{{ name || 'Brak nazwy' }}</strong>
+                  <span style="font-size: 0.8em; color: #666">{{ phone_number }}</span>
+                </div>
+              </template>
+              <template #selected-option="{ name, phone_number }">
+                <div style="display: flex; flex-direction: column">
+                  <strong>{{ name || 'Brak nazwy' }}</strong>
+                  <span style="font-size: 0.8em; color: #666">{{ phone_number }}</span>
+                </div>
+              </template>
+            </v-select>
           </div>
           <div class="form-group"><label for="jobDate">2. Data zlecenia</label><input type="date" id="jobDate" v-model="newJobData.jobDate" required /></div>
           <div class="form-group">

@@ -1,13 +1,14 @@
-import { createApp } from 'vue'
-import App from './App.vue'
+import { createApp } from 'vue';
+import App from './App.vue';
 // ZMIANA: Importujemy nasz nowo stworzony router
-import router from './router'
+import router from './router';
 // ZMIANA: Usuwamy domyślny import CSS, bo style mamy w App.vue
-// import './assets/main.css' 
+// import './assets/main.css'
+import 'vue-select/dist/vue-select.css';
 
-const app = createApp(App)
+const app = createApp(App);
 
 // ZMIANA: Mówimy aplikacji Vue, aby używała routera
-app.use(router)
+app.use(router);
 
-app.mount('#app')
+app.mount('#app');

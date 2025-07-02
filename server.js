@@ -210,6 +210,17 @@ app.delete('/api/clients/:id', authenticateToken, async (req, res) => {
     res.status(500).json({ error: 'Wystąpił błąd serwera' });
   }
 });
+// Nowy endpoint do pobierania wszystkich klientów dla list rozwijanych
+app.get('/api/clients-for-select', authenticateToken, async (req, res) => {
+  try {
+    // Zwracamy tylko ID, nazwę i telefon, aby lista była lekka i użyteczna
+    const result = await pool.query('SELECT id, name, phone_number FROM clients ORDER BY name ASC');
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Błąd w GET /api/clients-for-select:', err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
 
 // =================================================================
 // --- API ZLECEŃ ---
