@@ -142,16 +142,49 @@ app.post('/api/login', async (req, res) => {
 // =================================================================
 // --- API KLIENTÓW ---
 // =================================================================
+// Zastąp ten endpoint nową wersją
 app.get('/api/clients', authenticateToken, async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 15;
     const offset = (page - 1) * limit;
-    const countResult = await pool.query('SELECT COUNT(*) FROM clients');
+    const search = req.query.search || '';
+
+    // Logika sortowania
+    const sortBy = req.query.sortBy || 'name'; // Domyślnie sortuj po nazwie
+    const sortOrder = req.query.sortOrder === 'asc' ? 'ASC' : 'DESC'; // Domyślnie malejąco
+    const allowedSortBy = ['name', 'address', 'created_at']; // Biała lista dozwolonych kolumn do sortowania
+    if (!allowedSortBy.includes(sortBy)) {
+      return res.status(400).json({ error: 'Niedozwolona kolumna sortowania.' });
+    }
+
+    let whereClause = '';
+    let queryParams = [];
+    if (search) {
+      const searchTerm = `%${search}%`;
+      whereClause = `WHERE name ILIKE $1 OR phone_number ILIKE $1 OR address ILIKE $1`;
+      queryParams.push(searchTerm);
+    }
+
+    const countSql = `SELECT COUNT(*) FROM clients ${whereClause}`;
+    const countResult = await pool.query(countSql, queryParams);
     const totalItems = parseInt(countResult.rows[0].count);
     const totalPages = Math.ceil(totalItems / limit);
-    const dataResult = await pool.query('SELECT * FROM clients ORDER BY name ASC LIMIT $1 OFFSET $2', [limit, offset]);
-    res.json({ data: dataResult.rows, pagination: { totalItems, totalPages, currentPage: page } });
+
+    const finalDataParams = [...queryParams, limit, offset];
+    const dataSql = `
+      SELECT * FROM clients 
+      ${whereClause} 
+      ORDER BY ${sortBy} ${sortOrder} NULLS LAST
+      LIMIT $${queryParams.length + 1} OFFSET $${queryParams.length + 2}
+    `;
+
+    const dataResult = await pool.query(dataSql, finalDataParams);
+
+    res.json({
+      data: dataResult.rows,
+      pagination: { totalItems, totalPages, currentPage: page },
+    });
   } catch (err) {
     console.error('Błąd w GET /api/clients:', err);
     res.status(500).json({ error: 'Wystąpił błąd serwera' });
@@ -284,31 +317,49 @@ app.get('/api/jobs', authenticateToken, async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 15;
     const offset = (page - 1) * limit;
-    const clientId = req.query.clientId || null; // Pobieramy opcjonalne ID klienta
+    const search = req.query.search || '';
+    const clientId = req.query.clientId || null;
 
-    let whereClause = '';
-    let queryParams = [];
-
-    if (clientId) {
-      whereClause = 'WHERE j.client_id = $1';
-      queryParams.push(clientId);
+    // Logika sortowania
+    const sortBy = req.query.sortBy || 'job_date';
+    const sortOrder = req.query.sortOrder === 'asc' ? 'ASC' : 'DESC';
+    const allowedSortBy = ['job_date', 'client_name', 'miejscowosc'];
+    if (!allowedSortBy.includes(sortBy)) {
+      return res.status(400).json({ error: 'Niedozwolona kolumna sortowania.' });
     }
 
-    const countSql = `SELECT COUNT(*) FROM jobs j ${whereClause}`;
+    let whereClauses = [];
+    let queryParams = [];
+    let paramIndex = 1;
+
+    if (clientId) {
+      whereClauses.push(`j.client_id = $${paramIndex++}`);
+      queryParams.push(clientId);
+    }
+    if (search) {
+      const searchTerm = `%${search}%`;
+      const searchClause = `(c.name ILIKE $${paramIndex} OR c.phone_number ILIKE $${paramIndex} OR wd.miejscowosc ILIKE $${paramIndex})`;
+      whereClauses.push(searchClause);
+      queryParams.push(searchTerm);
+    }
+
+    const whereString = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
+    const countSql = `SELECT COUNT(j.id) FROM jobs j JOIN clients c ON j.client_id = c.id LEFT JOIN well_details wd ON j.details_id = wd.id AND j.job_type = 'well_drilling' ${whereString}`;
     const countResult = await pool.query(countSql, queryParams);
     const totalItems = parseInt(countResult.rows[0].count);
     const totalPages = Math.ceil(totalItems / limit);
 
+    const finalDataParams = [...queryParams, limit, offset];
     const dataSql = `
       SELECT j.id, j.job_type, j.job_date, c.name as client_name, c.phone_number as client_phone, wd.miejscowosc
       FROM jobs j
       JOIN clients c ON j.client_id = c.id
       LEFT JOIN well_details wd ON j.details_id = wd.id AND j.job_type = 'well_drilling'
-      ${whereClause}
-      ORDER BY j.job_date DESC
+      ${whereString}
+      ORDER BY ${sortBy} ${sortOrder} NULLS LAST
       LIMIT $${queryParams.length + 1} OFFSET $${queryParams.length + 2}
     `;
-    const finalDataParams = [...queryParams, limit, offset];
     const dataResult = await pool.query(dataSql, finalDataParams);
 
     res.json({
@@ -440,8 +491,43 @@ const getPaginatedInventory = async (page = 1) => {
 };
 app.get('/api/inventory', authenticateToken, async (req, res) => {
   try {
-    const paginatedData = await getPaginatedInventory(parseInt(req.query.page) || 1);
-    res.json(paginatedData);
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 15;
+    const offset = (page - 1) * limit;
+    const search = req.query.search || '';
+
+    const sortBy = req.query.sortBy || 'name';
+    const sortOrder = req.query.sortOrder === 'asc' ? 'ASC' : 'DESC';
+    const allowedSortBy = ['name', 'quantity', 'unit'];
+    if (!allowedSortBy.includes(sortBy)) {
+      return res.status(400).json({ error: 'Niedozwolona kolumna sortowania.' });
+    }
+
+    let whereClause = '';
+    let queryParams = [];
+    if (search) {
+      whereClause = `WHERE name ILIKE $1 OR unit ILIKE $1`;
+      queryParams.push(`%${search}%`);
+    }
+
+    const countSql = `SELECT COUNT(*) FROM inventory_items ${whereClause}`;
+    const countResult = await pool.query(countSql, queryParams);
+    const totalItems = parseInt(countResult.rows[0].count);
+    const totalPages = Math.ceil(totalItems / limit);
+
+    const finalDataParams = [...queryParams, limit, offset];
+    const dataSql = `
+      SELECT * FROM inventory_items 
+      ${whereClause} 
+      ORDER BY ${sortBy} ${sortOrder} 
+      LIMIT $${queryParams.length + 1} OFFSET $${queryParams.length + 2}
+    `;
+    const dataResult = await pool.query(dataSql, finalDataParams);
+
+    res.json({
+      data: dataResult.rows,
+      pagination: { totalItems, totalPages, currentPage: page },
+    });
   } catch (err) {
     console.error('Błąd w GET /api/inventory:', err);
     res.status(500).json({ error: 'Wystąpił błąd serwera' });

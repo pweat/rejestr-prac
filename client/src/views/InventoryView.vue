@@ -21,6 +21,9 @@ const currentItemForHistory = ref(null);
 const isHistoryLoading = ref(false);
 const currentPage = ref(1);
 const totalPages = ref(1);
+const searchQuery = ref('');
+const sortBy = ref('name');
+const sortOrder = ref('asc');
 
 const inicjalizujNowyPrzedmiot = () => ({
   name: '',
@@ -48,7 +51,13 @@ const processPaginatedResponse = (result) => {
 async function pobierzPrzedmioty() {
   isLoading.value = true;
   try {
-    const params = new URLSearchParams({ page: currentPage.value, limit: 15 });
+    const params = new URLSearchParams({
+      page: currentPage.value,
+      limit: 15,
+      search: searchQuery.value,
+      sortBy: sortBy.value,
+      sortOrder: sortOrder.value,
+    });
     const response = await fetch(`${API_URL}/api/inventory?${params.toString()}`, { headers: getAuthHeaders() });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || 'Błąd pobierania danych z magazynu');
@@ -196,7 +205,26 @@ const getItemStatus = (item) => {
 function handlePageChange(newPage) {
   currentPage.value = newPage;
 }
-watch(currentPage, pobierzPrzedmioty);
+
+function changeSort(key) {
+  if (sortBy.value === key) {
+    sortOrder.value = sortOrder.value === 'asc' ? 'desc' : 'asc';
+  } else {
+    sortBy.value = key;
+    sortOrder.value = 'asc';
+  }
+}
+
+watch([currentPage, sortBy, sortOrder], pobierzPrzedmioty);
+
+let searchTimeout = null;
+watch(searchQuery, () => {
+  clearTimeout(searchTimeout);
+  searchTimeout = setTimeout(() => {
+    currentPage.value = 1;
+    pobierzPrzedmioty();
+  }, 300);
+});
 
 onMounted(() => {
   pobierzPrzedmioty();
@@ -207,9 +235,11 @@ onMounted(() => {
   <div class="container">
     <div class="header">
       <h1>Stan Magazynowy</h1>
-      <button class="add-new-btn" @click="handleShowAddItemModal" :disabled="isLoading">&#43; Dodaj Przedmiot</button>
+      <button class="add-new-btn" @click="handleShowAddItemModal">&#43; Dodaj Przedmiot</button>
     </div>
-
+    <div class="search-container">
+      <input type="text" v-model="searchQuery" placeholder="Szukaj po nazwie lub jednostce..." />
+    </div>
     <div class="main-content-wrapper">
       <div v-if="isLoading" class="loading-overlay">
         <div class="spinner"></div>
@@ -220,9 +250,15 @@ onMounted(() => {
           <table>
             <thead>
               <tr>
-                <th>Nazwa Przedmiotu</th>
-                <th>Ilość</th>
-                <th>Jednostka</th>
+                <th @click="changeSort('name')" class="sortable">
+                  Nazwa Przedmiotu <span v-if="sortBy === 'name'">{{ sortOrder === 'asc' ? '▲' : '▼' }}</span>
+                </th>
+                <th @click="changeSort('quantity')" class="sortable">
+                  Ilość <span v-if="sortBy === 'quantity'">{{ sortOrder === 'asc' ? '▲' : '▼' }}</span>
+                </th>
+                <th @click="changeSort('unit')" class="sortable">
+                  Jednostka <span v-if="sortBy === 'unit'">{{ sortOrder === 'asc' ? '▲' : '▼' }}</span>
+                </th>
                 <th>Status</th>
                 <th>Akcje</th>
               </tr>
@@ -233,9 +269,7 @@ onMounted(() => {
                 <td data-label="Ilość" class="quantity-cell">{{ item.quantity }}</td>
                 <td data-label="Jednostka">{{ item.unit }}</td>
                 <td data-label="Status">
-                  <span class="status-badge" :class="getItemStatus(item).class">
-                    {{ getItemStatus(item).text }}
-                  </span>
+                  <span class="status-badge" :class="getItemStatus(item).class">{{ getItemStatus(item).text }}</span>
                 </td>
                 <td data-label="Akcje" class="actions-cell">
                   <button class="btn-secondary" @click="handleShowOperationModal(item)">Operacje</button>
@@ -247,7 +281,7 @@ onMounted(() => {
             </tbody>
           </table>
           <div v-if="!inventoryItems.length && !isLoading" class="empty-table-message">
-            <p>Brak przedmiotów w magazynie. Dodaj pierwszy, aby rozpocząć.</p>
+            <p>Brak przedmiotów w magazynie lub pasujących do wyszukiwania.</p>
           </div>
         </div>
 
@@ -452,5 +486,41 @@ onMounted(() => {
   align-items: center;
   z-index: 10;
   padding-top: 50px;
+}
+.main-content-wrapper {
+  position: relative;
+}
+.table-and-pagination.is-loading {
+  opacity: 0.5;
+  pointer-events: none;
+  transition: opacity 0.3s ease-in-out;
+}
+.loading-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 50px;
+  z-index: 10;
+}
+.spinner {
+  border: 4px solid rgba(0, 0, 0, 0.1);
+  border-top: 4px solid var(--blue);
+  border-radius: 50%;
+  width: 50px;
+  height: 50px;
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
 }
 </style>

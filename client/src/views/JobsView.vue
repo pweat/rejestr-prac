@@ -1,27 +1,39 @@
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue';
-import { RouterLink } from 'vue-router';
+import { RouterLink, useRoute } from 'vue-router';
 import { getAuthHeaders } from '../auth/auth.js';
 import { formatDate } from '../utils/formatters.js';
-import PaginationControls from '../components/PaginationControls.vue';
-import { useRoute } from 'vue-router';
 import vSelect from 'vue-select';
+import PaginationControls from '../components/PaginationControls.vue';
 
 const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
-const isLoading = ref(true);
-const jobs = ref([]);
-const showAddJobModal = ref(false);
-const availableClients = ref([]);
-const newJobData = ref({});
-const showDetailsModal = ref(false);
-const selectedJobDetails = ref(null);
-const isDetailsLoading = ref(false);
-const showEditJobModal = ref(false);
-const editedJobData = ref(null);
-const currentPage = ref(1);
-const totalPages = ref(1);
 const route = useRoute();
 
+// --- Zmienne Stanu (Refs) ---
+const isLoading = ref(true);
+const jobs = ref([]);
+const availableClients = ref([]);
+
+// Paginacja
+const currentPage = ref(1);
+const totalPages = ref(1);
+const totalItems = ref(0);
+
+// Wyszukiwanie i Sortowanie
+const searchQuery = ref('');
+const sortBy = ref('job_date');
+const sortOrder = ref('desc');
+
+// Modale
+const showAddJobModal = ref(false);
+const showDetailsModal = ref(false);
+const showEditJobModal = ref(false);
+const newJobData = ref({});
+const selectedJobDetails = ref(null);
+const editedJobData = ref(null);
+const isDetailsLoading = ref(false);
+
+// --- Funkcje Pomocnicze ---
 const inicjalizujNoweZlecenie = () => ({
   clientId: null,
   jobType: 'well_drilling',
@@ -39,22 +51,31 @@ function translateJobType(type) {
   return types[type] || type;
 }
 
+const calculatedProfit = computed(() => {
+  if (selectedJobDetails.value && (selectedJobDetails.value.job_type === 'connection' || selectedJobDetails.value.job_type === 'treatment_station') && selectedJobDetails.value.details) {
+    const details = selectedJobDetails.value.details;
+    const revenue = parseFloat(details.revenue) || 0;
+    const casing_cost = parseFloat(details.casing_cost) || 0;
+    const equipment_cost = parseFloat(details.equipment_cost) || 0;
+    const labor_cost = parseFloat(details.labor_cost) || 0;
+    const wholesale_materials_cost = parseFloat(details.wholesale_materials_cost) || 0;
+    const totalCost = casing_cost + equipment_cost + labor_cost + wholesale_materials_cost;
+    const profit = revenue - totalCost;
+    return { profit, totalCost };
+  }
+  return { profit: null, totalCost: null };
+});
+
 const filterClients = (options, search) => {
   const lowerSearch = search.toLowerCase();
   return options.filter((client) => {
-    // Sprawdź, czy nazwa klienta pasuje
     const nameMatch = client.name && client.name.toLowerCase().includes(lowerSearch);
-    // Sprawdź, czy numer telefonu pasuje
     const phoneMatch = client.phone_number && client.phone_number.includes(lowerSearch);
-    // Zwróć klienta, jeśli którekolwiek z pól pasuje
     return nameMatch || phoneMatch;
   });
 };
 
-function handlePageChange(newPage) {
-  currentPage.value = newPage;
-  // Funkcja `watch` automatycznie wywoła `pobierzPrace`
-}
+// --- Funkcje Główne (API i Handlery) ---
 
 async function fetchJobs() {
   isLoading.value = true;
@@ -62,18 +83,20 @@ async function fetchJobs() {
     const params = new URLSearchParams({
       page: currentPage.value,
       limit: 15,
+      search: searchQuery.value,
+      sortBy: sortBy.value,
+      sortOrder: sortOrder.value,
     });
-    // Jeśli w adresie URL jest clientId, dodajemy go do parametrów zapytania
     if (route.query.clientId) {
       params.append('clientId', route.query.clientId);
     }
-    const response = await fetch(`${API_URL}/api/jobs?${params.toString()}`, {
-      headers: getAuthHeaders(),
-    });
+    const response = await fetch(`${API_URL}/api/jobs?${params.toString()}`, { headers: getAuthHeaders() });
     if (!response.ok) throw new Error('Błąd pobierania listy zleceń');
     const result = await response.json();
     jobs.value = result.data;
     totalPages.value = result.pagination.totalPages;
+    totalItems.value = result.pagination.totalItems;
+    currentPage.value = result.pagination.currentPage;
   } catch (error) {
     console.error('Błąd podczas pobierania zleceń:', error);
     alert('Nie udało się pobrać listy zleceń.');
@@ -82,14 +105,10 @@ async function fetchJobs() {
   }
 }
 
-// Zastąp tę funkcję nową wersją
 async function fetchClientsForSelect() {
   try {
-    const response = await fetch(`${API_URL}/api/clients-for-select`, {
-      headers: getAuthHeaders(),
-    });
+    const response = await fetch(`${API_URL}/api/clients-for-select`, { headers: getAuthHeaders() });
     if (!response.ok) throw new Error('Błąd pobierania listy klientów');
-    // Teraz odpowiedź to prosta lista, więc przypisujemy ją bezpośrednio
     availableClients.value = await response.json();
   } catch (error) {
     console.error('Błąd podczas pobierania klientów do formularza:', error);
@@ -112,13 +131,9 @@ async function handleAddJob() {
       headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
       body: JSON.stringify(newJobData.value),
     });
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || 'Błąd podczas tworzenia zlecenia.');
-    }
-    // Zamiast przeładowywać wszystko, dodajemy tylko nowy wiersz
     const newJob = await response.json();
-    jobs.value.unshift(newJob); // Dodajemy na początek listy
+    if (!response.ok) throw new Error(newJob.error || 'Błąd podczas tworzenia zlecenia.');
+    jobs.value.unshift(newJob);
     showAddJobModal.value = false;
   } catch (error) {
     console.error('Błąd w handleAddJob():', error);
@@ -131,9 +146,7 @@ async function handleShowDetails(jobId) {
   isDetailsLoading.value = true;
   showDetailsModal.value = true;
   try {
-    const response = await fetch(`${API_URL}/api/jobs/${jobId}`, {
-      headers: getAuthHeaders(),
-    });
+    const response = await fetch(`${API_URL}/api/jobs/${jobId}`, { headers: getAuthHeaders() });
     if (!response.ok) throw new Error('Błąd pobierania szczegółów zlecenia');
     selectedJobDetails.value = await response.json();
   } catch (error) {
@@ -145,32 +158,12 @@ async function handleShowDetails(jobId) {
   }
 }
 
-// Zastąp całą tę funkcję
-const calculatedProfit = computed(() => {
-  if (selectedJobDetails.value && (selectedJobDetails.value.job_type === 'connection' || selectedJobDetails.value.job_type === 'treatment_station') && selectedJobDetails.value.details) {
-    const details = selectedJobDetails.value.details;
-
-    // Używamy parseFloat, aby mieć 100% pewności, że operujemy na liczbach
-    const revenue = parseFloat(details.revenue) || 0;
-    const casing_cost = parseFloat(details.casing_cost) || 0;
-    const equipment_cost = parseFloat(details.equipment_cost) || 0;
-    const labor_cost = parseFloat(details.labor_cost) || 0;
-    const wholesale_materials_cost = parseFloat(details.wholesale_materials_cost) || 0;
-
-    const totalCost = casing_cost + equipment_cost + labor_cost + wholesale_materials_cost;
-    return revenue - totalCost;
-  }
-  return null;
-});
-
 async function handleShowEditModal(job) {
   editedJobData.value = null;
   isDetailsLoading.value = true;
   showEditJobModal.value = true;
   try {
-    const response = await fetch(`${API_URL}/api/jobs/${job.id}`, {
-      headers: getAuthHeaders(),
-    });
+    const response = await fetch(`${API_URL}/api/jobs/${job.id}`, { headers: getAuthHeaders() });
     if (!response.ok) throw new Error('Błąd pobierania pełnych danych zlecenia do edycji');
     const fullJobData = await response.json();
     editedJobData.value = fullJobData;
@@ -201,19 +194,10 @@ async function handleUpdateJob() {
       const errorData = await response.json();
       throw new Error(errorData.error || 'Błąd podczas aktualizacji zlecenia.');
     }
-
     const updatedJobData = await response.json();
     const index = jobs.value.findIndex((j) => j.id === updatedJobData.id);
     if (index !== -1) {
-      // Podmieniamy tylko zaktualizowany wiersz na liście
-      jobs.value[index] = {
-        id: updatedJobData.id,
-        job_type: updatedJobData.job_type,
-        job_date: updatedJobData.job_date,
-        client_name: updatedJobData.client_name,
-        client_phone: updatedJobData.client_phone,
-        miejscowosc: updatedJobData.miejscowosc,
-      };
+      jobs.value[index] = { ...jobs.value[index], ...updatedJobData };
     }
     showEditJobModal.value = false;
   } catch (error) {
@@ -239,6 +223,23 @@ async function handleDeleteJob(jobId) {
   }
 }
 
+function handlePageChange(newPage) {
+  currentPage.value = newPage;
+}
+
+// --- Obserwatorzy (Watchers) ---
+
+watch([currentPage, sortBy, sortOrder], fetchJobs);
+
+let searchTimeout = null;
+watch(searchQuery, () => {
+  clearTimeout(searchTimeout);
+  searchTimeout = setTimeout(() => {
+    currentPage.value = 1;
+    fetchJobs();
+  }, 300);
+});
+
 watch(
   () => newJobData.value.jobType,
   (newType, oldType) => {
@@ -247,8 +248,6 @@ watch(
     }
   }
 );
-
-watch(currentPage, fetchJobs);
 
 onMounted(() => {
   fetchJobs();
@@ -259,50 +258,64 @@ onMounted(() => {
 <template>
   <div class="container">
     <div class="header">
-      <h1>Rejestr Zleceń ({{ jobs.length }})</h1>
+      <h1>Rejestr Zleceń ({{ totalItems }})</h1>
       <button class="add-new-btn" @click="handleShowAddJobModal" :disabled="isLoading">&#43; Dodaj Zlecenie</button>
     </div>
-    <div v-if="isLoading" class="loading-container">
-      <div class="spinner"></div>
-      <p>Ładowanie danych...</p>
+
+    <div class="search-container">
+      <input type="text" v-model="searchQuery" placeholder="Szukaj po kliencie, telefonie, miejscowości..." />
     </div>
-    <div v-else>
-      <div class="table-container">
-        <table>
-          <thead>
-            <tr>
-              <th>Klient</th>
-              <th>Telefon Klienta</th>
-              <th>Miejscowość</th>
-              <th>Typ Zlecenia</th>
-              <th>Data</th>
-              <th>Akcje</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="job in jobs" :key="job.id">
-              <td data-label="Klient">{{ job.client_name || '-' }}</td>
-              <td data-label="Telefon Klienta">{{ job.client_phone }}</td>
-              <td data-label="Miejscowość">{{ job.miejscowosc || '-' }}</td>
-              <td data-label="Typ Zlecenia">
-                <span class="job-type-badge" :class="job.job_type">
-                  {{ translateJobType(job.job_type) }}
-                </span>
-              </td>
-              <td data-label="Data">{{ formatDate(job.job_date) }}</td>
-              <td data-label="Akcje" class="actions-cell">
-                <button class="pokaż" @click="handleShowDetails(job.id)">Szczegóły</button>
-                <button class="edytuj" @click="handleShowEditModal(job)">Edytuj</button>
-                <button class="usun" @click="handleDeleteJob(job.id)">Usuń</button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-        <div v-if="!jobs.length" class="empty-table-message">
-          <p>Brak zleceń w bazie. Dodaj pierwsze, aby rozpocząć.</p>
-        </div>
+
+    <div class="main-content-wrapper">
+      <div v-if="isLoading" class="loading-overlay">
+        <div class="spinner"></div>
       </div>
-      <PaginationControls v-if="totalPages > 1" :current-page="currentPage" :total-pages="totalPages" @page-changed="handlePageChange" />
+
+      <div class="table-and-pagination" :class="{ 'is-loading': isLoading }">
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th @click="changeSort('client_name')" class="sortable">
+                  Klient <span v-if="sortBy === 'client_name'">{{ sortOrder === 'asc' ? '▲' : '▼' }}</span>
+                </th>
+                <th>Telefon Klienta</th>
+                <th @click="changeSort('miejscowosc')" class="sortable">
+                  Miejscowość <span v-if="sortBy === 'miejscowosc'">{{ sortOrder === 'asc' ? '▲' : '▼' }}</span>
+                </th>
+                <th>Typ Zlecenia</th>
+                <th @click="changeSort('job_date')" class="sortable">
+                  Data <span v-if="sortBy === 'job_date'">{{ sortOrder === 'asc' ? '▲' : '▼' }}</span>
+                </th>
+                <th>Akcje</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="job in jobs" :key="job.id">
+                <td data-label="Klient">{{ job.client_name || '-' }}</td>
+                <td data-label="Telefon Klienta">{{ job.client_phone }}</td>
+                <td data-label="Miejscowość">{{ job.miejscowosc || '-' }}</td>
+                <td data-label="Typ Zlecenia">
+                  <span class="job-type-badge" :class="job.job_type">
+                    {{ translateJobType(job.job_type) }}
+                  </span>
+                </td>
+                <td data-label="Data">{{ formatDate(job.job_date) }}</td>
+                <td data-label="Akcje" class="actions-cell">
+                  <button class="pokaż" @click="handleShowDetails(job.id)">Szczegóły</button>
+                  <button class="edytuj" @click="handleShowEditModal(job)">Edytuj</button>
+                  <button class="usun" @click="handleDeleteJob(job.id)">Usuń</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <div v-if="!jobs.length && !isLoading" class="empty-table-message">
+            <p>Brak zleceń w bazie lub pasujących do wyszukiwania.</p>
+          </div>
+        </div>
+
+        <PaginationControls v-if="totalPages > 1" :current-page="currentPage" :total-pages="totalPages" @page-changed="handlePageChange" />
+      </div>
     </div>
   </div>
 
@@ -316,19 +329,19 @@ onMounted(() => {
         <div class="form-grid-single-col">
           <div class="form-group">
             <label for="clientSelect">1. Wybierz klienta (zacznij pisać, aby wyszukać)</label>
-            <v-select id="clientSelect" :options="availableClients" :get-option-label="(option) => option.name" :filter="filterClients" :reduce="(client) => client.id" v-model="newJobData.clientId" placeholder="-- Wyszukaj klienta po nazwie lub telefonie --">
-              <template #option="{ name, phone_number }">
-                <div style="display: flex; flex-direction: column">
-                  <strong>{{ name || 'Brak nazwy' }}</strong>
-                  <span style="font-size: 0.8em; color: #666">{{ phone_number }}</span>
-                </div>
-              </template>
-              <template #selected-option="{ name, phone_number }">
-                <div style="display: flex; flex-direction: column">
-                  <strong>{{ name || 'Brak nazwy' }}</strong>
-                  <span style="font-size: 0.8em; color: #666">{{ phone_number }}</span>
-                </div>
-              </template>
+            <v-select id="clientSelect" :options="availableClients" :get-option-label="(option) => option.name || 'Brak Nazwy'" :filter="filterClients" :reduce="(client) => client.id" v-model="newJobData.clientId" placeholder="-- Wyszukaj klienta po nazwie lub telefonie --">
+              <template #option="{ name, phone_number }"
+                ><div style="display: flex; flex-direction: column">
+                  <strong>{{ name || 'Brak nazwy' }}</strong
+                  ><span style="font-size: 0.8em; color: #666">{{ phone_number }}</span>
+                </div></template
+              >
+              <template #selected-option="{ name, phone_number }"
+                ><div style="display: flex; flex-direction: column">
+                  <strong>{{ name || 'Brak nazwy' }}</strong
+                  ><span style="font-size: 0.8em; color: #666">{{ phone_number }}</span>
+                </div></template
+              >
             </v-select>
           </div>
           <div class="form-group"><label for="jobDate">2. Data zlecenia</label><input type="date" id="jobDate" v-model="newJobData.jobDate" required /></div>
@@ -370,25 +383,14 @@ onMounted(() => {
               <div class="form-group"><label>Wypłaty:</label><input type="number" step="any" v-model.number="newJobData.details.labor_cost" /></div>
               <div class="form-group"><label>Materiały z hurtowni:</label><input type="number" step="any" v-model.number="newJobData.details.wholesale_materials_cost" /></div>
             </div>
-
             <div v-else-if="newJobData.jobType === 'treatment_station'" class="form-grid">
               <div class="form-group"><label>Model stacji:</label><input type="text" v-model="newJobData.details.station_model" /></div>
               <div class="form-group"><label>Model lampy UV:</label><input type="text" v-model="newJobData.details.uv_lamp_model" /></div>
               <div class="form-group"><label>Filtr węglowy:</label><input type="text" v-model="newJobData.details.carbon_filter" /></div>
               <div class="form-group"><label>Rodzaje złóż:</label><input type="text" v-model="newJobData.details.filter_types" /></div>
-              <div class="form-group"><label>Link do faktury za materiały:</label><input type="text" v-model="newJobData.details.materials_invoice_url" /></div>
-              <div class="form-group"><label>Link do oferty dla klienta:</label><input type="text" v-model="newJobData.details.client_offer_url" /></div>
-              <hr class="full-width-hr" />
-              <div class="form-group"><label>Przychód:</label><input type="number" step="any" v-model.number="newJobData.details.revenue" /></div>
-              <div class="form-group"><label>Koszt osprzętu:</label><input type="number" step="any" v-model.number="newJobData.details.equipment_cost" /></div>
-              <div class="form-group"><label>Wypłaty:</label><input type="number" step="any" v-model.number="newJobData.details.labor_cost" /></div>
-              <div class="form-group"><label>Materiały z hurtowni:</label><input type="number" step="any" v-model.number="newJobData.details.wholesale_materials_cost" /></div>
             </div>
             <div v-else-if="newJobData.jobType === 'service'" class="form-grid">
-              <div class="form-group full-width">
-                <label>Opis wykonanych prac serwisowych:</label>
-                <textarea v-model="newJobData.details.description" rows="5" placeholder="np. Przegląd roczny, wymiana filtra, czyszczenie..."></textarea>
-              </div>
+              <div class="form-group full-width"><label>Opis wykonanych prac serwisowych:</label><textarea v-model="newJobData.details.description" rows="5" placeholder="np. Przegląd roczny, wymiana filtra, czyszczenie..."></textarea></div>
             </div>
           </div>
         </div>
@@ -404,195 +406,84 @@ onMounted(() => {
         <button class="close-button" @click="showDetailsModal = false">&times;</button>
       </div>
       <div class="modal-body">
-        <div v-if="isDetailsLoading" class="modal-loading-spinner">
-          <div class="spinner"></div>
-        </div>
+        <div v-if="isDetailsLoading" class="modal-loading-spinner"><div class="spinner"></div></div>
         <div v-else-if="selectedJobDetails" class="details-view-grid">
           <div class="details-section">
             <h4>Dane Klienta</h4>
-            <p>
-              <strong>Nazwa:</strong>
-              {{ selectedJobDetails.client_name || '-' }}
-            </p>
+            <p><strong>Nazwa:</strong> {{ selectedJobDetails.client_name || '-' }}</p>
             <p><strong>Telefon:</strong> {{ selectedJobDetails.client_phone }}</p>
-            <p>
-              <strong>Adres:</strong>
-              {{ selectedJobDetails.client_address || '-' }}
-            </p>
-            <p>
-              <strong>Notatki o kliencie:</strong>
-              {{ selectedJobDetails.client_notes || '-' }}
-            </p>
+            <p><strong>Adres:</strong> {{ selectedJobDetails.client_address || '-' }}</p>
+            <p><strong>Notatki o kliencie:</strong> {{ selectedJobDetails.client_notes || '-' }}</p>
           </div>
           <div class="details-section">
             <h4>Dane Główne Zlecenia</h4>
-            <p>
-              <strong>Typ zlecenia:</strong>
-              {{ translateJobType(selectedJobDetails.job_type) }}
-            </p>
-            <p>
-              <strong>Data zlecenia:</strong>
-              {{ formatDate(selectedJobDetails.job_date) }}
-            </p>
+            <p><strong>Typ zlecenia:</strong> {{ translateJobType(selectedJobDetails.job_type) }}</p>
+            <p><strong>Data zlecenia:</strong> {{ formatDate(selectedJobDetails.job_date) }}</p>
           </div>
           <div v-if="selectedJobDetails.job_type === 'well_drilling'" class="details-section full-width">
             <h4>Szczegóły Wykonania Studni</h4>
             <div class="details-grid-inner">
-              <p>
-                <strong>Miejscowość:</strong>
-                {{ selectedJobDetails.details.miejscowosc || '-' }}
-              </p>
-              <p>
-                <strong>Pracownicy:</strong>
-                {{ selectedJobDetails.details.pracownicy || '-' }}
-              </p>
-              <p>
-                <strong>Ilość metrów:</strong>
-                {{ selectedJobDetails.details.ilosc_metrow || '-' }}
-              </p>
-              <p>
-                <strong>Średnica Ø:</strong>
-                {{ selectedJobDetails.details.srednica || '-' }}
-              </p>
-              <p>
-                <strong>L. statyczne:</strong>
-                {{ selectedJobDetails.details.lustro_statyczne || '-' }}
-              </p>
-              <p>
-                <strong>L. dynamiczne:</strong>
-                {{ selectedJobDetails.details.lustro_dynamiczne || '-' }}
-              </p>
-              <p>
-                <strong>Wydajność:</strong>
-                {{ selectedJobDetails.details.wydajnosc || '-' }}
-              </p>
-              <p class="full-width-p">
-                <strong>Informacje:</strong>
-                {{ selectedJobDetails.details.informacje || '-' }}
-              </p>
+              <p><strong>Miejscowość:</strong> {{ selectedJobDetails.details.miejscowosc || '-' }}</p>
+              <p><strong>Pracownicy:</strong> {{ selectedJobDetails.details.pracownicy || '-' }}</p>
+              <p><strong>Ilość metrów:</strong> {{ selectedJobDetails.details.ilosc_metrow || '-' }}</p>
+              <p><strong>Średnica Ø:</strong> {{ selectedJobDetails.details.srednica || '-' }}</p>
+              <p><strong>L. statyczne:</strong> {{ selectedJobDetails.details.lustro_statyczne || '-' }}</p>
+              <p><strong>L. dynamiczne:</strong> {{ selectedJobDetails.details.lustro_dynamiczne || '-' }}</p>
+              <p><strong>Wydajność:</strong> {{ selectedJobDetails.details.wydajnosc || '-' }}</p>
+              <p class="full-width-p"><strong>Informacje:</strong> {{ selectedJobDetails.details.informacje || '-' }}</p>
             </div>
           </div>
           <div v-else-if="selectedJobDetails.job_type === 'connection'" class="details-section full-width">
             <h4>Szczegóły Instalacji i Rozliczenie</h4>
             <div class="details-grid-inner">
-              <p>
-                <strong>Głęb. studni:</strong>
-                {{ selectedJobDetails.details.well_depth || '-' }} m
-              </p>
-              <p>
-                <strong>Średnica:</strong>
-                {{ selectedJobDetails.details.diameter || '-' }} cal
-              </p>
-              <p>
-                <strong>Pompa na (m):</strong>
-                {{ selectedJobDetails.details.pump_depth || '-' }} m
-              </p>
-              <p>
-                <strong>Model pompy:</strong>
-                {{ selectedJobDetails.details.pump_model || '-' }}
-              </p>
-              <p>
-                <strong>Model sterownika:</strong>
-                {{ selectedJobDetails.details.controller_model || '-' }}
-              </p>
-              <p>
-                <strong>Model hydroforu:</strong>
-                {{ selectedJobDetails.details.hydrophore_model || '-' }}
-              </p>
-              <p class="full-width-p">
-                <strong>Faktura (materiały):</strong>
-                <a v-if="selectedJobDetails.details.materials_invoice_url" :href="selectedJobDetails.details.materials_invoice_url" target="_blank" rel="noopener noreferrer" class="link-btn">LINK</a><span v-else>-</span>
-              </p>
-              <p class="full-width-p">
-                <strong>Oferta (klient):</strong>
-                <a v-if="selectedJobDetails.details.client_offer_url" :href="selectedJobDetails.details.client_offer_url" target="_blank" rel="noopener noreferrer" class="link-btn">LINK</a><span v-else>-</span>
-              </p>
+              <p><strong>Głęb. studni:</strong> {{ selectedJobDetails.details.well_depth || '-' }} m</p>
+              <p><strong>Średnica:</strong> {{ selectedJobDetails.details.diameter || '-' }} cal</p>
+              <p><strong>Pompa na (m):</strong> {{ selectedJobDetails.details.pump_depth || '-' }} m</p>
+              <p><strong>Model pompy:</strong> {{ selectedJobDetails.details.pump_model || '-' }}</p>
+              <p><strong>Model sterownika:</strong> {{ selectedJobDetails.details.controller_model || '-' }}</p>
+              <p><strong>Model hydroforu:</strong> {{ selectedJobDetails.details.hydrophore_model || '-' }}</p>
+              <p class="full-width-p"><strong>Faktura (materiały):</strong> <a v-if="selectedJobDetails.details.materials_invoice_url" :href="selectedJobDetails.details.materials_invoice_url" target="_blank" rel="noopener noreferrer" class="link-btn">LINK</a><span v-else>-</span></p>
+              <p class="full-width-p"><strong>Oferta (klient):</strong> <a v-if="selectedJobDetails.details.client_offer_url" :href="selectedJobDetails.details.client_offer_url" target="_blank" rel="noopener noreferrer" class="link-btn">LINK</a><span v-else>-</span></p>
               <hr class="full-width-hr" />
-              <p>
-                <strong>Przychód:</strong>
-                {{ selectedJobDetails.details.revenue || 0 }} zł
-              </p>
-              <p>
-                <strong>Koszt obudowy:</strong>
-                {{ selectedJobDetails.details.casing_cost || 0 }} zł
-              </p>
-              <p>
-                <strong>Koszt osprzętu:</strong>
-                {{ selectedJobDetails.details.equipment_cost || 0 }} zł
-              </p>
-              <p>
-                <strong>Wypłaty:</strong>
-                {{ selectedJobDetails.details.labor_cost || 0 }} zł
-              </p>
-              <p>
-                <strong>Mat. z hurtowni:</strong>
-                {{ selectedJobDetails.details.wholesale_materials_cost || 0 }}
-                zł
+              <p><strong>Przychód:</strong> {{ selectedJobDetails.details.revenue || 0 }} zł</p>
+              <p><strong>Koszt obudowy:</strong> {{ selectedJobDetails.details.casing_cost || 0 }} zł</p>
+              <p><strong>Koszt osprzętu:</strong> {{ selectedJobDetails.details.equipment_cost || 0 }} zł</p>
+              <p><strong>Wypłaty:</strong> {{ selectedJobDetails.details.labor_cost || 0 }} zł</p>
+              <p><strong>Mat. z hurtowni:</strong> {{ selectedJobDetails.details.wholesale_materials_cost || 0 }} zł</p>
+              <p class="full-width-p total-cost-summary">
+                <strong>Suma Kosztów:</strong> <span>{{ calculatedProfit.totalCost !== null ? calculatedProfit.totalCost.toFixed(2) + ' zł' : 'Brak danych' }}</span>
               </p>
               <p class="full-width-p profit-summary">
-                <strong>Dochód:</strong>
-                <span :class="calculatedProfit >= 0 ? 'profit-positive' : 'profit-negative'">{{ calculatedProfit !== null ? calculatedProfit.toFixed(2) + ' zł' : 'Brak danych' }}</span>
+                <strong>Dochód:</strong> <span :class="calculatedProfit.profit >= 0 ? 'profit-positive' : 'profit-negative'">{{ calculatedProfit.profit !== null ? calculatedProfit.profit.toFixed(2) + ' zł' : 'Brak danych' }}</span>
               </p>
             </div>
           </div>
           <div v-else-if="selectedJobDetails.job_type === 'treatment_station'" class="details-section full-width">
             <h4>Szczegóły Stacji Uzdatniania i Rozliczenie</h4>
             <div class="details-grid-inner">
-              <p>
-                <strong>Model stacji:</strong>
-                {{ selectedJobDetails.details.station_model || '-' }}
-              </p>
-              <p>
-                <strong>Model lampy UV:</strong>
-                {{ selectedJobDetails.details.uv_lamp_model || '-' }}
-              </p>
-              <p>
-                <strong>Filtr węglowy:</strong>
-                {{ selectedJobDetails.details.carbon_filter || '-' }}
-              </p>
-              <p>
-                <strong>Rodzaje złóż:</strong>
-                {{ selectedJobDetails.details.filter_types || '-' }}
-              </p>
-              <p class="full-width-p">
-                <strong>Faktura (materiały):</strong>
-                <a v-if="selectedJobDetails.details.materials_invoice_url" :href="selectedJobDetails.details.materials_invoice_url" target="_blank" rel="noopener noreferrer" class="link-btn">LINK</a><span v-else>-</span>
-              </p>
-              <p class="full-width-p">
-                <strong>Oferta (klient):</strong>
-                <a v-if="selectedJobDetails.details.client_offer_url" :href="selectedJobDetails.details.client_offer_url" target="_blank" rel="noopener noreferrer" class="link-btn">LINK</a><span v-else>-</span>
-              </p>
+              <p><strong>Model stacji:</strong> {{ selectedJobDetails.details.station_model || '-' }}</p>
+              <p><strong>Model lampy UV:</strong> {{ selectedJobDetails.details.uv_lamp_model || '-' }}</p>
+              <p><strong>Filtr węglowy:</strong> {{ selectedJobDetails.details.carbon_filter || '-' }}</p>
+              <p><strong>Rodzaje złóż:</strong> {{ selectedJobDetails.details.filter_types || '-' }}</p>
+              <p class="full-width-p"><strong>Faktura (materiały):</strong> <a v-if="selectedJobDetails.details.materials_invoice_url" :href="selectedJobDetails.details.materials_invoice_url" target="_blank" rel="noopener noreferrer" class="link-btn">LINK</a><span v-else>-</span></p>
+              <p class="full-width-p"><strong>Oferta (klient):</strong> <a v-if="selectedJobDetails.details.client_offer_url" :href="selectedJobDetails.details.client_offer_url" target="_blank" rel="noopener noreferrer" class="link-btn">LINK</a><span v-else>-</span></p>
               <hr class="full-width-hr" />
-              <p>
-                <strong>Przychód:</strong>
-                {{ selectedJobDetails.details.revenue || 0 }} zł
-              </p>
-              <p>
-                <strong>Koszt osprzętu:</strong>
-                {{ selectedJobDetails.details.equipment_cost || 0 }} zł
-              </p>
-              <p>
-                <strong>Wypłaty:</strong>
-                {{ selectedJobDetails.details.labor_cost || 0 }} zł
-              </p>
-              <p>
-                <strong>Mat. z hurtowni:</strong>
-                {{ selectedJobDetails.details.wholesale_materials_cost || 0 }}
-                zł
+              <p><strong>Przychód:</strong> {{ selectedJobDetails.details.revenue || 0 }} zł</p>
+              <p><strong>Koszt osprzętu:</strong> {{ selectedJobDetails.details.equipment_cost || 0 }} zł</p>
+              <p><strong>Wypłaty:</strong> {{ selectedJobDetails.details.labor_cost || 0 }} zł</p>
+              <p><strong>Mat. z hurtowni:</strong> {{ selectedJobDetails.details.wholesale_materials_cost || 0 }} zł</p>
+              <p class="full-width-p total-cost-summary">
+                <strong>Suma Kosztów:</strong> <span>{{ calculatedProfit.totalCost !== null ? calculatedProfit.totalCost.toFixed(2) + ' zł' : 'Brak danych' }}</span>
               </p>
               <p class="full-width-p profit-summary">
-                <strong>Dochód:</strong>
-                <span :class="calculatedProfit >= 0 ? 'profit-positive' : 'profit-negative'">{{ calculatedProfit !== null ? calculatedProfit.toFixed(2) + ' zł' : 'Brak danych' }}</span>
+                <strong>Dochód:</strong> <span :class="calculatedProfit.profit >= 0 ? 'profit-positive' : 'profit-negative'">{{ calculatedProfit.profit !== null ? calculatedProfit.profit.toFixed(2) + ' zł' : 'Brak danych' }}</span>
               </p>
             </div>
           </div>
           <div v-else-if="selectedJobDetails.job_type === 'service'" class="details-section full-width">
             <h4>Szczegóły Serwisu</h4>
             <div class="details-grid-inner">
-              <p class="full-width-p">
-                <strong>Opis wykonanych prac:</strong>
-                {{ selectedJobDetails.details.description || '-' }}
-              </p>
+              <p class="full-width-p"><strong>Opis wykonanych prac:</strong> {{ selectedJobDetails.details.description || '-' }}</p>
             </div>
           </div>
         </div>
@@ -607,9 +498,7 @@ onMounted(() => {
         <button class="close-button" @click="showEditJobModal = false">&times;</button>
       </div>
       <div class="modal-body">
-        <div v-if="isDetailsLoading" class="modal-loading-spinner">
-          <div class="spinner"></div>
-        </div>
+        <div v-if="isDetailsLoading" class="modal-loading-spinner"><div class="spinner"></div></div>
         <form v-else-if="editedJobData" @submit.prevent="handleUpdateJob">
           <div class="form-grid-single-col">
             <div class="form-group">
@@ -618,10 +507,7 @@ onMounted(() => {
                 <strong>{{ editedJobData.client_name }} ({{ editedJobData.client_phone }})</strong>
               </p>
             </div>
-            <div class="form-group">
-              <label for="editJobDate">Data zlecenia</label>
-              <input type="date" id="editJobDate" v-model="editedJobData.job_date" required />
-            </div>
+            <div class="form-group"><label for="editJobDate">Data zlecenia</label><input type="date" id="editJobDate" v-model="editedJobData.job_date" required /></div>
             <div class="form-group">
               <label>Typ zlecenia:</label>
               <p>
@@ -631,7 +517,6 @@ onMounted(() => {
             <div class="details-section">
               <hr />
               <h4>Szczegóły zlecenia</h4>
-
               <div v-if="editedJobData.job_type === 'well_drilling'" class="form-grid">
                 <div class="form-group"><label>Miejscowość:</label><input type="text" v-model="editedJobData.details.miejscowosc" /></div>
                 <div class="form-group"><label>Pracownicy:</label><input type="text" v-model="editedJobData.details.pracownicy" /></div>
@@ -642,7 +527,6 @@ onMounted(() => {
                 <div class="form-group"><label>Lustro dynamiczne:</label><input type="number" step="any" v-model.number="editedJobData.details.lustro_dynamiczne" /></div>
                 <div class="form-group"><label>Wydajność (m³/h):</label><input type="number" step="any" v-model.number="editedJobData.details.wydajnosc" /></div>
               </div>
-
               <div v-else-if="editedJobData.job_type === 'connection'" class="form-grid">
                 <div class="form-group"><label>Głębokość studni (m):</label><input type="number" step="any" v-model.number="editedJobData.details.well_depth" /></div>
                 <div class="form-group"><label>Średnica (cal):</label><input type="number" step="any" v-model.number="editedJobData.details.diameter" /></div>
@@ -659,7 +543,6 @@ onMounted(() => {
                 <div class="form-group"><label>Wypłaty:</label><input type="number" step="any" v-model.number="editedJobData.details.labor_cost" /></div>
                 <div class="form-group"><label>Materiały z hurtowni:</label><input type="number" step="any" v-model.number="editedJobData.details.wholesale_materials_cost" /></div>
               </div>
-
               <div v-else-if="editedJobData.job_type === 'treatment_station'" class="form-grid">
                 <div class="form-group"><label>Model stacji:</label><input type="text" v-model="editedJobData.details.station_model" /></div>
                 <div class="form-group"><label>Model lampy UV:</label><input type="text" v-model="editedJobData.details.uv_lamp_model" /></div>
@@ -673,19 +556,12 @@ onMounted(() => {
                 <div class="form-group"><label>Wypłaty:</label><input type="number" step="any" v-model.number="editedJobData.details.labor_cost" /></div>
                 <div class="form-group"><label>Materiały z hurtowni:</label><input type="number" step="any" v-model.number="editedJobData.details.wholesale_materials_cost" /></div>
               </div>
-
               <div v-else-if="editedJobData.job_type === 'service'" class="form-grid">
-                <div class="form-group full-width">
-                  <label>Opis wykonanych prac serwisowych:</label>
-                  <textarea v-model="editedJobData.details.description" rows="5"></textarea>
-                </div>
+                <div class="form-group full-width"><label>Opis wykonanych prac serwisowych:</label><textarea v-model="editedJobData.details.description" rows="5"></textarea></div>
               </div>
             </div>
           </div>
-          <div class="modal-actions">
-            <button type="submit" class="zapisz">Zapisz zmiany</button>
-            <button type="button" class="anuluj" @click="showEditJobModal = false">Anuluj</button>
-          </div>
+          <div class="modal-actions"><button type="submit" class="zapisz">Zapisz zmiany</button><button type="button" class="anuluj" @click="showEditJobModal = false">Anuluj</button></div>
         </form>
       </div>
     </div>
@@ -796,5 +672,13 @@ onMounted(() => {
 }
 .profit-negative {
   color: var(--red);
+}
+.total-cost-summary {
+  grid-column: 1 / -1;
+  text-align: right;
+  color: var(--red);
+}
+.total-cost-summary span {
+  font-weight: bold;
 }
 </style>
