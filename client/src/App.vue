@@ -21,9 +21,7 @@ const handleLogout = () => {
       </template>
     </nav>
     <div class="user-actions">
-      <button v-if="isAuthenticated" @click="handleLogout" class="logout-btn">
-        Wyloguj
-      </button>
+      <button v-if="isAuthenticated" @click="handleLogout" class="logout-btn">Wyloguj</button>
     </div>
   </header>
 
@@ -55,9 +53,7 @@ html {
   box-sizing: inherit;
 }
 body {
-  font-family:
-    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial,
-    sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   color: var(--text-color);
   background-color: var(--background-page);
   margin: 0;

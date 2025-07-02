@@ -388,6 +388,15 @@ onMounted(() => {
               <div class="form-group"><label>Model lampy UV:</label><input type="text" v-model="newJobData.details.uv_lamp_model" /></div>
               <div class="form-group"><label>Filtr węglowy:</label><input type="text" v-model="newJobData.details.carbon_filter" /></div>
               <div class="form-group"><label>Rodzaje złóż:</label><input type="text" v-model="newJobData.details.filter_types" /></div>
+              <div class="form-group"><label>Interwał serwisowy (w miesiącach):</label><input type="number" step="1" v-model.number="newJobData.details.service_interval_months" placeholder="Domyślnie: 12" /></div>
+              <hr class="full-width-hr" />
+              <div class="form-group"><label>Link do faktury za materiały:</label><input type="text" v-model="newJobData.details.materials_invoice_url" /></div>
+              <div class="form-group"><label>Link do oferty dla klienta:</label><input type="text" v-model="newJobData.details.client_offer_url" /></div>
+              <hr class="full-width-hr" />
+              <div class="form-group"><label>Przychód:</label><input type="number" step="any" v-model.number="newJobData.details.revenue" /></div>
+              <div class="form-group"><label>Koszt osprzętu:</label><input type="number" step="any" v-model.number="newJobData.details.equipment_cost" /></div>
+              <div class="form-group"><label>Wypłaty:</label><input type="number" step="any" v-model.number="newJobData.details.labor_cost" /></div>
+              <div class="form-group"><label>Materiały z hurtowni:</label><input type="number" step="any" v-model.number="newJobData.details.wholesale_materials_cost" /></div>
             </div>
             <div v-else-if="newJobData.jobType === 'service'" class="form-grid">
               <div class="form-group full-width"><label>Opis wykonanych prac serwisowych:</label><textarea v-model="newJobData.details.description" rows="5" placeholder="np. Przegląd roczny, wymiana filtra, czyszczenie..."></textarea></div>
