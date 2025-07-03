@@ -9,22 +9,15 @@ import PaginationControls from '../components/PaginationControls.vue';
 const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
 const route = useRoute();
 
-// --- Zmienne Stanu (Refs) ---
 const isLoading = ref(true);
 const jobs = ref([]);
 const availableClients = ref([]);
-
-// Paginacja
+const totalItems = ref(0);
 const currentPage = ref(1);
 const totalPages = ref(1);
-const totalItems = ref(0);
-
-// Wyszukiwanie i Sortowanie
 const searchQuery = ref('');
 const sortBy = ref('job_date');
 const sortOrder = ref('desc');
-
-// Modale
 const showAddJobModal = ref(false);
 const showDetailsModal = ref(false);
 const showEditJobModal = ref(false);
@@ -33,7 +26,6 @@ const selectedJobDetails = ref(null);
 const editedJobData = ref(null);
 const isDetailsLoading = ref(false);
 
-// --- Funkcje Pomocnicze ---
 const inicjalizujNoweZlecenie = () => ({
   clientId: null,
   jobType: 'well_drilling',
@@ -52,7 +44,12 @@ function translateJobType(type) {
 }
 
 const calculatedProfit = computed(() => {
-  if (selectedJobDetails.value && (selectedJobDetails.value.job_type === 'connection' || selectedJobDetails.value.job_type === 'treatment_station') && selectedJobDetails.value.details) {
+  if (
+    selectedJobDetails.value &&
+    (selectedJobDetails.value.job_type === 'connection' ||
+      selectedJobDetails.value.job_type === 'treatment_station') &&
+    selectedJobDetails.value.details
+  ) {
     const details = selectedJobDetails.value.details;
     const revenue = parseFloat(details.revenue) || 0;
     const casing_cost = parseFloat(details.casing_cost) || 0;
@@ -75,8 +72,6 @@ const filterClients = (options, search) => {
   });
 };
 
-// --- Funkcje Główne (API i Handlery) ---
-
 async function fetchJobs() {
   isLoading.value = true;
   try {
@@ -90,7 +85,9 @@ async function fetchJobs() {
     if (route.query.clientId) {
       params.append('clientId', route.query.clientId);
     }
-    const response = await fetch(`${API_URL}/api/jobs?${params.toString()}`, { headers: getAuthHeaders() });
+    const response = await fetch(`${API_URL}/api/jobs?${params.toString()}`, {
+      headers: getAuthHeaders(),
+    });
     if (!response.ok) throw new Error('Błąd pobierania listy zleceń');
     const result = await response.json();
     jobs.value = result.data;
@@ -107,7 +104,9 @@ async function fetchJobs() {
 
 async function fetchClientsForSelect() {
   try {
-    const response = await fetch(`${API_URL}/api/clients-for-select`, { headers: getAuthHeaders() });
+    const response = await fetch(`${API_URL}/api/clients-for-select`, {
+      headers: getAuthHeaders(),
+    });
     if (!response.ok) throw new Error('Błąd pobierania listy klientów');
     availableClients.value = await response.json();
   } catch (error) {
@@ -133,7 +132,7 @@ async function handleAddJob() {
     });
     const newJob = await response.json();
     if (!response.ok) throw new Error(newJob.error || 'Błąd podczas tworzenia zlecenia.');
-    jobs.value.unshift(newJob);
+    await fetchJobs();
     showAddJobModal.value = false;
   } catch (error) {
     console.error('Błąd w handleAddJob():', error);
@@ -167,7 +166,6 @@ async function handleShowEditModal(job) {
     if (!response.ok) throw new Error('Błąd pobierania pełnych danych zlecenia do edycji');
     const fullJobData = await response.json();
     editedJobData.value = fullJobData;
-    editedJobData.value.job_date = formatDate(editedJobData.value.job_date);
   } catch (error) {
     console.error('Błąd w handleShowEditModal:', error);
     alert(error.message);
@@ -194,11 +192,7 @@ async function handleUpdateJob() {
       const errorData = await response.json();
       throw new Error(errorData.error || 'Błąd podczas aktualizacji zlecenia.');
     }
-    const updatedJobData = await response.json();
-    const index = jobs.value.findIndex((j) => j.id === updatedJobData.id);
-    if (index !== -1) {
-      jobs.value[index] = { ...jobs.value[index], ...updatedJobData };
-    }
+    await fetchJobs();
     showEditJobModal.value = false;
   } catch (error) {
     console.error('Błąd w handleUpdateJob():', error);
@@ -227,10 +221,16 @@ function handlePageChange(newPage) {
   currentPage.value = newPage;
 }
 
-// --- Obserwatorzy (Watchers) ---
+function changeSort(key) {
+  if (sortBy.value === key) {
+    sortOrder.value = sortOrder.value === 'asc' ? 'desc' : 'asc';
+  } else {
+    sortBy.value = key;
+    sortOrder.value = 'desc';
+  }
+}
 
 watch([currentPage, sortBy, sortOrder], fetchJobs);
-
 let searchTimeout = null;
 watch(searchQuery, () => {
   clearTimeout(searchTimeout);
@@ -239,7 +239,6 @@ watch(searchQuery, () => {
     fetchJobs();
   }, 300);
 });
-
 watch(
   () => newJobData.value.jobType,
   (newType, oldType) => {
@@ -248,7 +247,6 @@ watch(
     }
   }
 );
-
 onMounted(() => {
   fetchJobs();
   fetchClientsForSelect();
@@ -259,33 +257,39 @@ onMounted(() => {
   <div class="container">
     <div class="header">
       <h1>Rejestr Zleceń ({{ totalItems }})</h1>
-      <button class="add-new-btn" @click="handleShowAddJobModal" :disabled="isLoading">&#43; Dodaj Zlecenie</button>
+      <button class="add-new-btn" @click="handleShowAddJobModal" :disabled="isLoading">
+        &#43; Dodaj Zlecenie
+      </button>
     </div>
-
     <div class="search-container">
-      <input type="text" v-model="searchQuery" placeholder="Szukaj po kliencie, telefonie, miejscowości..." />
+      <input
+        type="text"
+        v-model="searchQuery"
+        placeholder="Szukaj po kliencie, telefonie, miejscowości..."
+      />
     </div>
-
     <div class="main-content-wrapper">
       <div v-if="isLoading" class="loading-overlay">
         <div class="spinner"></div>
       </div>
-
       <div class="table-and-pagination" :class="{ 'is-loading': isLoading }">
         <div class="table-container">
           <table>
             <thead>
               <tr>
                 <th @click="changeSort('client_name')" class="sortable">
-                  Klient <span v-if="sortBy === 'client_name'">{{ sortOrder === 'asc' ? '▲' : '▼' }}</span>
+                  Klient
+                  <span v-if="sortBy === 'client_name'">{{ sortOrder === 'asc' ? '▲' : '▼' }}</span>
                 </th>
                 <th>Telefon Klienta</th>
                 <th @click="changeSort('miejscowosc')" class="sortable">
-                  Miejscowość <span v-if="sortBy === 'miejscowosc'">{{ sortOrder === 'asc' ? '▲' : '▼' }}</span>
+                  Miejscowość
+                  <span v-if="sortBy === 'miejscowosc'">{{ sortOrder === 'asc' ? '▲' : '▼' }}</span>
                 </th>
                 <th>Typ Zlecenia</th>
                 <th @click="changeSort('job_date')" class="sortable">
-                  Data <span v-if="sortBy === 'job_date'">{{ sortOrder === 'asc' ? '▲' : '▼' }}</span>
+                  Data
+                  <span v-if="sortBy === 'job_date'">{{ sortOrder === 'asc' ? '▲' : '▼' }}</span>
                 </th>
                 <th>Akcje</th>
               </tr>
@@ -296,9 +300,9 @@ onMounted(() => {
                 <td data-label="Telefon Klienta">{{ job.client_phone }}</td>
                 <td data-label="Miejscowość">{{ job.miejscowosc || '-' }}</td>
                 <td data-label="Typ Zlecenia">
-                  <span class="job-type-badge" :class="job.job_type">
-                    {{ translateJobType(job.job_type) }}
-                  </span>
+                  <span class="job-type-badge" :class="job.job_type">{{
+                    translateJobType(job.job_type)
+                  }}</span>
                 </td>
                 <td data-label="Data">{{ formatDate(job.job_date) }}</td>
                 <td data-label="Akcje" class="actions-cell">
@@ -313,8 +317,12 @@ onMounted(() => {
             <p>Brak zleceń w bazie lub pasujących do wyszukiwania.</p>
           </div>
         </div>
-
-        <PaginationControls v-if="totalPages > 1" :current-page="currentPage" :total-pages="totalPages" @page-changed="handlePageChange" />
+        <PaginationControls
+          v-if="totalPages > 1"
+          :current-page="currentPage"
+          :total-pages="totalPages"
+          @page-changed="handlePageChange"
+        />
       </div>
     </div>
   </div>
@@ -328,23 +336,32 @@ onMounted(() => {
       <form @submit.prevent="handleAddJob">
         <div class="form-grid-single-col">
           <div class="form-group">
-            <label for="clientSelect">1. Wybierz klienta (zacznij pisać, aby wyszukać)</label>
-            <v-select id="clientSelect" :options="availableClients" :get-option-label="(option) => option.name || 'Brak Nazwy'" :filter="filterClients" :reduce="(client) => client.id" v-model="newJobData.clientId" placeholder="-- Wyszukaj klienta po nazwie lub telefonie --">
-              <template #option="{ name, phone_number }"
+            <label for="clientSelect">1. Wybierz klienta (zacznij pisać, aby wyszukać)</label
+            ><v-select
+              id="clientSelect"
+              :options="availableClients"
+              :get-option-label="(option) => option.name || 'Brak Nazwy'"
+              :filter="filterClients"
+              :reduce="(client) => client.id"
+              v-model="newJobData.clientId"
+              placeholder="-- Wyszukaj klienta po nazwie lub telefonie --"
+              ><template #option="{ name, phone_number }"
                 ><div style="display: flex; flex-direction: column">
                   <strong>{{ name || 'Brak nazwy' }}</strong
                   ><span style="font-size: 0.8em; color: #666">{{ phone_number }}</span>
                 </div></template
-              >
-              <template #selected-option="{ name, phone_number }"
+              ><template #selected-option="{ name, phone_number }"
                 ><div style="display: flex; flex-direction: column">
                   <strong>{{ name || 'Brak nazwy' }}</strong
                   ><span style="font-size: 0.8em; color: #666">{{ phone_number }}</span>
                 </div></template
-              >
-            </v-select>
+              ></v-select
+            >
           </div>
-          <div class="form-group"><label for="jobDate">2. Data zlecenia</label><input type="date" id="jobDate" v-model="newJobData.jobDate" required /></div>
+          <div class="form-group">
+            <label for="jobDate">2. Data zlecenia</label
+            ><input type="date" id="jobDate" v-model="newJobData.jobDate" required />
+          </div>
           <div class="form-group">
             <label for="jobTypeSelect">3. Typ zlecenia</label
             ><select id="jobTypeSelect" v-model="newJobData.jobType">
@@ -358,52 +375,187 @@ onMounted(() => {
             <hr />
             <h4>4. Wprowadź szczegóły zlecenia</h4>
             <div v-if="newJobData.jobType === 'well_drilling'" class="form-grid">
-              <div class="form-group"><label>Miejscowość:</label><input type="text" v-model="newJobData.details.miejscowosc" /></div>
-              <div class="form-group"><label>Pracownicy:</label><input type="text" v-model="newJobData.details.pracownicy" /></div>
-              <div class="form-group full-width"><label>Informacje:</label><textarea v-model="newJobData.details.informacje" rows="2"></textarea></div>
-              <div class="form-group"><label>Średnica Ø:</label><input type="number" step="any" v-model.number="newJobData.details.srednica" /></div>
-              <div class="form-group"><label>Ilość metrów:</label><input type="number" step="any" v-model.number="newJobData.details.ilosc_metrow" /></div>
-              <div class="form-group"><label>Lustro statyczne:</label><input type="number" step="any" v-model.number="newJobData.details.lustro_statyczne" /></div>
-              <div class="form-group"><label>Lustro dynamiczne:</label><input type="number" step="any" v-model.number="newJobData.details.lustro_dynamiczne" /></div>
-              <div class="form-group"><label>Wydajność (m³/h):</label><input type="number" step="any" v-model.number="newJobData.details.wydajnosc" /></div>
+              <div class="form-group">
+                <label>Miejscowość:</label
+                ><input type="text" v-model="newJobData.details.miejscowosc" />
+              </div>
+              <div class="form-group">
+                <label>Pracownicy:</label
+                ><input type="text" v-model="newJobData.details.pracownicy" />
+              </div>
+              <div class="form-group full-width">
+                <label>Informacje:</label
+                ><textarea v-model="newJobData.details.informacje" rows="2"></textarea>
+              </div>
+              <div class="form-group">
+                <label>Średnica Ø:</label
+                ><input type="number" step="any" v-model.number="newJobData.details.srednica" />
+              </div>
+              <div class="form-group">
+                <label>Ilość metrów:</label
+                ><input type="number" step="any" v-model.number="newJobData.details.ilosc_metrow" />
+              </div>
+              <div class="form-group">
+                <label>Lustro statyczne:</label
+                ><input
+                  type="number"
+                  step="any"
+                  v-model.number="newJobData.details.lustro_statyczne"
+                />
+              </div>
+              <div class="form-group">
+                <label>Lustro dynamiczne:</label
+                ><input
+                  type="number"
+                  step="any"
+                  v-model.number="newJobData.details.lustro_dynamiczne"
+                />
+              </div>
+              <div class="form-group">
+                <label>Wydajność (m³/h):</label
+                ><input type="number" step="any" v-model.number="newJobData.details.wydajnosc" />
+              </div>
             </div>
             <div v-else-if="newJobData.jobType === 'connection'" class="form-grid">
-              <div class="form-group"><label>Głębokość studni (m):</label><input type="number" step="any" v-model.number="newJobData.details.well_depth" /></div>
-              <div class="form-group"><label>Średnica (cal):</label><input type="number" step="any" v-model.number="newJobData.details.diameter" /></div>
-              <div class="form-group"><label>Na ilu metrach pompa:</label><input type="number" step="any" v-model.number="newJobData.details.pump_depth" /></div>
-              <div class="form-group"><label>Jaka pompa:</label><input type="text" v-model="newJobData.details.pump_model" /></div>
-              <div class="form-group"><label>Jaki sterownik:</label><input type="text" v-model="newJobData.details.controller_model" /></div>
-              <div class="form-group"><label>Jaki hydrofor:</label><input type="text" v-model="newJobData.details.hydrophore_model" /></div>
-              <div class="form-group"><label>Link do faktury za materiały:</label><input type="text" v-model="newJobData.details.materials_invoice_url" /></div>
-              <div class="form-group"><label>Link do oferty dla klienta:</label><input type="text" v-model="newJobData.details.client_offer_url" /></div>
+              <div class="form-group">
+                <label>Głębokość studni (m):</label
+                ><input type="number" step="any" v-model.number="newJobData.details.well_depth" />
+              </div>
+              <div class="form-group">
+                <label>Średnica (cal):</label
+                ><input type="number" step="any" v-model.number="newJobData.details.diameter" />
+              </div>
+              <div class="form-group">
+                <label>Na ilu metrach pompa:</label
+                ><input type="number" step="any" v-model.number="newJobData.details.pump_depth" />
+              </div>
+              <div class="form-group">
+                <label>Jaka pompa:</label
+                ><input type="text" v-model="newJobData.details.pump_model" />
+              </div>
+              <div class="form-group">
+                <label>Jaki sterownik:</label
+                ><input type="text" v-model="newJobData.details.controller_model" />
+              </div>
+              <div class="form-group">
+                <label>Jaki hydrofor:</label
+                ><input type="text" v-model="newJobData.details.hydrophore_model" />
+              </div>
+              <div class="form-group">
+                <label>Link do faktury za materiały:</label
+                ><input type="text" v-model="newJobData.details.materials_invoice_url" />
+              </div>
+              <div class="form-group">
+                <label>Link do oferty dla klienta:</label
+                ><input type="text" v-model="newJobData.details.client_offer_url" />
+              </div>
               <hr class="full-width-hr" />
-              <div class="form-group"><label>Przychód:</label><input type="number" step="any" v-model.number="newJobData.details.revenue" /></div>
-              <div class="form-group"><label>Koszt obudowy:</label><input type="number" step="any" v-model.number="newJobData.details.casing_cost" /></div>
-              <div class="form-group"><label>Koszt osprzętu:</label><input type="number" step="any" v-model.number="newJobData.details.equipment_cost" /></div>
-              <div class="form-group"><label>Wypłaty:</label><input type="number" step="any" v-model.number="newJobData.details.labor_cost" /></div>
-              <div class="form-group"><label>Materiały z hurtowni:</label><input type="number" step="any" v-model.number="newJobData.details.wholesale_materials_cost" /></div>
+              <div class="form-group">
+                <label>Przychód:</label
+                ><input type="number" step="any" v-model.number="newJobData.details.revenue" />
+              </div>
+              <div class="form-group">
+                <label>Koszt obudowy:</label
+                ><input type="number" step="any" v-model.number="newJobData.details.casing_cost" />
+              </div>
+              <div class="form-group">
+                <label>Koszt osprzętu:</label
+                ><input
+                  type="number"
+                  step="any"
+                  v-model.number="newJobData.details.equipment_cost"
+                />
+              </div>
+              <div class="form-group">
+                <label>Wypłaty:</label
+                ><input type="number" step="any" v-model.number="newJobData.details.labor_cost" />
+              </div>
+              <div class="form-group">
+                <label>Materiały z hurtowni:</label
+                ><input
+                  type="number"
+                  step="any"
+                  v-model.number="newJobData.details.wholesale_materials_cost"
+                />
+              </div>
             </div>
             <div v-else-if="newJobData.jobType === 'treatment_station'" class="form-grid">
-              <div class="form-group"><label>Model stacji:</label><input type="text" v-model="newJobData.details.station_model" /></div>
-              <div class="form-group"><label>Model lampy UV:</label><input type="text" v-model="newJobData.details.uv_lamp_model" /></div>
-              <div class="form-group"><label>Filtr węglowy:</label><input type="text" v-model="newJobData.details.carbon_filter" /></div>
-              <div class="form-group"><label>Rodzaje złóż:</label><input type="text" v-model="newJobData.details.filter_types" /></div>
-              <div class="form-group"><label>Interwał serwisowy (w miesiącach):</label><input type="number" step="1" v-model.number="newJobData.details.service_interval_months" placeholder="Domyślnie: 12" /></div>
+              <div class="form-group">
+                <label>Model stacji:</label
+                ><input type="text" v-model="newJobData.details.station_model" />
+              </div>
+              <div class="form-group">
+                <label>Model lampy UV:</label
+                ><input type="text" v-model="newJobData.details.uv_lamp_model" />
+              </div>
+              <div class="form-group">
+                <label>Filtr węglowy:</label
+                ><input type="text" v-model="newJobData.details.carbon_filter" />
+              </div>
+              <div class="form-group">
+                <label>Rodzaje złóż:</label
+                ><input type="text" v-model="newJobData.details.filter_types" />
+              </div>
+              <div class="form-group">
+                <label>Interwał serwisowy (w miesiącach):</label
+                ><input
+                  type="number"
+                  step="1"
+                  v-model.number="newJobData.details.service_interval_months"
+                  placeholder="Domyślnie: 12"
+                />
+              </div>
               <hr class="full-width-hr" />
-              <div class="form-group"><label>Link do faktury za materiały:</label><input type="text" v-model="newJobData.details.materials_invoice_url" /></div>
-              <div class="form-group"><label>Link do oferty dla klienta:</label><input type="text" v-model="newJobData.details.client_offer_url" /></div>
+              <div class="form-group">
+                <label>Link do faktury za materiały:</label
+                ><input type="text" v-model="newJobData.details.materials_invoice_url" />
+              </div>
+              <div class="form-group">
+                <label>Link do oferty dla klienta:</label
+                ><input type="text" v-model="newJobData.details.client_offer_url" />
+              </div>
               <hr class="full-width-hr" />
-              <div class="form-group"><label>Przychód:</label><input type="number" step="any" v-model.number="newJobData.details.revenue" /></div>
-              <div class="form-group"><label>Koszt osprzętu:</label><input type="number" step="any" v-model.number="newJobData.details.equipment_cost" /></div>
-              <div class="form-group"><label>Wypłaty:</label><input type="number" step="any" v-model.number="newJobData.details.labor_cost" /></div>
-              <div class="form-group"><label>Materiały z hurtowni:</label><input type="number" step="any" v-model.number="newJobData.details.wholesale_materials_cost" /></div>
+              <div class="form-group">
+                <label>Przychód:</label
+                ><input type="number" step="any" v-model.number="newJobData.details.revenue" />
+              </div>
+              <div class="form-group">
+                <label>Koszt osprzętu:</label
+                ><input
+                  type="number"
+                  step="any"
+                  v-model.number="newJobData.details.equipment_cost"
+                />
+              </div>
+              <div class="form-group">
+                <label>Wypłaty:</label
+                ><input type="number" step="any" v-model.number="newJobData.details.labor_cost" />
+              </div>
+              <div class="form-group">
+                <label>Materiały z hurtowni:</label
+                ><input
+                  type="number"
+                  step="any"
+                  v-model.number="newJobData.details.wholesale_materials_cost"
+                />
+              </div>
             </div>
             <div v-else-if="newJobData.jobType === 'service'" class="form-grid">
-              <div class="form-group full-width"><label>Opis wykonanych prac serwisowych:</label><textarea v-model="newJobData.details.description" rows="5" placeholder="np. Przegląd roczny, wymiana filtra, czyszczenie..."></textarea></div>
+              <div class="form-group full-width">
+                <label>Opis wykonanych prac serwisowych:</label
+                ><textarea
+                  v-model="newJobData.details.description"
+                  rows="5"
+                  placeholder="np. Przegląd roczny, wymiana filtra, czyszczenie..."
+                ></textarea>
+              </div>
             </div>
           </div>
         </div>
-        <div class="modal-actions"><button type="submit" class="zapisz">Zapisz Zlecenie</button><button type="button" class="anuluj" @click="showAddJobModal = false">Anuluj</button></div>
+        <div class="modal-actions">
+          <button type="submit" class="zapisz">Zapisz Zlecenie</button
+          ><button type="button" class="anuluj" @click="showAddJobModal = false">Anuluj</button>
+        </div>
       </form>
     </div>
   </div>
@@ -426,73 +578,208 @@ onMounted(() => {
           </div>
           <div class="details-section">
             <h4>Dane Główne Zlecenia</h4>
-            <p><strong>Typ zlecenia:</strong> {{ translateJobType(selectedJobDetails.job_type) }}</p>
+            <p>
+              <strong>Typ zlecenia:</strong> {{ translateJobType(selectedJobDetails.job_type) }}
+            </p>
             <p><strong>Data zlecenia:</strong> {{ formatDate(selectedJobDetails.job_date) }}</p>
           </div>
-          <div v-if="selectedJobDetails.job_type === 'well_drilling'" class="details-section full-width">
+          <div
+            v-if="selectedJobDetails.job_type === 'well_drilling'"
+            class="details-section full-width"
+          >
             <h4>Szczegóły Wykonania Studni</h4>
             <div class="details-grid-inner">
-              <p><strong>Miejscowość:</strong> {{ selectedJobDetails.details.miejscowosc || '-' }}</p>
+              <p>
+                <strong>Miejscowość:</strong> {{ selectedJobDetails.details.miejscowosc || '-' }}
+              </p>
               <p><strong>Pracownicy:</strong> {{ selectedJobDetails.details.pracownicy || '-' }}</p>
-              <p><strong>Ilość metrów:</strong> {{ selectedJobDetails.details.ilosc_metrow || '-' }}</p>
+              <p>
+                <strong>Ilość metrów:</strong> {{ selectedJobDetails.details.ilosc_metrow || '-' }}
+              </p>
               <p><strong>Średnica Ø:</strong> {{ selectedJobDetails.details.srednica || '-' }}</p>
-              <p><strong>L. statyczne:</strong> {{ selectedJobDetails.details.lustro_statyczne || '-' }}</p>
-              <p><strong>L. dynamiczne:</strong> {{ selectedJobDetails.details.lustro_dynamiczne || '-' }}</p>
+              <p>
+                <strong>L. statyczne:</strong>
+                {{ selectedJobDetails.details.lustro_statyczne || '-' }}
+              </p>
+              <p>
+                <strong>L. dynamiczne:</strong>
+                {{ selectedJobDetails.details.lustro_dynamiczne || '-' }}
+              </p>
               <p><strong>Wydajność:</strong> {{ selectedJobDetails.details.wydajnosc || '-' }}</p>
-              <p class="full-width-p"><strong>Informacje:</strong> {{ selectedJobDetails.details.informacje || '-' }}</p>
+              <p class="full-width-p">
+                <strong>Informacje:</strong> {{ selectedJobDetails.details.informacje || '-' }}
+              </p>
             </div>
           </div>
-          <div v-else-if="selectedJobDetails.job_type === 'connection'" class="details-section full-width">
+          <div
+            v-else-if="selectedJobDetails.job_type === 'connection'"
+            class="details-section full-width"
+          >
             <h4>Szczegóły Instalacji i Rozliczenie</h4>
             <div class="details-grid-inner">
-              <p><strong>Głęb. studni:</strong> {{ selectedJobDetails.details.well_depth || '-' }} m</p>
+              <p>
+                <strong>Głęb. studni:</strong> {{ selectedJobDetails.details.well_depth || '-' }} m
+              </p>
               <p><strong>Średnica:</strong> {{ selectedJobDetails.details.diameter || '-' }} cal</p>
-              <p><strong>Pompa na (m):</strong> {{ selectedJobDetails.details.pump_depth || '-' }} m</p>
-              <p><strong>Model pompy:</strong> {{ selectedJobDetails.details.pump_model || '-' }}</p>
-              <p><strong>Model sterownika:</strong> {{ selectedJobDetails.details.controller_model || '-' }}</p>
-              <p><strong>Model hydroforu:</strong> {{ selectedJobDetails.details.hydrophore_model || '-' }}</p>
-              <p class="full-width-p"><strong>Faktura (materiały):</strong> <a v-if="selectedJobDetails.details.materials_invoice_url" :href="selectedJobDetails.details.materials_invoice_url" target="_blank" rel="noopener noreferrer" class="link-btn">LINK</a><span v-else>-</span></p>
-              <p class="full-width-p"><strong>Oferta (klient):</strong> <a v-if="selectedJobDetails.details.client_offer_url" :href="selectedJobDetails.details.client_offer_url" target="_blank" rel="noopener noreferrer" class="link-btn">LINK</a><span v-else>-</span></p>
+              <p>
+                <strong>Pompa na (m):</strong> {{ selectedJobDetails.details.pump_depth || '-' }} m
+              </p>
+              <p>
+                <strong>Model pompy:</strong> {{ selectedJobDetails.details.pump_model || '-' }}
+              </p>
+              <p>
+                <strong>Model sterownika:</strong>
+                {{ selectedJobDetails.details.controller_model || '-' }}
+              </p>
+              <p>
+                <strong>Model hydroforu:</strong>
+                {{ selectedJobDetails.details.hydrophore_model || '-' }}
+              </p>
+              <p class="full-width-p">
+                <strong>Faktura (materiały):</strong>
+                <a
+                  v-if="selectedJobDetails.details.materials_invoice_url"
+                  :href="selectedJobDetails.details.materials_invoice_url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="link-btn"
+                  >LINK</a
+                ><span v-else>-</span>
+              </p>
+              <p class="full-width-p">
+                <strong>Oferta (klient):</strong>
+                <a
+                  v-if="selectedJobDetails.details.client_offer_url"
+                  :href="selectedJobDetails.details.client_offer_url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="link-btn"
+                  >LINK</a
+                ><span v-else>-</span>
+              </p>
               <hr class="full-width-hr" />
               <p><strong>Przychód:</strong> {{ selectedJobDetails.details.revenue || 0 }} zł</p>
-              <p><strong>Koszt obudowy:</strong> {{ selectedJobDetails.details.casing_cost || 0 }} zł</p>
-              <p><strong>Koszt osprzętu:</strong> {{ selectedJobDetails.details.equipment_cost || 0 }} zł</p>
+              <p>
+                <strong>Koszt obudowy:</strong> {{ selectedJobDetails.details.casing_cost || 0 }} zł
+              </p>
+              <p>
+                <strong>Koszt osprzętu:</strong>
+                {{ selectedJobDetails.details.equipment_cost || 0 }} zł
+              </p>
               <p><strong>Wypłaty:</strong> {{ selectedJobDetails.details.labor_cost || 0 }} zł</p>
-              <p><strong>Mat. z hurtowni:</strong> {{ selectedJobDetails.details.wholesale_materials_cost || 0 }} zł</p>
+              <p>
+                <strong>Mat. z hurtowni:</strong>
+                {{ selectedJobDetails.details.wholesale_materials_cost || 0 }} zł
+              </p>
               <p class="full-width-p total-cost-summary">
-                <strong>Suma Kosztów:</strong> <span>{{ calculatedProfit.totalCost !== null ? calculatedProfit.totalCost.toFixed(2) + ' zł' : 'Brak danych' }}</span>
+                <strong>Suma Kosztów:</strong>
+                <span>{{
+                  calculatedProfit.totalCost !== null
+                    ? calculatedProfit.totalCost.toFixed(2) + ' zł'
+                    : 'Brak danych'
+                }}</span>
               </p>
               <p class="full-width-p profit-summary">
-                <strong>Dochód:</strong> <span :class="calculatedProfit.profit >= 0 ? 'profit-positive' : 'profit-negative'">{{ calculatedProfit.profit !== null ? calculatedProfit.profit.toFixed(2) + ' zł' : 'Brak danych' }}</span>
+                <strong>Dochód:</strong>
+                <span
+                  :class="calculatedProfit.profit >= 0 ? 'profit-positive' : 'profit-negative'"
+                  >{{
+                    calculatedProfit.profit !== null
+                      ? calculatedProfit.profit.toFixed(2) + ' zł'
+                      : 'Brak danych'
+                  }}</span
+                >
               </p>
             </div>
           </div>
-          <div v-else-if="selectedJobDetails.job_type === 'treatment_station'" class="details-section full-width">
+          <div
+            v-else-if="selectedJobDetails.job_type === 'treatment_station'"
+            class="details-section full-width"
+          >
             <h4>Szczegóły Stacji Uzdatniania i Rozliczenie</h4>
             <div class="details-grid-inner">
-              <p><strong>Model stacji:</strong> {{ selectedJobDetails.details.station_model || '-' }}</p>
-              <p><strong>Model lampy UV:</strong> {{ selectedJobDetails.details.uv_lamp_model || '-' }}</p>
-              <p><strong>Filtr węglowy:</strong> {{ selectedJobDetails.details.carbon_filter || '-' }}</p>
-              <p><strong>Rodzaje złóż:</strong> {{ selectedJobDetails.details.filter_types || '-' }}</p>
-              <p class="full-width-p"><strong>Faktura (materiały):</strong> <a v-if="selectedJobDetails.details.materials_invoice_url" :href="selectedJobDetails.details.materials_invoice_url" target="_blank" rel="noopener noreferrer" class="link-btn">LINK</a><span v-else>-</span></p>
-              <p class="full-width-p"><strong>Oferta (klient):</strong> <a v-if="selectedJobDetails.details.client_offer_url" :href="selectedJobDetails.details.client_offer_url" target="_blank" rel="noopener noreferrer" class="link-btn">LINK</a><span v-else>-</span></p>
+              <p>
+                <strong>Model stacji:</strong> {{ selectedJobDetails.details.station_model || '-' }}
+              </p>
+              <p>
+                <strong>Model lampy UV:</strong>
+                {{ selectedJobDetails.details.uv_lamp_model || '-' }}
+              </p>
+              <p>
+                <strong>Filtr węglowy:</strong>
+                {{ selectedJobDetails.details.carbon_filter || '-' }}
+              </p>
+              <p>
+                <strong>Rodzaje złóż:</strong> {{ selectedJobDetails.details.filter_types || '-' }}
+              </p>
+              <p>
+                <strong>Interwał serwisu:</strong>
+                {{ selectedJobDetails.details.service_interval_months || '12' }} mies.
+              </p>
+              <p class="full-width-p">
+                <strong>Faktura (materiały):</strong>
+                <a
+                  v-if="selectedJobDetails.details.materials_invoice_url"
+                  :href="selectedJobDetails.details.materials_invoice_url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="link-btn"
+                  >LINK</a
+                ><span v-else>-</span>
+              </p>
+              <p class="full-width-p">
+                <strong>Oferta (klient):</strong>
+                <a
+                  v-if="selectedJobDetails.details.client_offer_url"
+                  :href="selectedJobDetails.details.client_offer_url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="link-btn"
+                  >LINK</a
+                ><span v-else>-</span>
+              </p>
               <hr class="full-width-hr" />
               <p><strong>Przychód:</strong> {{ selectedJobDetails.details.revenue || 0 }} zł</p>
-              <p><strong>Koszt osprzętu:</strong> {{ selectedJobDetails.details.equipment_cost || 0 }} zł</p>
+              <p>
+                <strong>Koszt osprzętu:</strong>
+                {{ selectedJobDetails.details.equipment_cost || 0 }} zł
+              </p>
               <p><strong>Wypłaty:</strong> {{ selectedJobDetails.details.labor_cost || 0 }} zł</p>
-              <p><strong>Mat. z hurtowni:</strong> {{ selectedJobDetails.details.wholesale_materials_cost || 0 }} zł</p>
+              <p>
+                <strong>Mat. z hurtowni:</strong>
+                {{ selectedJobDetails.details.wholesale_materials_cost || 0 }} zł
+              </p>
               <p class="full-width-p total-cost-summary">
-                <strong>Suma Kosztów:</strong> <span>{{ calculatedProfit.totalCost !== null ? calculatedProfit.totalCost.toFixed(2) + ' zł' : 'Brak danych' }}</span>
+                <strong>Suma Kosztów:</strong>
+                <span>{{
+                  calculatedProfit.totalCost !== null
+                    ? calculatedProfit.totalCost.toFixed(2) + ' zł'
+                    : 'Brak danych'
+                }}</span>
               </p>
               <p class="full-width-p profit-summary">
-                <strong>Dochód:</strong> <span :class="calculatedProfit.profit >= 0 ? 'profit-positive' : 'profit-negative'">{{ calculatedProfit.profit !== null ? calculatedProfit.profit.toFixed(2) + ' zł' : 'Brak danych' }}</span>
+                <strong>Dochód:</strong>
+                <span
+                  :class="calculatedProfit.profit >= 0 ? 'profit-positive' : 'profit-negative'"
+                  >{{
+                    calculatedProfit.profit !== null
+                      ? calculatedProfit.profit.toFixed(2) + ' zł'
+                      : 'Brak danych'
+                  }}</span
+                >
               </p>
             </div>
           </div>
-          <div v-else-if="selectedJobDetails.job_type === 'service'" class="details-section full-width">
+          <div
+            v-else-if="selectedJobDetails.job_type === 'service'"
+            class="details-section full-width"
+          >
             <h4>Szczegóły Serwisu</h4>
             <div class="details-grid-inner">
-              <p class="full-width-p"><strong>Opis wykonanych prac:</strong> {{ selectedJobDetails.details.description || '-' }}</p>
+              <p class="full-width-p">
+                <strong>Opis wykonanych prac:</strong>
+                {{ selectedJobDetails.details.description || '-' }}
+              </p>
             </div>
           </div>
         </div>
@@ -516,7 +803,10 @@ onMounted(() => {
                 <strong>{{ editedJobData.client_name }} ({{ editedJobData.client_phone }})</strong>
               </p>
             </div>
-            <div class="form-group"><label for="editJobDate">Data zlecenia</label><input type="date" id="editJobDate" v-model="editedJobData.job_date" required /></div>
+            <div class="form-group">
+              <label for="editJobDate">Data zlecenia</label
+              ><input type="date" id="editJobDate" v-model="editedJobData.job_date" required />
+            </div>
             <div class="form-group">
               <label>Typ zlecenia:</label>
               <p>
@@ -527,50 +817,218 @@ onMounted(() => {
               <hr />
               <h4>Szczegóły zlecenia</h4>
               <div v-if="editedJobData.job_type === 'well_drilling'" class="form-grid">
-                <div class="form-group"><label>Miejscowość:</label><input type="text" v-model="editedJobData.details.miejscowosc" /></div>
-                <div class="form-group"><label>Pracownicy:</label><input type="text" v-model="editedJobData.details.pracownicy" /></div>
-                <div class="form-group full-width"><label>Informacje:</label><textarea v-model="editedJobData.details.informacje" rows="2"></textarea></div>
-                <div class="form-group"><label>Średnica Ø:</label><input type="number" step="any" v-model.number="editedJobData.details.srednica" /></div>
-                <div class="form-group"><label>Ilość metrów:</label><input type="number" step="any" v-model.number="editedJobData.details.ilosc_metrow" /></div>
-                <div class="form-group"><label>Lustro statyczne:</label><input type="number" step="any" v-model.number="editedJobData.details.lustro_statyczne" /></div>
-                <div class="form-group"><label>Lustro dynamiczne:</label><input type="number" step="any" v-model.number="editedJobData.details.lustro_dynamiczne" /></div>
-                <div class="form-group"><label>Wydajność (m³/h):</label><input type="number" step="any" v-model.number="editedJobData.details.wydajnosc" /></div>
+                <div class="form-group">
+                  <label>Miejscowość:</label
+                  ><input type="text" v-model="editedJobData.details.miejscowosc" />
+                </div>
+                <div class="form-group">
+                  <label>Pracownicy:</label
+                  ><input type="text" v-model="editedJobData.details.pracownicy" />
+                </div>
+                <div class="form-group full-width">
+                  <label>Informacje:</label
+                  ><textarea v-model="editedJobData.details.informacje" rows="2"></textarea>
+                </div>
+                <div class="form-group">
+                  <label>Średnica Ø:</label
+                  ><input
+                    type="number"
+                    step="any"
+                    v-model.number="editedJobData.details.srednica"
+                  />
+                </div>
+                <div class="form-group">
+                  <label>Ilość metrów:</label
+                  ><input
+                    type="number"
+                    step="any"
+                    v-model.number="editedJobData.details.ilosc_metrow"
+                  />
+                </div>
+                <div class="form-group">
+                  <label>Lustro statyczne:</label
+                  ><input
+                    type="number"
+                    step="any"
+                    v-model.number="editedJobData.details.lustro_statyczne"
+                  />
+                </div>
+                <div class="form-group">
+                  <label>Lustro dynamiczne:</label
+                  ><input
+                    type="number"
+                    step="any"
+                    v-model.number="editedJobData.details.lustro_dynamiczne"
+                  />
+                </div>
+                <div class="form-group">
+                  <label>Wydajność (m³/h):</label
+                  ><input
+                    type="number"
+                    step="any"
+                    v-model.number="editedJobData.details.wydajnosc"
+                  />
+                </div>
               </div>
               <div v-else-if="editedJobData.job_type === 'connection'" class="form-grid">
-                <div class="form-group"><label>Głębokość studni (m):</label><input type="number" step="any" v-model.number="editedJobData.details.well_depth" /></div>
-                <div class="form-group"><label>Średnica (cal):</label><input type="number" step="any" v-model.number="editedJobData.details.diameter" /></div>
-                <div class="form-group"><label>Na ilu metrach pompa:</label><input type="number" step="any" v-model.number="editedJobData.details.pump_depth" /></div>
-                <div class="form-group"><label>Jaka pompa:</label><input type="text" v-model="editedJobData.details.pump_model" /></div>
-                <div class="form-group"><label>Jaki sterownik:</label><input type="text" v-model="editedJobData.details.controller_model" /></div>
-                <div class="form-group"><label>Jaki hydrofor:</label><input type="text" v-model="editedJobData.details.hydrophore_model" /></div>
-                <div class="form-group"><label>Link do faktury za materiały:</label><input type="text" v-model="editedJobData.details.materials_invoice_url" /></div>
-                <div class="form-group"><label>Link do oferty dla klienta:</label><input type="text" v-model="editedJobData.details.client_offer_url" /></div>
+                <div class="form-group">
+                  <label>Głębokość studni (m):</label
+                  ><input
+                    type="number"
+                    step="any"
+                    v-model.number="editedJobData.details.well_depth"
+                  />
+                </div>
+                <div class="form-group">
+                  <label>Średnica (cal):</label
+                  ><input
+                    type="number"
+                    step="any"
+                    v-model.number="editedJobData.details.diameter"
+                  />
+                </div>
+                <div class="form-group">
+                  <label>Na ilu metrach pompa:</label
+                  ><input
+                    type="number"
+                    step="any"
+                    v-model.number="editedJobData.details.pump_depth"
+                  />
+                </div>
+                <div class="form-group">
+                  <label>Jaka pompa:</label
+                  ><input type="text" v-model="editedJobData.details.pump_model" />
+                </div>
+                <div class="form-group">
+                  <label>Jaki sterownik:</label
+                  ><input type="text" v-model="editedJobData.details.controller_model" />
+                </div>
+                <div class="form-group">
+                  <label>Jaki hydrofor:</label
+                  ><input type="text" v-model="editedJobData.details.hydrophore_model" />
+                </div>
+                <div class="form-group">
+                  <label>Link do faktury za materiały:</label
+                  ><input type="text" v-model="editedJobData.details.materials_invoice_url" />
+                </div>
+                <div class="form-group">
+                  <label>Link do oferty dla klienta:</label
+                  ><input type="text" v-model="editedJobData.details.client_offer_url" />
+                </div>
                 <hr class="full-width-hr" />
-                <div class="form-group"><label>Przychód:</label><input type="number" step="any" v-model.number="editedJobData.details.revenue" /></div>
-                <div class="form-group"><label>Koszt obudowy:</label><input type="number" step="any" v-model.number="editedJobData.details.casing_cost" /></div>
-                <div class="form-group"><label>Koszt osprzętu:</label><input type="number" step="any" v-model.number="editedJobData.details.equipment_cost" /></div>
-                <div class="form-group"><label>Wypłaty:</label><input type="number" step="any" v-model.number="editedJobData.details.labor_cost" /></div>
-                <div class="form-group"><label>Materiały z hurtowni:</label><input type="number" step="any" v-model.number="editedJobData.details.wholesale_materials_cost" /></div>
+                <div class="form-group">
+                  <label>Przychód:</label
+                  ><input type="number" step="any" v-model.number="editedJobData.details.revenue" />
+                </div>
+                <div class="form-group">
+                  <label>Koszt obudowy:</label
+                  ><input
+                    type="number"
+                    step="any"
+                    v-model.number="editedJobData.details.casing_cost"
+                  />
+                </div>
+                <div class="form-group">
+                  <label>Koszt osprzętu:</label
+                  ><input
+                    type="number"
+                    step="any"
+                    v-model.number="editedJobData.details.equipment_cost"
+                  />
+                </div>
+                <div class="form-group">
+                  <label>Wypłaty:</label
+                  ><input
+                    type="number"
+                    step="any"
+                    v-model.number="editedJobData.details.labor_cost"
+                  />
+                </div>
+                <div class="form-group">
+                  <label>Materiały z hurtowni:</label
+                  ><input
+                    type="number"
+                    step="any"
+                    v-model.number="editedJobData.details.wholesale_materials_cost"
+                  />
+                </div>
               </div>
               <div v-else-if="editedJobData.job_type === 'treatment_station'" class="form-grid">
-                <div class="form-group"><label>Model stacji:</label><input type="text" v-model="editedJobData.details.station_model" /></div>
-                <div class="form-group"><label>Model lampy UV:</label><input type="text" v-model="editedJobData.details.uv_lamp_model" /></div>
-                <div class="form-group"><label>Filtr węglowy:</label><input type="text" v-model="editedJobData.details.carbon_filter" /></div>
-                <div class="form-group"><label>Rodzaje złóż:</label><input type="text" v-model="editedJobData.details.filter_types" /></div>
-                <div class="form-group"><label>Link do faktury za materiały:</label><input type="text" v-model="editedJobData.details.materials_invoice_url" /></div>
-                <div class="form-group"><label>Link do oferty dla klienta:</label><input type="text" v-model="editedJobData.details.client_offer_url" /></div>
+                <div class="form-group">
+                  <label>Model stacji:</label
+                  ><input type="text" v-model="editedJobData.details.station_model" />
+                </div>
+                <div class="form-group">
+                  <label>Model lampy UV:</label
+                  ><input type="text" v-model="editedJobData.details.uv_lamp_model" />
+                </div>
+                <div class="form-group">
+                  <label>Filtr węglowy:</label
+                  ><input type="text" v-model="editedJobData.details.carbon_filter" />
+                </div>
+                <div class="form-group">
+                  <label>Rodzaje złóż:</label
+                  ><input type="text" v-model="editedJobData.details.filter_types" />
+                </div>
+                <div class="form-group">
+                  <label>Interwał serwisowy (w miesiącach):</label
+                  ><input
+                    type="number"
+                    step="1"
+                    v-model.number="editedJobData.details.service_interval_months"
+                  />
+                </div>
                 <hr class="full-width-hr" />
-                <div class="form-group"><label>Przychód:</label><input type="number" step="any" v-model.number="editedJobData.details.revenue" /></div>
-                <div class="form-group"><label>Koszt osprzętu:</label><input type="number" step="any" v-model.number="editedJobData.details.equipment_cost" /></div>
-                <div class="form-group"><label>Wypłaty:</label><input type="number" step="any" v-model.number="editedJobData.details.labor_cost" /></div>
-                <div class="form-group"><label>Materiały z hurtowni:</label><input type="number" step="any" v-model.number="editedJobData.details.wholesale_materials_cost" /></div>
+                <div class="form-group">
+                  <label>Link do faktury za materiały:</label
+                  ><input type="text" v-model="editedJobData.details.materials_invoice_url" />
+                </div>
+                <div class="form-group">
+                  <label>Link do oferty dla klienta:</label
+                  ><input type="text" v-model="editedJobData.details.client_offer_url" />
+                </div>
+                <hr class="full-width-hr" />
+                <div class="form-group">
+                  <label>Przychód:</label
+                  ><input type="number" step="any" v-model.number="editedJobData.details.revenue" />
+                </div>
+                <div class="form-group">
+                  <label>Koszt osprzętu:</label
+                  ><input
+                    type="number"
+                    step="any"
+                    v-model.number="editedJobData.details.equipment_cost"
+                  />
+                </div>
+                <div class="form-group">
+                  <label>Wypłaty:</label
+                  ><input
+                    type="number"
+                    step="any"
+                    v-model.number="editedJobData.details.labor_cost"
+                  />
+                </div>
+                <div class="form-group">
+                  <label>Materiały z hurtowni:</label
+                  ><input
+                    type="number"
+                    step="any"
+                    v-model.number="editedJobData.details.wholesale_materials_cost"
+                  />
+                </div>
               </div>
               <div v-else-if="editedJobData.job_type === 'service'" class="form-grid">
-                <div class="form-group full-width"><label>Opis wykonanych prac serwisowych:</label><textarea v-model="editedJobData.details.description" rows="5"></textarea></div>
+                <div class="form-group full-width">
+                  <label>Opis wykonanych prac serwisowych:</label
+                  ><textarea v-model="editedJobData.details.description" rows="5"></textarea>
+                </div>
               </div>
             </div>
           </div>
-          <div class="modal-actions"><button type="submit" class="zapisz">Zapisz zmiany</button><button type="button" class="anuluj" @click="showEditJobModal = false">Anuluj</button></div>
+          <div class="modal-actions">
+            <button type="submit" class="zapisz">Zapisz zmiany</button
+            ><button type="button" class="anuluj" @click="showEditJobModal = false">Anuluj</button>
+          </div>
         </form>
       </div>
     </div>

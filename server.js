@@ -328,6 +328,7 @@ app.post('/api/jobs', authenticateToken, async (req, res) => {
     client.release();
   }
 });
+// Zastąp ten endpoint nową wersją
 app.get('/api/jobs', authenticateToken, async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -341,33 +342,71 @@ app.get('/api/jobs', authenticateToken, async (req, res) => {
     if (!allowedSortBy.includes(sortBy)) {
       return res.status(400).json({ error: 'Niedozwolona kolumna sortowania.' });
     }
+
     let whereClauses = [];
     let queryParams = [];
     let paramIndex = 1;
+
     if (clientId) {
       whereClauses.push(`j.client_id = $${paramIndex++}`);
       queryParams.push(clientId);
     }
+
+    // Zaktualizowana kwerenda wyszukiwania, która teraz musi być częścią podzapytania
+    const searchSubQuery = `
+      SELECT j.id FROM jobs j
+      JOIN clients c ON j.client_id = c.id
+      LEFT JOIN well_details wd ON j.details_id = wd.id AND j.job_type = 'well_drilling'
+      WHERE c.name ILIKE $${paramIndex} OR c.phone_number ILIKE $${paramIndex} OR wd.miejscowosc ILIKE $${paramIndex}
+    `;
+
     if (search) {
       const searchTerm = `%${search}%`;
-      const searchClause = `(c.name ILIKE $${paramIndex} OR c.phone_number ILIKE $${paramIndex} OR wd.miejscowosc ILIKE $${paramIndex})`;
-      whereClauses.push(searchClause);
+      whereClauses.push(`j.id IN (${searchSubQuery})`);
       queryParams.push(searchTerm);
     }
+
     const whereString = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
-    const countSql = `SELECT COUNT(j.id) FROM jobs j JOIN clients c ON j.client_id = c.id LEFT JOIN well_details wd ON j.details_id = wd.id AND j.job_type = 'well_drilling' ${whereString}`;
+
+    const countSql = `SELECT COUNT(j.id) FROM jobs j ${whereString}`;
     const countResult = await pool.query(countSql, queryParams);
     const totalItems = parseInt(countResult.rows[0].count);
     const totalPages = Math.ceil(totalItems / limit);
+
     const finalDataParams = [...queryParams, limit, offset];
-    const dataSql = ` SELECT j.id, j.job_type, TO_CHAR(j.job_date, 'YYYY-MM-DD') as job_date, c.name as client_name, c.phone_number as client_phone, wd.miejscowosc FROM jobs j JOIN clients c ON j.client_id = c.id LEFT JOIN well_details wd ON j.details_id = wd.id AND j.job_type = 'well_drilling' ${whereString} ORDER BY ${sortBy} ${sortOrder} NULLS LAST LIMIT $${queryParams.length + 1} OFFSET $${queryParams.length + 2} `;
+
+    const dataSql = `
+      SELECT 
+        j.id, 
+        j.job_type, 
+        TO_CHAR(j.job_date, 'YYYY-MM-DD') as job_date, 
+        c.name as client_name, 
+        c.phone_number as client_phone,
+        (SELECT wd.miejscowosc 
+         FROM well_details wd 
+         JOIN jobs sub_j ON sub_j.details_id = wd.id 
+         WHERE sub_j.client_id = j.client_id AND sub_j.job_type = 'well_drilling' 
+         ORDER BY sub_j.job_date DESC 
+         LIMIT 1) as miejscowosc
+      FROM jobs j
+      JOIN clients c ON j.client_id = c.id
+      ${whereString}
+      ORDER BY ${sortBy} ${sortOrder} NULLS LAST
+      LIMIT $${queryParams.length + 1} OFFSET $${queryParams.length + 2}
+    `;
+
     const dataResult = await pool.query(dataSql, finalDataParams);
-    res.json({ data: dataResult.rows, pagination: { totalItems, totalPages, currentPage: page } });
+
+    res.json({
+      data: dataResult.rows,
+      pagination: { totalItems, totalPages, currentPage: page },
+    });
   } catch (err) {
     console.error('Błąd w GET /api/jobs:', err);
     res.status(500).json({ error: 'Wystąpił błąd serwera' });
   }
 });
+
 app.get('/api/jobs/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
