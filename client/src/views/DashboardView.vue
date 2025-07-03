@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { getAuthHeaders, removeToken } from '../auth/auth.js';
 import { formatDate } from '../utils/formatters.js';
@@ -9,43 +9,85 @@ const router = useRouter();
 
 const isLoading = ref(true);
 const serviceReminders = ref([]);
+const lowStockItems = ref([]);
+const monthlyStats = ref(null);
+const selectedMonth = ref(new Date().toISOString().slice(0, 7)); // Format YYYY-MM
 
-// Funkcja do obsługi błędów autoryzacji (wylogowanie przy 401/403)
 const handleAuthError = (error) => {
   if (error.message.includes('401') || error.message.includes('403')) {
     alert('Twoja sesja wygasła lub jest nieprawidłowa. Proszę zalogować się ponownie.');
     removeToken();
     router.push('/login');
-    return true; // Zwraca prawdę, jeśli błąd został obsłużony
+    return true;
   }
   return false;
 };
 
-// Główna funkcja do pobierania powiadomień
 async function fetchServiceReminders() {
-  isLoading.value = true;
   try {
     const response = await fetch(`${API_URL}/api/service-reminders`, { headers: getAuthHeaders() });
     const result = await response.json();
-    if (!response.ok) {
-      // Przekazujemy pełny obiekt błędu do naszej funkcji obsługi
-      throw new Error(result.error || `Błąd sieci! Status: ${response.status}`);
-    }
+    if (!response.ok) throw new Error(result.error || `Błąd sieci! Status: ${response.status}`);
     serviceReminders.value = result;
   } catch (error) {
     console.error('Błąd podczas pobierania powiadomień:', error);
-    // Sprawdzamy, czy to błąd autoryzacji. Jeśli nie, pokazujemy generyczny alert.
     if (!handleAuthError(error)) {
       alert('Nie udało się pobrać powiadomień serwisowych.');
     }
+  }
+}
+
+async function fetchLowStockItems() {
+  try {
+    const response = await fetch(`${API_URL}/api/inventory/low-stock`, {
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) throw new Error('Błąd pobierania danych o niskim stanie magazynowym');
+    lowStockItems.value = await response.json();
+  } catch (error) {
+    console.error('Błąd podczas pobierania danych o niskim stanie magazynowym:', error);
+    if (!handleAuthError(error)) {
+      alert('Nie udało się pobrać danych o niskim stanie magazynowym.');
+    }
+  }
+}
+
+async function getStatsForMonth() {
+  try {
+    const [year, month] = selectedMonth.value.split('-');
+    const params = new URLSearchParams({ year, month });
+    const response = await fetch(`${API_URL}/api/stats/monthly-summary?${params.toString()}`, {
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) throw new Error('Błąd pobierania statystyk');
+    monthlyStats.value = await response.json();
+  } catch (error) {
+    console.error('Błąd podczas pobierania statystyk:', error);
+    if (!handleAuthError(error)) {
+      alert('Nie udało się pobrać statystyk dla wybranego miesiąca.');
+    }
+  }
+}
+
+// Zmiana: Główna funkcja ładująca dane dla pulpitu
+async function loadDashboardData() {
+  isLoading.value = true;
+  try {
+    // Uruchamiamy wszystkie zapytania równolegle i czekamy, aż wszystkie się zakończą
+    await Promise.all([fetchServiceReminders(), fetchLowStockItems(), getStatsForMonth()]);
+  } catch (error) {
+    // Błędy są już obsługiwane w poszczególnych funkcjach
+    console.error('Wystąpił ogólny błąd podczas ładowania danych pulpitu.', error);
   } finally {
+    // Wyłączamy ładowanie dopiero, gdy WSZYSTKIE dane są gotowe
     isLoading.value = false;
   }
 }
 
-// Wywołanie funkcji po załadowaniu komponentu
+watch(selectedMonth, getStatsForMonth);
+
 onMounted(() => {
-  fetchServiceReminders();
+  loadDashboardData();
 });
 </script>
 
@@ -54,7 +96,10 @@ onMounted(() => {
     <div class="header">
       <h1>Pulpit</h1>
     </div>
-
+    <div class="month-picker-container">
+      <label for="month-picker">Pokaż statystyki dla miesiąca:</label>
+      <input type="month" id="month-picker" v-model="selectedMonth" />
+    </div>
     <div class="dashboard-grid">
       <div class="dashboard-widget">
         <h2 class="widget-title"><span class="icon">🔔</span> Powiadomienia Serwisowe</h2>
@@ -78,13 +123,63 @@ onMounted(() => {
         </div>
       </div>
 
-      <div class="dashboard-widget placeholder">
-        <h2 class="widget-title"><span class="icon">📊</span> Ogólne Statystyki</h2>
-        <div class="empty-message"><p>Wkrótce...</p></div>
+      <div class="dashboard-widget">
+        <h2 class="widget-title"><span class="icon">📊</span> Statystyki</h2>
+        <div v-if="isLoading" class="loading-container" style="min-height: 100px">
+          <div class="spinner"></div>
+        </div>
+        <div v-else-if="monthlyStats" class="stats-list">
+          <div class="stat-item">
+            <span>Suma metrów:</span>
+            <strong>{{ monthlyStats.totalMeters }} m</strong>
+          </div>
+          <div class="stat-item">
+            <span>Wykonane studnie:</span>
+            <strong>{{ monthlyStats.jobCounts.well_drilling }}</strong>
+          </div>
+          <div class="stat-item">
+            <span>Wykonane podłączenia:</span>
+            <strong>{{ monthlyStats.jobCounts.connection }}</strong>
+          </div>
+          <div class="stat-item">
+            <span>Zainstalowane stacje:</span>
+            <strong>{{ monthlyStats.jobCounts.treatment_station }}</strong>
+          </div>
+          <div class="stat-item">
+            <span>Wykonane serwisy:</span>
+            <strong>{{ monthlyStats.jobCounts.service }}</strong>
+          </div>
+          <div class="stat-item total-profit">
+            <span>Dochód w tym miesiącu:</span>
+            <strong :class="monthlyStats.totalProfit >= 0 ? 'profit-positive' : 'profit-negative'"
+              >{{ monthlyStats.totalProfit.toFixed(2) }} zł</strong
+            >
+          </div>
+        </div>
+        <div v-else class="empty-message">
+          <p>Brak danych do wyświetlenia.</p>
+        </div>
       </div>
-      <div class="dashboard-widget placeholder">
+      <div class="dashboard-widget">
         <h2 class="widget-title"><span class="icon">📦</span> Niski Stan Magazynowy</h2>
-        <div class="empty-message"><p>Wkrótce...</p></div>
+        <div v-if="isLoading" class="loading-container" style="min-height: 100px">
+          <div class="spinner"></div>
+        </div>
+        <div v-else-if="lowStockItems.length > 0" class="reminders-list">
+          <div v-for="item in lowStockItems" :key="item.id" class="reminder-item low-stock">
+            <div class="reminder-icon">❗</div>
+            <div class="reminder-details">
+              <strong>{{ item.name }}</strong>
+              <span
+                >Stan: {{ item.quantity }} {{ item.unit }} (Minimum:
+                {{ item.min_stock_level }})</span
+              >
+            </div>
+          </div>
+        </div>
+        <div v-else class="empty-message">
+          <p>Brak przedmiotów z niskim stanem magazynowym.</p>
+        </div>
       </div>
     </div>
   </div>
@@ -158,5 +253,58 @@ onMounted(() => {
 .placeholder {
   opacity: 0.6;
   background-color: #f8f9fa;
+}
+.reminder-item.low-stock {
+  background-color: #fff3f3;
+  border-color: #fdb8b8;
+  border-left-color: #dc3545;
+}
+.stats-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.stat-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 15px;
+  padding: 5px 0;
+}
+.stat-item:not(:last-child) {
+  border-bottom: 1px solid #f0f0f0;
+}
+.stat-item strong {
+  font-weight: 600;
+  font-size: 16px;
+}
+.stat-item.total-profit {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 2px solid var(--border-color);
+}
+.profit-positive {
+  color: var(--green);
+}
+.profit-negative {
+  color: var(--red);
+}
+.month-picker-container {
+  margin-bottom: 25px;
+  padding: 20px;
+  background-color: #f8f9fa;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+.month-picker-container label {
+  font-weight: 600;
+}
+.month-picker-container input[type='month'] {
+  font-size: 16px;
+  padding: 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
 }
 </style>

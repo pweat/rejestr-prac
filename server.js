@@ -538,7 +538,258 @@ app.get('/api/service-reminders', authenticateToken, async (req, res) => {
     res.status(500).json({ error: 'Wystąpił błąd serwera' });
   }
 });
-// ... API Magazynu ...
+
+// =================================================================
+// --- API MAGAZYNU ---
+// =================================================================
+
+// Funkcja pomocnicza do pobierania spaginowanej listy przedmiotów
+const getPaginatedInventory = async (page = 1, search = '', sortBy = 'name', sortOrder = 'asc') => {
+  const limit = 15;
+  const offset = (page - 1) * limit;
+
+  let whereClause = '';
+  let queryParams = [];
+  if (search) {
+    whereClause = `WHERE name ILIKE $1 OR unit ILIKE $1`;
+    queryParams.push(`%${search}%`);
+  }
+
+  const countSql = `SELECT COUNT(*) FROM inventory_items ${whereClause}`;
+  const countResult = await pool.query(countSql, queryParams);
+  const totalItems = parseInt(countResult.rows[0].count);
+  const totalPages = Math.ceil(totalItems / limit);
+
+  const finalDataParams = [...queryParams, limit, offset];
+  const dataSql = `
+    SELECT * FROM inventory_items 
+    ${whereClause} 
+    ORDER BY ${sortBy} ${sortOrder} 
+    LIMIT $${queryParams.length + 1} OFFSET $${queryParams.length + 2}
+  `;
+  const dataResult = await pool.query(dataSql, finalDataParams);
+
+  return {
+    data: dataResult.rows,
+    pagination: { totalItems, totalPages, currentPage: page },
+  };
+};
+
+// GET /api/inventory - Pobierz listę przedmiotów z paginacją, wyszukiwaniem i sortowaniem
+app.get('/api/inventory', authenticateToken, async (req, res) => {
+  try {
+    const paginatedData = await getPaginatedInventory(
+      parseInt(req.query.page) || 1,
+      req.query.search || '',
+      req.query.sortBy,
+      req.query.sortOrder
+    );
+    res.json(paginatedData);
+  } catch (err) {
+    console.error('Błąd w GET /api/inventory:', err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
+
+// POST /api/inventory - Dodaj nowy przedmiot
+app.post('/api/inventory', authenticateToken, async (req, res) => {
+  try {
+    const { name, quantity, unit, min_stock_level } = req.body;
+    if (!name || !unit) {
+      return res.status(400).json({ error: 'Nazwa i jednostka miary są wymagane.' });
+    }
+    const sql = `INSERT INTO inventory_items (name, quantity, unit, min_stock_level, is_ordered) VALUES ($1, $2, $3, $4, false)`;
+    await pool.query(sql, [name, quantity || 0, unit, min_stock_level || 0]);
+    const paginatedData = await getPaginatedInventory(1);
+    res.status(201).json(paginatedData);
+  } catch (err) {
+    if (err.code === '23505') {
+      return res.status(400).json({ error: 'Przedmiot o tej nazwie już istnieje w magazynie.' });
+    }
+    console.error('Błąd w POST /api/inventory:', err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
+
+// PUT /api/inventory/:id - Zaktualizuj przedmiot
+app.put('/api/inventory/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, quantity, unit, min_stock_level } = req.body;
+    if (!name || !unit) {
+      return res.status(400).json({ error: 'Nazwa i jednostka miary są wymagane.' });
+    }
+    const sql = `UPDATE inventory_items SET name = $1, quantity = $2, unit = $3, min_stock_level = $4 WHERE id = $5`;
+    await pool.query(sql, [name, quantity || 0, unit, min_stock_level || 0, id]);
+    const paginatedData = await getPaginatedInventory(
+      parseInt(req.query.page) || 1,
+      req.query.search || ''
+    );
+    res.status(200).json(paginatedData);
+  } catch (err) {
+    if (err.code === '23505') {
+      return res.status(400).json({ error: 'Przedmiot o tej nazwie już istnieje w magazynie.' });
+    }
+    console.error(`Błąd w PUT /api/inventory/${req.params.id}:`, err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
+
+// DELETE /api/inventory/:id - Usuń przedmiot
+app.delete('/api/inventory/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.query('DELETE FROM inventory_items WHERE id = $1', [id]);
+    const paginatedData = await getPaginatedInventory(
+      parseInt(req.query.page) || 1,
+      req.query.search || ''
+    );
+    res.status(200).json(paginatedData);
+  } catch (err) {
+    console.error(`Błąd w DELETE /api/inventory/${req.params.id}:`, err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
+
+// POST /api/inventory/operation - Wykonaj operację na stanie
+app.post('/api/inventory/operation', authenticateToken, async (req, res) => {
+  const { itemId, operationType, quantity } = req.body;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    if (operationType === 'delivery' || operationType === 'withdrawal') {
+      if (!quantity || quantity <= 0) throw new Error('Ilość musi być dodatnia.');
+      const changeQuantity =
+        operationType === 'delivery' ? Math.abs(quantity) : -Math.abs(quantity);
+      await client.query(
+        `UPDATE inventory_items SET quantity = quantity + $1, last_delivery_date = CASE WHEN $2 = 'delivery' THEN NOW() ELSE last_delivery_date END WHERE id = $3`,
+        [changeQuantity, operationType, itemId]
+      );
+      await client.query(
+        `INSERT INTO stock_history (item_id, change_quantity, operation_type, user_id) VALUES ($1, $2, $3, $4)`,
+        [itemId, changeQuantity, operationType, req.user.userId]
+      );
+    } else if (operationType === 'toggle_ordered') {
+      const updateResult = await client.query(
+        `UPDATE inventory_items SET is_ordered = NOT is_ordered WHERE id = $1 RETURNING is_ordered`,
+        [itemId]
+      );
+      const newStatus = updateResult.rows[0].is_ordered;
+      await client.query(
+        `INSERT INTO stock_history (item_id, change_quantity, operation_type, user_id) VALUES ($1, $2, $3, $4)`,
+        [itemId, 0, `status_changed_to_${newStatus}`, req.user.userId]
+      );
+    } else {
+      throw new Error('Nieznany typ operacji.');
+    }
+    await client.query('COMMIT');
+    const paginatedData = await getPaginatedInventory(
+      parseInt(req.query.page) || 1,
+      req.query.search || ''
+    );
+    res.status(200).json(paginatedData);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Błąd w /api/inventory/operation:', err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera podczas operacji magazynowej.' });
+  } finally {
+    client.release();
+  }
+});
+
+// GET /api/inventory/:id/history - Pobierz historię operacji
+app.get('/api/inventory/:id/history', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const sql = `SELECT sh.change_quantity, sh.operation_type, sh.operation_date, u.username FROM stock_history sh LEFT JOIN users u ON sh.user_id = u.id WHERE sh.item_id = $1 ORDER BY sh.operation_date DESC`;
+    const result = await pool.query(sql, [id]);
+    res.json(result.rows);
+  } catch (err) {
+    console.error(`Błąd w GET /api/inventory/${req.params.id}/history:`, err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
+
+// GET /api/inventory/low-stock - Pobierz przedmioty z niskim stanem
+app.get('/api/inventory/low-stock', authenticateToken, async (req, res) => {
+  try {
+    const sql = `SELECT id, name, quantity, min_stock_level, unit FROM inventory_items WHERE quantity < min_stock_level ORDER BY name ASC`;
+    const result = await pool.query(sql);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Błąd w GET /api/inventory/low-stock:', err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
+
+// =================================================================
+// --- API STATYSTYK ---
+// =================================================================
+// Zastąp ten endpoint nową wersją
+app.get('/api/stats/monthly-summary', authenticateToken, async (req, res) => {
+  try {
+    // Pobieramy rok i miesiąc z zapytania, jeśli nie ma, używamy bieżącego
+    const year = parseInt(req.query.year) || new Date().getFullYear();
+    const month = parseInt(req.query.month) || new Date().getMonth() + 1; // Miesiące w JS są 0-11
+
+    const firstDayOfMonth = new Date(year, month - 1, 1);
+    const firstDayOfNextMonth = new Date(year, month, 1);
+
+    // 1. Zliczanie typów zleceń w wybranym miesiącu
+    const jobsCountSql = `
+      SELECT job_type, COUNT(id) as count
+      FROM jobs
+      WHERE job_date >= $1 AND job_date < $2
+      GROUP BY job_type;
+    `;
+    const jobsCountResult = await pool.query(jobsCountSql, [firstDayOfMonth, firstDayOfNextMonth]);
+
+    const jobCounts = { well_drilling: 0, connection: 0, treatment_station: 0, service: 0 };
+    jobsCountResult.rows.forEach((row) => {
+      if (jobCounts.hasOwnProperty(row.job_type)) {
+        jobCounts[row.job_type] = parseInt(row.count);
+      }
+    });
+
+    // 2. Sumowanie metrów dla studni w wybranym miesiącu
+    const metersSql = `
+      SELECT SUM(wd.ilosc_metrow) as total_meters
+      FROM jobs j
+      JOIN well_details wd ON j.details_id = wd.id
+      WHERE j.job_type = 'well_drilling' AND j.job_date >= $1 AND j.job_date < $2;
+    `;
+    const metersResult = await pool.query(metersSql, [firstDayOfMonth, firstDayOfNextMonth]);
+    const totalMeters = parseFloat(metersResult.rows[0].total_meters) || 0;
+
+    // 3. Sumowanie dochodu w wybranym miesiącu
+    const financeSql = `
+      SELECT 
+        COALESCE(SUM(revenue), 0) as total_revenue, 
+        COALESCE(SUM(total_cost), 0) as total_costs
+      FROM (
+        SELECT revenue, (COALESCE(casing_cost,0) + COALESCE(equipment_cost,0) + COALESCE(labor_cost,0) + COALESCE(wholesale_materials_cost,0)) as total_cost
+        FROM connection_details cd
+        JOIN jobs j ON cd.job_id = j.id
+        WHERE j.job_date >= $1 AND j.job_date < $2
+      UNION ALL
+        SELECT revenue, (COALESCE(equipment_cost,0) + COALESCE(labor_cost,0) + COALESCE(wholesale_materials_cost,0)) as total_cost
+        FROM treatment_station_details tsd
+        JOIN jobs j ON tsd.job_id = j.id
+        WHERE j.job_date >= $1 AND j.job_date < $2
+      ) as monthly_finances;
+    `;
+    const financeResult = await pool.query(financeSql, [firstDayOfMonth, firstDayOfNextMonth]);
+    const totalRevenue = parseFloat(financeResult.rows[0].total_revenue) || 0;
+    const totalCosts = parseFloat(financeResult.rows[0].total_costs) || 0;
+    const totalProfit = totalRevenue - totalCosts;
+
+    res.json({ jobCounts, totalMeters, totalProfit });
+  } catch (err) {
+    console.error('Błąd w GET /api/stats/monthly-summary:', err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Serwer został uruchomiony na porcie ${PORT}`);
 });
