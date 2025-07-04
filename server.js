@@ -35,7 +35,22 @@ const initializeDatabase = async () => {
     );
     console.log('Tabela "jobs" jest gotowa.');
     await client.query(
-      `CREATE TABLE IF NOT EXISTS well_details (id SERIAL PRIMARY KEY, job_id INTEGER REFERENCES jobs(id) ON DELETE CASCADE, miejscowosc TEXT, pracownicy TEXT, informacje TEXT, srednica REAL, ilosc_metrow REAL, lustro_statyczne REAL, lustro_dynamiczne REAL, wydajnosc REAL)`
+      `CREATE TABLE IF NOT EXISTS well_details (
+    id SERIAL PRIMARY KEY, 
+    job_id INTEGER REFERENCES jobs(id) ON DELETE CASCADE, 
+    miejscowosc TEXT, 
+    pracownicy TEXT, 
+    informacje TEXT, 
+    srednica REAL, 
+    ilosc_metrow REAL, 
+    lustro_statyczne REAL, 
+    lustro_dynamiczne REAL, 
+    wydajnosc REAL,
+    cena_za_metr REAL DEFAULT 0,
+    wyplaty REAL DEFAULT 0,
+    rury REAL DEFAULT 0,
+    inne_koszta REAL DEFAULT 0
+  )`
     );
     console.log('Tabela "well_details" jest gotowa.');
     await client.query(
