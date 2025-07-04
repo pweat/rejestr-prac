@@ -46,9 +46,24 @@ const initializeDatabase = async () => {
       `CREATE TABLE IF NOT EXISTS treatment_station_details (id SERIAL PRIMARY KEY, job_id INTEGER REFERENCES jobs(id) ON DELETE CASCADE, station_model TEXT, uv_lamp_model TEXT, carbon_filter TEXT, filter_types TEXT, service_interval_months INTEGER DEFAULT 12, materials_invoice_url TEXT, client_offer_url TEXT, revenue REAL, equipment_cost REAL, labor_cost REAL, wholesale_materials_cost REAL)`
     );
     console.log('Tabela "treatment_station_details" jest gotowa.');
-    await client.query(
-      `CREATE TABLE IF NOT EXISTS service_details (id SERIAL PRIMARY KEY, job_id INTEGER REFERENCES jobs(id) ON DELETE CASCADE, description TEXT)`
+    await client.query(`
+  CREATE TABLE IF NOT EXISTS service_details (
+    id SERIAL PRIMARY KEY, 
+    job_id INTEGER REFERENCES jobs(id) ON DELETE CASCADE, 
+    description TEXT,
+    is_warranty BOOLEAN DEFAULT true,
+    revenue REAL DEFAULT 0,
+    labor_cost REAL DEFAULT 0
+  )`);
+    const resService = await client.query(
+      "SELECT column_name FROM information_schema.columns WHERE table_name='service_details' AND column_name='is_warranty'"
     );
+    if (resService.rows.length === 0) {
+      await client.query(
+        'ALTER TABLE service_details ADD COLUMN is_warranty BOOLEAN DEFAULT true, ADD COLUMN revenue REAL DEFAULT 0, ADD COLUMN labor_cost REAL DEFAULT 0'
+      );
+      console.log('Zaktualizowano tabelę "service_details".');
+    }
     console.log('Tabela "service_details" jest gotowa.');
     await client.query(
       `CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL)`
@@ -269,7 +284,7 @@ app.post('/api/jobs', authenticateToken, async (req, res) => {
         'wholesale_materials_cost',
       ];
       detailsValues = detailsColumns.slice(1).map((col) => details[col] || null);
-    } else if (jobType === 'treatment_station') {
+    } else if (job_type === 'treatment_station') {
       detailsTable = 'treatment_station_details';
       detailsColumns = [
         'job_id',
@@ -301,10 +316,16 @@ app.post('/api/jobs', authenticateToken, async (req, res) => {
         details.labor_cost,
         details.wholesale_materials_cost,
       ].map((val) => (val === undefined ? null : val));
-    } else if (jobType === 'service') {
+    } else if (job_type === 'service') {
       detailsTable = 'service_details';
-      detailsColumns = ['job_id', 'description'];
-      detailsValues = detailsColumns.slice(1).map((col) => details[col] || null);
+      detailsColumns = ['job_id', 'description', 'is_warranty', 'revenue', 'labor_cost'];
+
+      // Jeśli gwarancja jest zaznaczona (lub pole nie istnieje), zerujemy finanse
+      const isWarranty = details.is_warranty !== undefined ? details.is_warranty : true;
+      const revenue = !isWarranty ? parseFloat(details.revenue) || 0 : 0;
+      const labor_cost = !isWarranty ? parseFloat(details.labor_cost) || 0 : 0;
+
+      detailsValues = [details.description || null, isWarranty, revenue, labor_cost];
     } else {
       throw new Error('Nieznany typ zlecenia.');
     }
@@ -510,7 +531,14 @@ app.put('/api/jobs/:id', authenticateToken, async (req, res) => {
       ];
     } else if (job_type === 'service') {
       detailsTable = 'service_details';
-      detailsColumns = ['description'];
+      detailsColumns = ['description', 'is_warranty', 'revenue', 'labor_cost'];
+
+      // Jeśli gwarancja jest zaznaczona (lub pole nie istnieje), zerujemy finanse
+      const isWarranty = details.is_warranty !== undefined ? details.is_warranty : true;
+      const revenue = !isWarranty ? parseFloat(details.revenue) || 0 : 0;
+      const labor_cost = !isWarranty ? parseFloat(details.labor_cost) || 0 : 0;
+
+      detailsValues = [details.description || null, isWarranty, revenue, labor_cost];
     }
     if (detailsTable) {
       const setClauses = detailsColumns.map((col, i) => `${col} = $${i + 1}`).join(', ');
@@ -806,32 +834,35 @@ app.get('/api/stats/monthly-summary', authenticateToken, async (req, res) => {
     const totalMeters = parseFloat(metersResult.rows[0].total_meters) || 0;
 
     // 3. Sumowanie dochodu (ZAKTUALIZOWANA LOGIKA)
+    // Znajdź i zastąp całą tę zmienną
     const financeSql = `
-      SELECT 
-        COALESCE(SUM(revenue), 0) as total_revenue, 
-        COALESCE(SUM(total_cost), 0) as total_costs
-      FROM (
-        -- Przychody i koszty z podłączeń
-        SELECT revenue, (COALESCE(casing_cost,0) + COALESCE(equipment_cost,0) + COALESCE(labor_cost,0) + COALESCE(wholesale_materials_cost,0)) as total_cost
-        FROM connection_details cd
-        JOIN jobs j ON cd.job_id = j.id
-        WHERE j.job_date >= $1 AND j.job_date < $2
-      UNION ALL
-        -- Przychody i koszty ze stacji uzdatniania
-        SELECT revenue, (COALESCE(equipment_cost,0) + COALESCE(labor_cost,0) + COALESCE(wholesale_materials_cost,0)) as total_cost
-        FROM treatment_station_details tsd
-        JOIN jobs j ON tsd.job_id = j.id
-        WHERE j.job_date >= $1 AND j.job_date < $2
-      UNION ALL
-        -- NOWOŚĆ: Przychody i koszty z wykonania studni
-        SELECT 
-          (COALESCE(wd.ilosc_metrow, 0) * COALESCE(wd.cena_za_metr, 0)) as revenue, 
-          (COALESCE(wd.wyplaty, 0) + COALESCE(wd.rury, 0) + COALESCE(wd.inne_koszta, 0)) as total_cost
-        FROM well_details wd
-        JOIN jobs j ON wd.job_id = j.id
-        WHERE j.job_date >= $1 AND j.job_date < $2
-    ) as monthly_finances;
-    `;
+  SELECT 
+    COALESCE(SUM(revenue), 0) as total_revenue, 
+    COALESCE(SUM(total_cost), 0) as total_costs
+  FROM (
+    -- Przychody i koszty z PODŁĄCZEŃ
+    SELECT cd.revenue, (COALESCE(cd.casing_cost,0) + COALESCE(cd.equipment_cost,0) + COALESCE(cd.labor_cost,0) + COALESCE(cd.wholesale_materials_cost,0)) as total_cost
+    FROM jobs j JOIN connection_details cd ON j.details_id = cd.id
+    WHERE j.job_type = 'connection' AND j.job_date >= $1 AND j.job_date < $2
+  UNION ALL
+    -- Przychody i koszty ze STACJI UZDATNIANIA
+    SELECT tsd.revenue, (COALESCE(tsd.equipment_cost,0) + COALESCE(tsd.labor_cost,0) + COALESCE(tsd.wholesale_materials_cost,0)) as total_cost
+    FROM jobs j JOIN treatment_station_details tsd ON j.details_id = tsd.id
+    WHERE j.job_type = 'treatment_station' AND j.job_date >= $1 AND j.job_date < $2
+  UNION ALL
+    -- Przychody i koszty z WYKONANIA STUDNI
+    SELECT 
+      (COALESCE(wd.ilosc_metrow, 0) * COALESCE(wd.cena_za_metr, 0)) as revenue, 
+      (COALESCE(wd.wyplaty, 0) + COALESCE(wd.rury, 0) + COALESCE(wd.inne_koszta, 0)) as total_cost
+    FROM jobs j JOIN well_details wd ON j.details_id = wd.id
+    WHERE j.job_type = 'well_drilling' AND j.job_date >= $1 AND j.job_date < $2
+  UNION ALL
+    -- Przychody i koszty z PŁATNYCH SERWISÓW
+    SELECT sd.revenue, COALESCE(sd.labor_cost, 0) as total_cost 
+    FROM jobs j JOIN service_details sd ON j.details_id = sd.id 
+    WHERE j.job_type = 'service' AND j.job_date >= $1 AND j.job_date < $2 AND sd.is_warranty = false
+  ) as monthly_finances;
+`;
     const financeResult = await pool.query(financeSql, [firstDayOfMonth, firstDayOfNextMonth]);
     const totalRevenue = parseFloat(financeResult.rows[0].total_revenue) || 0;
     const totalCosts = parseFloat(financeResult.rows[0].total_costs) || 0;

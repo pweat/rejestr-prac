@@ -84,6 +84,14 @@ const stationProfit = computed(() => {
   return { profit, totalCost };
 });
 
+const serviceProfit = computed(() => {
+  const details = selectedJobDetails.value?.details;
+  if (!details || details.is_warranty) return { profit: 0, totalCost: 0 };
+  const revenue = parseFloat(details.revenue) || 0;
+  const totalCost = parseFloat(details.labor_cost) || 0;
+  return { profit: revenue - totalCost, totalCost };
+});
+
 const filterClients = (options, search) => {
   const lowerSearch = search.toLowerCase();
   return options.filter((client) => {
@@ -577,15 +585,29 @@ onMounted(() => {
               </div>
             </div>
 
-            <div v-else-if="newJobData.jobType === 'service'" class="form-grid">
+            <div v-else-if="newJobData.jobType === 'service'" class="form-grid-single-col">
               <div class="form-group full-width">
                 <label>Opis wykonanych prac serwisowych:</label>
-                <textarea
-                  v-model="newJobData.details.description"
-                  rows="5"
-                  placeholder="np. Przegląd roczny, wymiana filtra, czyszczenie..."
-                ></textarea>
+                <textarea v-model="newJobData.details.description" rows="4"></textarea>
               </div>
+              <div class="form-group checkbox-item">
+                <input
+                  type="checkbox"
+                  id="is_warranty_add"
+                  v-model="newJobData.details.is_warranty"
+                />
+                <label for="is_warranty_add">Serwis gwarancyjny (bezpłatny)</label>
+              </div>
+              <template v-if="!newJobData.details.is_warranty">
+                <div class="form-group">
+                  <label>Przychód:</label
+                  ><input type="number" step="any" v-model.number="newJobData.details.revenue" />
+                </div>
+                <div class="form-group">
+                  <label>Wypłaty:</label
+                  ><input type="number" step="any" v-model.number="newJobData.details.labor_cost" />
+                </div>
+              </template>
             </div>
           </div>
         </div>
@@ -715,6 +737,33 @@ onMounted(() => {
                   >{{ stationProfit.profit?.toFixed(2) || '0.00' }} zł</span
                 >
               </p>
+            </div>
+          </div>
+          <div
+            v-else-if="selectedJobDetails.job_type === 'service'"
+            class="details-section full-width"
+          >
+            <h4>Szczegóły Serwisu</h4>
+            <div class="details-grid-inner">
+              <p class="full-width-p">
+                <strong>Opis wykonanych prac:</strong>
+                {{ selectedJobDetails.details.description || '-' }}
+              </p>
+              <hr class="full-width-hr" />
+              <p>
+                <strong>Serwis gwarancyjny:</strong>
+                {{ selectedJobDetails.details.is_warranty ? 'Tak' : 'Nie' }}
+              </p>
+              <template v-if="!selectedJobDetails.details.is_warranty">
+                <p><strong>Przychód:</strong> {{ selectedJobDetails.details.revenue || 0 }} zł</p>
+                <p><strong>Wypłaty:</strong> {{ selectedJobDetails.details.labor_cost || 0 }} zł</p>
+                <p class="full-width-p profit-summary">
+                  <strong>Dochód:</strong>
+                  <span :class="serviceProfit.profit >= 0 ? 'profit-positive' : 'profit-negative'"
+                    >{{ serviceProfit.profit?.toFixed(2) || '0.00' }} zł</span
+                  >
+                </p>
+              </template>
             </div>
           </div>
         </div>
@@ -979,11 +1028,69 @@ onMounted(() => {
                 </div>
               </div>
 
-              <div v-else-if="editedJobData.job_type === 'service'" class="form-grid">
+              <div v-else-if="editedJobData.jobType === 'service'" class="form-grid-single-col">
                 <div class="form-group full-width">
                   <label>Opis wykonanych prac serwisowych:</label>
-                  <textarea v-model="editedJobData.details.description" rows="5"></textarea>
+                  <textarea v-model="editedJobData.details.description" rows="4"></textarea>
                 </div>
+                <div class="form-group checkbox-item">
+                  <input
+                    type="checkbox"
+                    id="is_warranty_add"
+                    v-model="editedJobData.details.is_warranty"
+                  />
+                  <label for="is_warranty_edit">Serwis gwarancyjny (bezpłatny)</label>
+                </div>
+                <template v-if="!editedJobData.details.is_warranty">
+                  <div class="form-group">
+                    <label>Przychód:</label
+                    ><input
+                      type="number"
+                      step="any"
+                      v-model.number="editedJobData.details.revenue"
+                    />
+                  </div>
+                  <div class="form-group">
+                    <label>Wypłaty:</label
+                    ><input
+                      type="number"
+                      step="any"
+                      v-model.number="editedJobData.details.labor_cost"
+                    />
+                  </div>
+                </template>
+              </div>
+              <div v-else-if="editedJobData.job_type === 'service'" class="form-grid-single-col">
+                <div class="form-group full-width">
+                  <label>Opis wykonanych prac serwisowych:</label>
+                  <textarea v-model="editedJobData.details.description" rows="4"></textarea>
+                </div>
+                <div class="form-group checkbox-item">
+                  <input
+                    type="checkbox"
+                    id="is_warranty_edit"
+                    v-model="editedJobData.details.is_warranty"
+                  />
+                  <label for="is_warranty_edit">Serwis gwarancyjny (bezpłatny)</label>
+                </div>
+                <template v-if="!editedJobData.details.is_warranty">
+                  <div class="form-group">
+                    <label>Przychód:</label>
+                    <input
+                      type="number"
+                      step="any"
+                      v-model.number="editedJobData.details.revenue"
+                    />
+                  </div>
+                  <div class="form-group">
+                    <label>Wypłaty:</label>
+                    <input
+                      type="number"
+                      step="any"
+                      v-model.number="editedJobData.details.labor_cost"
+                    />
+                  </div>
+                </template>
               </div>
             </div>
           </div>
@@ -1109,5 +1216,19 @@ onMounted(() => {
 }
 .total-cost-summary span {
   font-weight: bold;
+}
+.checkbox-item {
+  display: flex;
+  flex-direction: row; /* Układamy elementy w rzędzie, a nie w kolumnie */
+  align-items: center; /* Wyrównujemy w pionie do środka */
+  gap: 10px; /* Mały odstęp między checkboxem a etykietą */
+}
+.checkbox-item label {
+  margin-bottom: 0; /* Usuwamy domyślny margines z etykiety w tej grupie */
+  cursor: pointer;
+}
+.checkbox-item input[type='checkbox'] {
+  width: auto; /* Pozwalamy, by checkbox miał swoją naturalną szerokość */
+  margin: 0; /* Zerujemy domyślne marginesy */
 }
 </style>

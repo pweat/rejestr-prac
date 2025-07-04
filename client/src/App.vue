@@ -383,6 +383,8 @@ button:disabled {
   justify-content: center;
   align-items: center;
   z-index: 1000;
+  padding: 40px 0; /* DODANA LINIA: Dodaje 40px marginesu od góry i dołu */
+  overflow-y: auto; /* DODANA LINIA: Pozwala przewijać całe tło, jeśli modal jest za wysoki */
 }
 .modal-content {
   width: 90%;
