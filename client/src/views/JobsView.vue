@@ -626,17 +626,23 @@ onMounted(() => {
         <button class="close-button" @click="showDetailsModal = false">&times;</button>
       </div>
       <div class="modal-body">
-        <div v-if="isDetailsLoading" class="modal-loading-spinner"><div class="spinner"></div></div>
+        <div v-if="isDetailsLoading" class="modal-loading-spinner">
+          <div class="spinner"></div>
+        </div>
         <div v-else-if="selectedJobDetails" class="details-view-grid">
           <div class="details-section">
             <h4>Dane Klienta</h4>
             <p><strong>Nazwa:</strong> {{ selectedJobDetails.client_name || '-' }}</p>
             <p><strong>Telefon:</strong> {{ selectedJobDetails.client_phone }}</p>
+            <p><strong>Adres:</strong> {{ selectedJobDetails.client_address || '-' }}</p>
+            <p><strong>Notatki o kliencie:</strong> {{ selectedJobDetails.client_notes || '-' }}</p>
           </div>
           <div class="details-section">
             <h4>Dane Główne Zlecenia</h4>
-            <p><strong>Typ:</strong> {{ translateJobType(selectedJobDetails.job_type) }}</p>
-            <p><strong>Data:</strong> {{ formatDate(selectedJobDetails.job_date) }}</p>
+            <p>
+              <strong>Typ zlecenia:</strong> {{ translateJobType(selectedJobDetails.job_type) }}
+            </p>
+            <p><strong>Data zlecenia:</strong> {{ formatDate(selectedJobDetails.job_date) }}</p>
           </div>
 
           <div
@@ -653,13 +659,35 @@ onMounted(() => {
                 <strong>Ilość metrów:</strong>
                 {{ selectedJobDetails.details.ilosc_metrow || '-' }} m
               </p>
+              <p><strong>Średnica Ø:</strong> {{ selectedJobDetails.details.srednica || '-' }}</p>
+              <p>
+                <strong>L. statyczne:</strong>
+                {{ selectedJobDetails.details.lustro_statyczne || '-' }} m
+              </p>
+              <p>
+                <strong>L. dynamiczne:</strong>
+                {{ selectedJobDetails.details.lustro_dynamiczne || '-' }} m
+              </p>
+              <p>
+                <strong>Wydajność:</strong>
+                {{
+                  selectedJobDetails.details.wydajnosc
+                    ? selectedJobDetails.details.wydajnosc + ' m³/h'
+                    : '-'
+                }}
+              </p>
               <p>
                 <strong>Cena za metr:</strong>
-                {{ selectedJobDetails.details.cena_za_metr || '-' }} zł
+                {{ selectedJobDetails.details.cena_za_metr || '0' }} zł
               </p>
+              <div class="full-width-p">
+                <strong>Informacje:</strong>
+                <p class="info-text">{{ selectedJobDetails.details.informacje || '-' }}</p>
+              </div>
               <hr class="full-width-hr" />
               <p>
-                <strong>Przychód:</strong> {{ wellDrillingProfit.revenue?.toFixed(2) || '0.00' }} zł
+                <strong>Przychód (obliczony):</strong>
+                {{ wellDrillingProfit.revenue?.toFixed(2) || '0.00' }} zł
               </p>
               <p><strong>Koszt rur:</strong> {{ selectedJobDetails.details.rury || '0' }} zł</p>
               <p>
@@ -688,7 +716,51 @@ onMounted(() => {
           >
             <h4>Szczegóły Instalacji i Rozliczenie</h4>
             <div class="details-grid-inner">
+              <p>
+                <strong>Głęb. studni:</strong> {{ selectedJobDetails.details.well_depth || '-' }} m
+              </p>
+              <p><strong>Średnica:</strong> {{ selectedJobDetails.details.diameter || '-' }} cal</p>
+              <p>
+                <strong>Pompa na (m):</strong> {{ selectedJobDetails.details.pump_depth || '-' }} m
+              </p>
+              <p>
+                <strong>Model pompy:</strong> {{ selectedJobDetails.details.pump_model || '-' }}
+              </p>
+              <p>
+                <strong>Model sterownika:</strong>
+                {{ selectedJobDetails.details.controller_model || '-' }}
+              </p>
+              <p>
+                <strong>Model hydroforu:</strong>
+                {{ selectedJobDetails.details.hydrophore_model || '-' }}
+              </p>
+              <p class="full-width-p">
+                <strong>Faktura (materiały):</strong>
+                <a
+                  v-if="selectedJobDetails.details.materials_invoice_url"
+                  :href="selectedJobDetails.details.materials_invoice_url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="link-btn"
+                  >LINK</a
+                ><span v-else>-</span>
+              </p>
+              <p class="full-width-p">
+                <strong>Oferta (klient):</strong>
+                <a
+                  v-if="selectedJobDetails.details.client_offer_url"
+                  :href="selectedJobDetails.details.client_offer_url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="link-btn"
+                  >LINK</a
+                ><span v-else>-</span>
+              </p>
+              <hr class="full-width-hr" />
               <p><strong>Przychód:</strong> {{ selectedJobDetails.details.revenue || 0 }} zł</p>
+              <p>
+                <strong>Koszt obudowy:</strong> {{ selectedJobDetails.details.casing_cost || 0 }} zł
+              </p>
               <p>
                 <strong>Koszt osprzętu:</strong>
                 {{ selectedJobDetails.details.equipment_cost || 0 }} zł
@@ -717,6 +789,47 @@ onMounted(() => {
           >
             <h4>Szczegóły Stacji i Rozliczenie</h4>
             <div class="details-grid-inner">
+              <p>
+                <strong>Model stacji:</strong> {{ selectedJobDetails.details.station_model || '-' }}
+              </p>
+              <p>
+                <strong>Model lampy UV:</strong>
+                {{ selectedJobDetails.details.uv_lamp_model || '-' }}
+              </p>
+              <p>
+                <strong>Filtr węglowy:</strong>
+                {{ selectedJobDetails.details.carbon_filter || '-' }}
+              </p>
+              <p>
+                <strong>Rodzaje złóż:</strong> {{ selectedJobDetails.details.filter_types || '-' }}
+              </p>
+              <p>
+                <strong>Interwał serwisu:</strong>
+                {{ selectedJobDetails.details.service_interval_months || '12' }} mies.
+              </p>
+              <p class="full-width-p">
+                <strong>Faktura (materiały):</strong>
+                <a
+                  v-if="selectedJobDetails.details.materials_invoice_url"
+                  :href="selectedJobDetails.details.materials_invoice_url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="link-btn"
+                  >LINK</a
+                ><span v-else>-</span>
+              </p>
+              <p class="full-width-p">
+                <strong>Oferta (klient):</strong>
+                <a
+                  v-if="selectedJobDetails.details.client_offer_url"
+                  :href="selectedJobDetails.details.client_offer_url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="link-btn"
+                  >LINK</a
+                ><span v-else>-</span>
+              </p>
+              <hr class="full-width-hr" />
               <p><strong>Przychód:</strong> {{ selectedJobDetails.details.revenue || 0 }} zł</p>
               <p>
                 <strong>Koszt osprzętu:</strong>
@@ -739,6 +852,7 @@ onMounted(() => {
               </p>
             </div>
           </div>
+
           <div
             v-else-if="selectedJobDetails.job_type === 'service'"
             class="details-section full-width"

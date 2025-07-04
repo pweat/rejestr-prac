@@ -378,19 +378,21 @@ button:disabled {
   left: 0;
   width: 100%;
   height: 100%;
-  background-color: rgba(0, 0, 0, 0.5);
-  display: flex;
-  justify-content: center;
-  align-items: center;
+  background-color: rgba(0, 0, 0, 0.65);
   z-index: 1000;
-  padding: 40px 0; /* DODANA LINIA: Dodaje 40px marginesu od góry i dołu */
-  overflow-y: auto; /* DODANA LINIA: Pozwala przewijać całe tło, jeśli modal jest za wysoki */
+  overflow-y: auto; /* Pozwala przewijać całe tło, jeśli modal jest za wysoki */
+  padding: 80px 15px 40px 15px; /* Zwiększony padding od góry, aby ominąć nawigację */
+  text-align: center; /* Potrzebne do wycentrowania w poziomie */
 }
 .modal-content {
-  width: 90%;
+  display: inline-block; /* Kluczowa zmiana dla tej techniki */
+  text-align: left; /* Resetujemy wyrównanie tekstu dla zawartości modala */
+
+  width: 100%; /* Szerokość dostosuje się do paddingu rodzica */
   max-width: 1000px;
-  max-height: 90vh;
-  overflow-y: auto;
+  margin-bottom: auto; /* "Sztuczka" aby modal trzymał się góry w miarę możliwości */
+
+  /* Pozostałe style bez zmian */
   background-color: var(--background-light);
   border-radius: 8px;
   box-shadow: var(--shadow);
