@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue';
-import { RouterLink, useRoute } from 'vue-router';
+import { useRoute } from 'vue-router';
 import { getAuthHeaders } from '../auth/auth.js';
 import { formatDate } from '../utils/formatters.js';
 import vSelect from 'vue-select';
@@ -43,24 +43,45 @@ function translateJobType(type) {
   return types[type] || type;
 }
 
-const calculatedProfit = computed(() => {
-  if (
-    selectedJobDetails.value &&
-    (selectedJobDetails.value.job_type === 'connection' ||
-      selectedJobDetails.value.job_type === 'treatment_station') &&
-    selectedJobDetails.value.details
-  ) {
-    const details = selectedJobDetails.value.details;
-    const revenue = parseFloat(details.revenue) || 0;
-    const casing_cost = parseFloat(details.casing_cost) || 0;
-    const equipment_cost = parseFloat(details.equipment_cost) || 0;
-    const labor_cost = parseFloat(details.labor_cost) || 0;
-    const wholesale_materials_cost = parseFloat(details.wholesale_materials_cost) || 0;
-    const totalCost = casing_cost + equipment_cost + labor_cost + wholesale_materials_cost;
-    const profit = revenue - totalCost;
-    return { profit, totalCost };
-  }
-  return { profit: null, totalCost: null };
+const wellDrillingProfit = computed(() => {
+  const details = selectedJobDetails.value?.details;
+  if (!details) return { revenue: null, totalCost: null, profit: null };
+
+  const revenue = (parseFloat(details.ilosc_metrow) || 0) * (parseFloat(details.cena_za_metr) || 0);
+  const totalCost =
+    (parseFloat(details.wyplaty) || 0) +
+    (parseFloat(details.rury) || 0) +
+    (parseFloat(details.inne_koszta) || 0);
+  const profit = revenue - totalCost;
+
+  return { revenue, totalCost, profit };
+});
+
+const connectionProfit = computed(() => {
+  const details = selectedJobDetails.value?.details;
+  if (!details) return { profit: null, totalCost: null };
+
+  const revenue = parseFloat(details.revenue) || 0;
+  const totalCost =
+    (parseFloat(details.casing_cost) || 0) +
+    (parseFloat(details.equipment_cost) || 0) +
+    (parseFloat(details.labor_cost) || 0) +
+    (parseFloat(details.wholesale_materials_cost) || 0);
+  const profit = revenue - totalCost;
+  return { profit, totalCost };
+});
+
+const stationProfit = computed(() => {
+  const details = selectedJobDetails.value?.details;
+  if (!details) return { profit: null, totalCost: null };
+
+  const revenue = parseFloat(details.revenue) || 0;
+  const totalCost =
+    (parseFloat(details.equipment_cost) || 0) +
+    (parseFloat(details.labor_cost) || 0) +
+    (parseFloat(details.wholesale_materials_cost) || 0);
+  const profit = revenue - totalCost;
+  return { profit, totalCost };
 });
 
 const filterClients = (options, search) => {
@@ -269,9 +290,7 @@ onMounted(() => {
       />
     </div>
     <div class="main-content-wrapper">
-      <div v-if="isLoading" class="loading-overlay">
-        <div class="spinner"></div>
-      </div>
+      <div v-if="isLoading" class="loading-overlay"><div class="spinner"></div></div>
       <div class="table-and-pagination" :class="{ 'is-loading': isLoading }">
         <div class="table-container">
           <table>
@@ -336,35 +355,34 @@ onMounted(() => {
       <form @submit.prevent="handleAddJob">
         <div class="form-grid-single-col">
           <div class="form-group">
-            <label for="clientSelect">1. Wybierz klienta (zacznij pisać, aby wyszukać)</label
+            <label>1. Wybierz klienta</label
             ><v-select
-              id="clientSelect"
               :options="availableClients"
               :get-option-label="(option) => option.name || 'Brak Nazwy'"
               :filter="filterClients"
               :reduce="(client) => client.id"
               v-model="newJobData.clientId"
-              placeholder="-- Wyszukaj klienta po nazwie lub telefonie --"
+              placeholder="-- Wyszukaj klienta --"
               ><template #option="{ name, phone_number }"
-                ><div style="display: flex; flex-direction: column">
+                ><div>
                   <strong>{{ name || 'Brak nazwy' }}</strong
-                  ><span style="font-size: 0.8em; color: #666">{{ phone_number }}</span>
+                  ><br /><small>{{ phone_number }}</small>
                 </div></template
               ><template #selected-option="{ name, phone_number }"
-                ><div style="display: flex; flex-direction: column">
+                ><div>
                   <strong>{{ name || 'Brak nazwy' }}</strong
-                  ><span style="font-size: 0.8em; color: #666">{{ phone_number }}</span>
+                  ><br /><small>{{ phone_number }}</small>
                 </div></template
               ></v-select
             >
           </div>
           <div class="form-group">
-            <label for="jobDate">2. Data zlecenia</label
-            ><input type="date" id="jobDate" v-model="newJobData.jobDate" required />
+            <label>2. Data zlecenia</label
+            ><input type="date" v-model="newJobData.jobDate" required />
           </div>
           <div class="form-group">
-            <label for="jobTypeSelect">3. Typ zlecenia</label
-            ><select id="jobTypeSelect" v-model="newJobData.jobType">
+            <label>3. Typ zlecenia</label
+            ><select v-model="newJobData.jobType">
               <option value="well_drilling">Wykonanie Studni</option>
               <option value="connection">Podłączenie</option>
               <option value="treatment_station">Stacja Uzdatniania</option>
@@ -396,6 +414,10 @@ onMounted(() => {
                 ><input type="number" step="any" v-model.number="newJobData.details.ilosc_metrow" />
               </div>
               <div class="form-group">
+                <label>Cena za metr:</label
+                ><input type="number" step="any" v-model.number="newJobData.details.cena_za_metr" />
+              </div>
+              <div class="form-group">
                 <label>Lustro statyczne:</label
                 ><input
                   type="number"
@@ -414,6 +436,19 @@ onMounted(() => {
               <div class="form-group">
                 <label>Wydajność (m³/h):</label
                 ><input type="number" step="any" v-model.number="newJobData.details.wydajnosc" />
+              </div>
+              <hr class="full-width-hr" />
+              <div class="form-group">
+                <label>Koszt: Rury</label
+                ><input type="number" step="any" v-model.number="newJobData.details.rury" />
+              </div>
+              <div class="form-group">
+                <label>Koszt: Wypłaty</label
+                ><input type="number" step="any" v-model.number="newJobData.details.wyplaty" />
+              </div>
+              <div class="form-group">
+                <label>Koszt: Inne</label
+                ><input type="number" step="any" v-model.number="newJobData.details.inne_koszta" />
               </div>
             </div>
             <div v-else-if="newJobData.jobType === 'connection'" class="form-grid">
@@ -479,6 +514,7 @@ onMounted(() => {
                 />
               </div>
             </div>
+
             <div v-else-if="newJobData.jobType === 'treatment_station'" class="form-grid">
               <div class="form-group">
                 <label>Model stacji:</label
@@ -540,10 +576,11 @@ onMounted(() => {
                 />
               </div>
             </div>
+
             <div v-else-if="newJobData.jobType === 'service'" class="form-grid">
               <div class="form-group full-width">
-                <label>Opis wykonanych prac serwisowych:</label
-                ><textarea
+                <label>Opis wykonanych prac serwisowych:</label>
+                <textarea
                   v-model="newJobData.details.description"
                   rows="5"
                   placeholder="np. Przegląd roczny, wymiana filtra, czyszczenie..."
@@ -563,7 +600,7 @@ onMounted(() => {
   <div v-if="showDetailsModal" class="modal-backdrop">
     <div class="modal-content">
       <div class="modal-header">
-        <h3>Szczegóły zlecenia #{{ selectedJobDetails ? selectedJobDetails.id : '' }}</h3>
+        <h3>Szczegóły zlecenia #{{ selectedJobDetails?.id }}</h3>
         <button class="close-button" @click="showDetailsModal = false">&times;</button>
       </div>
       <div class="modal-body">
@@ -573,95 +610,63 @@ onMounted(() => {
             <h4>Dane Klienta</h4>
             <p><strong>Nazwa:</strong> {{ selectedJobDetails.client_name || '-' }}</p>
             <p><strong>Telefon:</strong> {{ selectedJobDetails.client_phone }}</p>
-            <p><strong>Adres:</strong> {{ selectedJobDetails.client_address || '-' }}</p>
-            <p><strong>Notatki o kliencie:</strong> {{ selectedJobDetails.client_notes || '-' }}</p>
           </div>
           <div class="details-section">
             <h4>Dane Główne Zlecenia</h4>
-            <p>
-              <strong>Typ zlecenia:</strong> {{ translateJobType(selectedJobDetails.job_type) }}
-            </p>
-            <p><strong>Data zlecenia:</strong> {{ formatDate(selectedJobDetails.job_date) }}</p>
+            <p><strong>Typ:</strong> {{ translateJobType(selectedJobDetails.job_type) }}</p>
+            <p><strong>Data:</strong> {{ formatDate(selectedJobDetails.job_date) }}</p>
           </div>
+
           <div
             v-if="selectedJobDetails.job_type === 'well_drilling'"
             class="details-section full-width"
           >
-            <h4>Szczegóły Wykonania Studni</h4>
+            <h4>Szczegóły i Rozliczenie Studni</h4>
             <div class="details-grid-inner">
               <p>
                 <strong>Miejscowość:</strong> {{ selectedJobDetails.details.miejscowosc || '-' }}
               </p>
               <p><strong>Pracownicy:</strong> {{ selectedJobDetails.details.pracownicy || '-' }}</p>
               <p>
-                <strong>Ilość metrów:</strong> {{ selectedJobDetails.details.ilosc_metrow || '-' }}
-              </p>
-              <p><strong>Średnica Ø:</strong> {{ selectedJobDetails.details.srednica || '-' }}</p>
-              <p>
-                <strong>L. statyczne:</strong>
-                {{ selectedJobDetails.details.lustro_statyczne || '-' }}
+                <strong>Ilość metrów:</strong>
+                {{ selectedJobDetails.details.ilosc_metrow || '-' }} m
               </p>
               <p>
-                <strong>L. dynamiczne:</strong>
-                {{ selectedJobDetails.details.lustro_dynamiczne || '-' }}
+                <strong>Cena za metr:</strong>
+                {{ selectedJobDetails.details.cena_za_metr || '-' }} zł
               </p>
-              <p><strong>Wydajność:</strong> {{ selectedJobDetails.details.wydajnosc || '-' }}</p>
-              <p class="full-width-p">
-                <strong>Informacje:</strong> {{ selectedJobDetails.details.informacje || '-' }}
+              <hr class="full-width-hr" />
+              <p>
+                <strong>Przychód:</strong> {{ wellDrillingProfit.revenue?.toFixed(2) || '0.00' }} zł
+              </p>
+              <p><strong>Koszt rur:</strong> {{ selectedJobDetails.details.rury || '0' }} zł</p>
+              <p>
+                <strong>Koszt wypłat:</strong> {{ selectedJobDetails.details.wyplaty || '0' }} zł
+              </p>
+              <p>
+                <strong>Inne koszta:</strong> {{ selectedJobDetails.details.inne_koszta || '0' }} zł
+              </p>
+              <p class="full-width-p total-cost-summary">
+                <strong>Suma Kosztów:</strong>
+                <span>{{ wellDrillingProfit.totalCost?.toFixed(2) || '0.00' }} zł</span>
+              </p>
+              <p class="full-width-p profit-summary">
+                <strong>Dochód:</strong>
+                <span
+                  :class="wellDrillingProfit.profit >= 0 ? 'profit-positive' : 'profit-negative'"
+                  >{{ wellDrillingProfit.profit?.toFixed(2) || '0.00' }} zł</span
+                >
               </p>
             </div>
           </div>
+
           <div
             v-else-if="selectedJobDetails.job_type === 'connection'"
             class="details-section full-width"
           >
             <h4>Szczegóły Instalacji i Rozliczenie</h4>
             <div class="details-grid-inner">
-              <p>
-                <strong>Głęb. studni:</strong> {{ selectedJobDetails.details.well_depth || '-' }} m
-              </p>
-              <p><strong>Średnica:</strong> {{ selectedJobDetails.details.diameter || '-' }} cal</p>
-              <p>
-                <strong>Pompa na (m):</strong> {{ selectedJobDetails.details.pump_depth || '-' }} m
-              </p>
-              <p>
-                <strong>Model pompy:</strong> {{ selectedJobDetails.details.pump_model || '-' }}
-              </p>
-              <p>
-                <strong>Model sterownika:</strong>
-                {{ selectedJobDetails.details.controller_model || '-' }}
-              </p>
-              <p>
-                <strong>Model hydroforu:</strong>
-                {{ selectedJobDetails.details.hydrophore_model || '-' }}
-              </p>
-              <p class="full-width-p">
-                <strong>Faktura (materiały):</strong>
-                <a
-                  v-if="selectedJobDetails.details.materials_invoice_url"
-                  :href="selectedJobDetails.details.materials_invoice_url"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="link-btn"
-                  >LINK</a
-                ><span v-else>-</span>
-              </p>
-              <p class="full-width-p">
-                <strong>Oferta (klient):</strong>
-                <a
-                  v-if="selectedJobDetails.details.client_offer_url"
-                  :href="selectedJobDetails.details.client_offer_url"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="link-btn"
-                  >LINK</a
-                ><span v-else>-</span>
-              </p>
-              <hr class="full-width-hr" />
               <p><strong>Przychód:</strong> {{ selectedJobDetails.details.revenue || 0 }} zł</p>
-              <p>
-                <strong>Koszt obudowy:</strong> {{ selectedJobDetails.details.casing_cost || 0 }} zł
-              </p>
               <p>
                 <strong>Koszt osprzętu:</strong>
                 {{ selectedJobDetails.details.equipment_cost || 0 }} zł
@@ -673,72 +678,23 @@ onMounted(() => {
               </p>
               <p class="full-width-p total-cost-summary">
                 <strong>Suma Kosztów:</strong>
-                <span>{{
-                  calculatedProfit.totalCost !== null
-                    ? calculatedProfit.totalCost.toFixed(2) + ' zł'
-                    : 'Brak danych'
-                }}</span>
+                <span>{{ connectionProfit.totalCost?.toFixed(2) || '0.00' }} zł</span>
               </p>
               <p class="full-width-p profit-summary">
                 <strong>Dochód:</strong>
-                <span
-                  :class="calculatedProfit.profit >= 0 ? 'profit-positive' : 'profit-negative'"
-                  >{{
-                    calculatedProfit.profit !== null
-                      ? calculatedProfit.profit.toFixed(2) + ' zł'
-                      : 'Brak danych'
-                  }}</span
+                <span :class="connectionProfit.profit >= 0 ? 'profit-positive' : 'profit-negative'"
+                  >{{ connectionProfit.profit?.toFixed(2) || '0.00' }} zł</span
                 >
               </p>
             </div>
           </div>
+
           <div
             v-else-if="selectedJobDetails.job_type === 'treatment_station'"
             class="details-section full-width"
           >
-            <h4>Szczegóły Stacji Uzdatniania i Rozliczenie</h4>
+            <h4>Szczegóły Stacji i Rozliczenie</h4>
             <div class="details-grid-inner">
-              <p>
-                <strong>Model stacji:</strong> {{ selectedJobDetails.details.station_model || '-' }}
-              </p>
-              <p>
-                <strong>Model lampy UV:</strong>
-                {{ selectedJobDetails.details.uv_lamp_model || '-' }}
-              </p>
-              <p>
-                <strong>Filtr węglowy:</strong>
-                {{ selectedJobDetails.details.carbon_filter || '-' }}
-              </p>
-              <p>
-                <strong>Rodzaje złóż:</strong> {{ selectedJobDetails.details.filter_types || '-' }}
-              </p>
-              <p>
-                <strong>Interwał serwisu:</strong>
-                {{ selectedJobDetails.details.service_interval_months || '12' }} mies.
-              </p>
-              <p class="full-width-p">
-                <strong>Faktura (materiały):</strong>
-                <a
-                  v-if="selectedJobDetails.details.materials_invoice_url"
-                  :href="selectedJobDetails.details.materials_invoice_url"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="link-btn"
-                  >LINK</a
-                ><span v-else>-</span>
-              </p>
-              <p class="full-width-p">
-                <strong>Oferta (klient):</strong>
-                <a
-                  v-if="selectedJobDetails.details.client_offer_url"
-                  :href="selectedJobDetails.details.client_offer_url"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="link-btn"
-                  >LINK</a
-                ><span v-else>-</span>
-              </p>
-              <hr class="full-width-hr" />
               <p><strong>Przychód:</strong> {{ selectedJobDetails.details.revenue || 0 }} zł</p>
               <p>
                 <strong>Koszt osprzętu:</strong>
@@ -751,34 +707,13 @@ onMounted(() => {
               </p>
               <p class="full-width-p total-cost-summary">
                 <strong>Suma Kosztów:</strong>
-                <span>{{
-                  calculatedProfit.totalCost !== null
-                    ? calculatedProfit.totalCost.toFixed(2) + ' zł'
-                    : 'Brak danych'
-                }}</span>
+                <span>{{ stationProfit.totalCost?.toFixed(2) || '0.00' }} zł</span>
               </p>
               <p class="full-width-p profit-summary">
                 <strong>Dochód:</strong>
-                <span
-                  :class="calculatedProfit.profit >= 0 ? 'profit-positive' : 'profit-negative'"
-                  >{{
-                    calculatedProfit.profit !== null
-                      ? calculatedProfit.profit.toFixed(2) + ' zł'
-                      : 'Brak danych'
-                  }}</span
+                <span :class="stationProfit.profit >= 0 ? 'profit-positive' : 'profit-negative'"
+                  >{{ stationProfit.profit?.toFixed(2) || '0.00' }} zł</span
                 >
-              </p>
-            </div>
-          </div>
-          <div
-            v-else-if="selectedJobDetails.job_type === 'service'"
-            class="details-section full-width"
-          >
-            <h4>Szczegóły Serwisu</h4>
-            <div class="details-grid-inner">
-              <p class="full-width-p">
-                <strong>Opis wykonanych prac:</strong>
-                {{ selectedJobDetails.details.description || '-' }}
               </p>
             </div>
           </div>
@@ -790,7 +725,7 @@ onMounted(() => {
   <div v-if="showEditJobModal" class="modal-backdrop">
     <div class="modal-content">
       <div class="modal-header">
-        <h3>Edytuj zlecenie #{{ editedJobData ? editedJobData.id : '' }}</h3>
+        <h3>Edytuj zlecenie #{{ editedJobData?.id }}</h3>
         <button class="close-button" @click="showEditJobModal = false">&times;</button>
       </div>
       <div class="modal-body">
@@ -804,8 +739,8 @@ onMounted(() => {
               </p>
             </div>
             <div class="form-group">
-              <label for="editJobDate">Data zlecenia</label
-              ><input type="date" id="editJobDate" v-model="editedJobData.job_date" required />
+              <label>Data zlecenia</label
+              ><input type="date" v-model="editedJobData.job_date" required />
             </div>
             <div class="form-group">
               <label>Typ zlecenia:</label>
@@ -846,6 +781,14 @@ onMounted(() => {
                   />
                 </div>
                 <div class="form-group">
+                  <label>Cena za metr:</label
+                  ><input
+                    type="number"
+                    step="any"
+                    v-model.number="editedJobData.details.cena_za_metr"
+                  />
+                </div>
+                <div class="form-group">
                   <label>Lustro statyczne:</label
                   ><input
                     type="number"
@@ -867,6 +810,23 @@ onMounted(() => {
                     type="number"
                     step="any"
                     v-model.number="editedJobData.details.wydajnosc"
+                  />
+                </div>
+                <hr class="full-width-hr" />
+                <div class="form-group">
+                  <label>Koszt: Rury</label
+                  ><input type="number" step="any" v-model.number="editedJobData.details.rury" />
+                </div>
+                <div class="form-group">
+                  <label>Koszt: Wypłaty</label
+                  ><input type="number" step="any" v-model.number="editedJobData.details.wyplaty" />
+                </div>
+                <div class="form-group">
+                  <label>Koszt: Inne</label
+                  ><input
+                    type="number"
+                    step="any"
+                    v-model.number="editedJobData.details.inne_koszta"
                   />
                 </div>
               </div>
@@ -953,6 +913,7 @@ onMounted(() => {
                   />
                 </div>
               </div>
+
               <div v-else-if="editedJobData.job_type === 'treatment_station'" class="form-grid">
                 <div class="form-group">
                   <label>Model stacji:</label
@@ -1017,10 +978,11 @@ onMounted(() => {
                   />
                 </div>
               </div>
+
               <div v-else-if="editedJobData.job_type === 'service'" class="form-grid">
                 <div class="form-group full-width">
-                  <label>Opis wykonanych prac serwisowych:</label
-                  ><textarea v-model="editedJobData.details.description" rows="5"></textarea>
+                  <label>Opis wykonanych prac serwisowych:</label>
+                  <textarea v-model="editedJobData.details.description" rows="5"></textarea>
                 </div>
               </div>
             </div>

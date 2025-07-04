@@ -236,7 +236,6 @@ app.post('/api/jobs', authenticateToken, async (req, res) => {
     if (jobType === 'well_drilling') {
       detailsTable = 'well_details';
       detailsColumns = [
-        'job_id',
         'miejscowosc',
         'pracownicy',
         'informacje',
@@ -245,6 +244,10 @@ app.post('/api/jobs', authenticateToken, async (req, res) => {
         'lustro_statyczne',
         'lustro_dynamiczne',
         'wydajnosc',
+        'cena_za_metr',
+        'wyplaty',
+        'rury',
+        'inne_koszta', // <-- DODANE POLA
       ];
       detailsValues = detailsColumns.slice(1).map((col) => details[col] || null);
     } else if (jobType === 'connection') {
@@ -468,6 +471,10 @@ app.put('/api/jobs/:id', authenticateToken, async (req, res) => {
         'lustro_statyczne',
         'lustro_dynamiczne',
         'wydajnosc',
+        'cena_za_metr',
+        'wyplaty',
+        'rury',
+        'inne_koszta', // <-- DODANE POLA
       ];
     } else if (job_type === 'connection') {
       detailsTable = 'connection_details';
@@ -764,17 +771,16 @@ app.get('/api/inventory/low-stock', authenticateToken, async (req, res) => {
 // =================================================================
 // --- API STATYSTYK ---
 // =================================================================
-// Zastąp ten endpoint nową wersją
+// Zastąp cały ten endpoint nową wersją
 app.get('/api/stats/monthly-summary', authenticateToken, async (req, res) => {
   try {
-    // Pobieramy rok i miesiąc z zapytania, jeśli nie ma, używamy bieżącego
     const year = parseInt(req.query.year) || new Date().getFullYear();
-    const month = parseInt(req.query.month) || new Date().getMonth() + 1; // Miesiące w JS są 0-11
+    const month = parseInt(req.query.month) || new Date().getMonth() + 1;
 
-    const firstDayOfMonth = new Date(year, month - 1, 1);
-    const firstDayOfNextMonth = new Date(year, month, 1);
+    const firstDayOfMonth = new Date(Date.UTC(year, month - 1, 1));
+    const firstDayOfNextMonth = new Date(Date.UTC(year, month, 1));
 
-    // 1. Zliczanie typów zleceń w wybranym miesiącu
+    // 1. Zliczanie typów zleceń (bez zmian)
     const jobsCountSql = `
       SELECT job_type, COUNT(id) as count
       FROM jobs
@@ -782,7 +788,6 @@ app.get('/api/stats/monthly-summary', authenticateToken, async (req, res) => {
       GROUP BY job_type;
     `;
     const jobsCountResult = await pool.query(jobsCountSql, [firstDayOfMonth, firstDayOfNextMonth]);
-
     const jobCounts = { well_drilling: 0, connection: 0, treatment_station: 0, service: 0 };
     jobsCountResult.rows.forEach((row) => {
       if (jobCounts.hasOwnProperty(row.job_type)) {
@@ -790,7 +795,7 @@ app.get('/api/stats/monthly-summary', authenticateToken, async (req, res) => {
       }
     });
 
-    // 2. Sumowanie metrów dla studni w wybranym miesiącu
+    // 2. Sumowanie metrów (bez zmian)
     const metersSql = `
       SELECT SUM(wd.ilosc_metrow) as total_meters
       FROM jobs j
@@ -800,22 +805,32 @@ app.get('/api/stats/monthly-summary', authenticateToken, async (req, res) => {
     const metersResult = await pool.query(metersSql, [firstDayOfMonth, firstDayOfNextMonth]);
     const totalMeters = parseFloat(metersResult.rows[0].total_meters) || 0;
 
-    // 3. Sumowanie dochodu w wybranym miesiącu
+    // 3. Sumowanie dochodu (ZAKTUALIZOWANA LOGIKA)
     const financeSql = `
       SELECT 
         COALESCE(SUM(revenue), 0) as total_revenue, 
         COALESCE(SUM(total_cost), 0) as total_costs
       FROM (
+        -- Przychody i koszty z podłączeń
         SELECT revenue, (COALESCE(casing_cost,0) + COALESCE(equipment_cost,0) + COALESCE(labor_cost,0) + COALESCE(wholesale_materials_cost,0)) as total_cost
         FROM connection_details cd
         JOIN jobs j ON cd.job_id = j.id
         WHERE j.job_date >= $1 AND j.job_date < $2
       UNION ALL
+        -- Przychody i koszty ze stacji uzdatniania
         SELECT revenue, (COALESCE(equipment_cost,0) + COALESCE(labor_cost,0) + COALESCE(wholesale_materials_cost,0)) as total_cost
         FROM treatment_station_details tsd
         JOIN jobs j ON tsd.job_id = j.id
         WHERE j.job_date >= $1 AND j.job_date < $2
-      ) as monthly_finances;
+      UNION ALL
+        -- NOWOŚĆ: Przychody i koszty z wykonania studni
+        SELECT 
+          (COALESCE(wd.ilosc_metrow, 0) * COALESCE(wd.cena_za_metr, 0)) as revenue, 
+          (COALESCE(wd.wyplaty, 0) + COALESCE(wd.rury, 0) + COALESCE(wd.inne_koszta, 0)) as total_cost
+        FROM well_details wd
+        JOIN jobs j ON wd.job_id = j.id
+        WHERE j.job_date >= $1 AND j.job_date < $2
+    ) as monthly_finances;
     `;
     const financeResult = await pool.query(financeSql, [firstDayOfMonth, firstDayOfNextMonth]);
     const totalRevenue = parseFloat(financeResult.rows[0].total_revenue) || 0;
