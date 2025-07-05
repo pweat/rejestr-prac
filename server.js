@@ -141,24 +141,46 @@ const canEdit = (req, res, next) => {
 app.get('/api/health', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date() });
 });
+// Zastąp cały ten endpoint nową wersją
 app.post('/api/register', async (req, res) => {
+  console.log('--- OTRZYMANO ŻĄDANIE REJESTRACJI ---');
   try {
     const { username, password } = req.body;
+    console.log(`  - Próba rejestracji użytkownika: ${username}`);
+
     if (!username || !password) {
+      console.log('  - BŁĄD: Brak nazwy użytkownika lub hasła.');
       return res.status(400).json({ error: 'Nazwa użytkownika i hasło są wymagane.' });
     }
+
+    console.log('  - Szyfrowanie hasła...');
     const salt = await bcrypt.genSalt(10);
     const password_hash = await bcrypt.hash(password, salt);
+    console.log('  - Hasło zaszyfrowane.');
+
+    console.log('  - Próba zapisu do bazy danych...');
     const newUser = await pool.query(
-      'INSERT INTO users (username, password_hash) VALUES ($1, $2) RETURNING id, username',
+      "INSERT INTO users (username, password_hash, role) VALUES ($1, $2, 'viewer') RETURNING id, username, role",
       [username, password_hash]
     );
-    res.status(201).json(newUser.rows[0]);
+
+    if (newUser.rows.length > 0) {
+      console.log(
+        `  - SUKCES: Baza danych zwróciła nowego użytkownika o ID: ${newUser.rows[0].id}`
+      );
+      res.status(201).json(newUser.rows[0]);
+    } else {
+      console.log('  - KRYTYCZNY BŁĄD: Zapytanie INSERT nie zwróciło nowego użytkownika!');
+      res.status(500).json({ error: 'Nie udało się potwierdzić zapisu użytkownika.' });
+    }
+    console.log('--- ZAKOŃCZONO OBSŁUGĘ ŻĄDANIA REJESTRACJI (Sukces) ---');
   } catch (err) {
+    console.log('--- ZAKOŃCZONO OBSŁUGĘ ŻĄDANIA REJESTRACJI (Błąd) ---');
     if (err.code === '23505') {
+      console.error('  - BŁĄD BAZY DANYCH: Użytkownik już istnieje.', err.detail);
       return res.status(400).json({ error: 'Użytkownik o tej nazwie już istnieje.' });
     }
-    console.error('Błąd w /api/register:', err);
+    console.error('  - BŁĄD KRYTYCZNY w /api/register:', err);
     res.status(500).json({ error: 'Wystąpił błąd serwera.' });
   }
 });
