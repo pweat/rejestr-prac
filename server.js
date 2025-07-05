@@ -80,10 +80,21 @@ const initializeDatabase = async () => {
       console.log('Zaktualizowano tabelę "service_details".');
     }
     console.log('Tabela "service_details" jest gotowa.');
-    await client.query(
-      `CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL)`
-    );
+    await client.query(`
+  CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY, 
+    username TEXT UNIQUE NOT NULL, 
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'viewer'
+  )`);
     console.log('Tabela "users" jest gotowa.');
+    const resUsers = await client.query(
+      "SELECT column_name FROM information_schema.columns WHERE table_name='users' AND column_name='role'"
+    );
+    if (resUsers.rows.length === 0) {
+      await client.query("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'viewer'");
+      console.log('Zaktualizowano tabelę "users", dodano kolumnę "role".');
+    }
     await client.query(
       `CREATE TABLE IF NOT EXISTS inventory_items (id SERIAL PRIMARY KEY, name TEXT NOT NULL UNIQUE, quantity REAL NOT NULL DEFAULT 0, unit TEXT NOT NULL, min_stock_level REAL NOT NULL DEFAULT 0, last_delivery_date DATE, is_ordered BOOLEAN DEFAULT FALSE NOT NULL)`
     );
@@ -110,6 +121,23 @@ const authenticateToken = (req, res, next) => {
     next();
   });
 };
+
+const isAdmin = (req, res, next) => {
+  if (req.user && req.user.role === 'admin') {
+    next();
+  } else {
+    res.status(403).json({ error: 'Brak uprawnień administratora.' });
+  }
+};
+
+const canEdit = (req, res, next) => {
+  if (req.user && (req.user.role === 'admin' || req.user.role === 'editor')) {
+    next();
+  } else {
+    res.status(403).json({ error: 'Brak uprawnień do edycji.' });
+  }
+};
+
 app.get('/api/health', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date() });
 });
@@ -149,9 +177,11 @@ app.post('/api/login', async (req, res) => {
     if (!isMatch) {
       return res.status(401).json({ error: 'Nieprawidłowa nazwa użytkownika lub hasło.' });
     }
-    const token = jwt.sign({ userId: user.id, username: user.username }, JWT_SECRET, {
-      expiresIn: '24h',
-    });
+    const token = jwt.sign(
+      { userId: user.id, username: user.username, role: user.role },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
     res.json({ token });
   } catch (err) {
     console.error('Błąd w /api/login:', err);
@@ -190,7 +220,7 @@ app.get('/api/clients', authenticateToken, async (req, res) => {
     res.status(500).json({ error: 'Wystąpił błąd serwera' });
   }
 });
-app.post('/api/clients', authenticateToken, async (req, res) => {
+app.post('/api/clients', authenticateToken, canEdit, async (req, res) => {
   try {
     const { name, phone_number, address, notes } = req.body;
     if (!phone_number) {
@@ -208,7 +238,7 @@ app.post('/api/clients', authenticateToken, async (req, res) => {
     res.status(500).json({ error: 'Wystąpił błąd serwera' });
   }
 });
-app.put('/api/clients/:id', authenticateToken, async (req, res) => {
+app.put('/api/clients/:id', authenticateToken, canEdit, async (req, res) => {
   try {
     const { id } = req.params;
     const { name, phone_number, address, notes } = req.body;
@@ -230,7 +260,7 @@ app.put('/api/clients/:id', authenticateToken, async (req, res) => {
     res.status(500).json({ error: 'Wystąpił błąd serwera' });
   }
 });
-app.delete('/api/clients/:id', authenticateToken, async (req, res) => {
+app.delete('/api/clients/:id', authenticateToken, isAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const result = await pool.query('DELETE FROM clients WHERE id = $1', [id]);
@@ -252,7 +282,7 @@ app.get('/api/clients-for-select', authenticateToken, async (req, res) => {
     res.status(500).json({ error: 'Wystąpił błąd serwera' });
   }
 });
-app.post('/api/jobs', authenticateToken, async (req, res) => {
+app.post('/api/jobs', authenticateToken, canEdit, async (req, res) => {
   const { clientId, jobType, jobDate, details } = req.body;
   if (!clientId || !jobType || !jobDate || !details) {
     return res.status(400).json({ error: 'Brak wszystkich wymaganych danych dla zlecenia.' });
@@ -475,7 +505,7 @@ app.get('/api/jobs/:id', authenticateToken, async (req, res) => {
     res.status(500).json({ error: 'Wystąpił błąd serwera' });
   }
 });
-app.put('/api/jobs/:id', authenticateToken, async (req, res) => {
+app.put('/api/jobs/:id', authenticateToken, canEdit, async (req, res) => {
   const { id } = req.params;
   const { clientId, jobDate, details } = req.body;
   if (!clientId || !jobDate || !details) {
@@ -581,7 +611,7 @@ app.put('/api/jobs/:id', authenticateToken, async (req, res) => {
     client.release();
   }
 });
-app.delete('/api/jobs/:id', authenticateToken, async (req, res) => {
+app.delete('/api/jobs/:id', authenticateToken, isAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const result = await pool.query('DELETE FROM jobs WHERE id = $1', [id]);
@@ -725,7 +755,7 @@ app.put('/api/inventory/:id', authenticateToken, async (req, res) => {
 });
 
 // DELETE /api/inventory/:id - Usuń przedmiot
-app.delete('/api/inventory/:id', authenticateToken, async (req, res) => {
+app.delete('/api/inventory/:id', authenticateToken, isAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     await pool.query('DELETE FROM inventory_items WHERE id = $1', [id]);

@@ -1,23 +1,49 @@
-// plik: src/auth/auth.js
-import { ref, computed } from 'vue';
+import { computed } from 'vue';
+import { jwtDecode } from 'jwt-decode';
 
-export const token = ref(localStorage.getItem('authToken'));
-export const isAuthenticated = computed(() => !!token.value);
+const TOKEN_KEY = 'authToken';
 
-// ZMIANA: Tworzymy funkcję, która zwraca gotowe do użycia nagłówki
+// --- Podstawowe funkcje do zarządzania tokenem ---
+
+export function setToken(token) {
+  localStorage.setItem(TOKEN_KEY, token);
+}
+
+export function getToken() {
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+export function removeToken() {
+  localStorage.removeItem(TOKEN_KEY);
+}
+
+// --- Funkcje pomocnicze dla aplikacji ---
+
+// Reaktywna zmienna sprawdzająca, czy użytkownik jest zalogowany
+export const isAuthenticated = computed(() => !!getToken());
+
+// Tworzy nagłówki potrzebne do autoryzacji zapytań API
 export function getAuthHeaders() {
-  if (token.value) {
-    return { 'Authorization': `Bearer ${token.value}` };
+  const token = getToken();
+  if (token) {
+    return { Authorization: `Bearer ${token}` };
   }
   return {};
 }
 
-export function setToken(newToken) {
-  token.value = newToken;
-  localStorage.setItem('authToken', newToken);
-}
-
-export function removeToken() {
-  token.value = null;
-  localStorage.removeItem('authToken');
+// Dekoduje token i zwraca rolę użytkownika
+export function getUserRole() {
+  const token = getToken();
+  if (!token) {
+    return null;
+  }
+  try {
+    const decoded = jwtDecode(token);
+    return decoded.role;
+  } catch (error) {
+    console.error('Błąd dekodowania tokenu:', error);
+    // W przypadku błędu (np. uszkodzony token), usuwamy go dla bezpieczeństwa
+    removeToken();
+    return null;
+  }
 }

@@ -1,11 +1,11 @@
 <script setup>
 import { ref, onMounted, watch } from 'vue';
-import { getAuthHeaders } from '../auth/auth.js';
+import { getAuthHeaders, getUserRole } from '../auth/auth.js';
 import { formatDate } from '../utils/formatters.js';
 import PaginationControls from '../components/PaginationControls.vue';
 
 const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
-
+const userRole = getUserRole();
 const isLoading = ref(true);
 const inventoryItems = ref([]);
 const showAddItemModal = ref(false);
@@ -253,7 +253,12 @@ onMounted(() => {
   <div class="container">
     <div class="header">
       <h1>Stan Magazynowy ({{ totalItems }})</h1>
-      <button class="add-new-btn" @click="handleShowAddItemModal" :disabled="isLoading">
+      <button
+        v-if="userRole === 'admin' || userRole === 'editor'"
+        class="add-new-btn"
+        @click="handleShowAddItemModal"
+        :disabled="isLoading"
+      >
         &#43; Dodaj Przedmiot
       </button>
     </div>
@@ -306,12 +311,34 @@ onMounted(() => {
                   }}</span>
                 </td>
                 <td data-label="Akcje" class="actions-cell">
-                  <button class="btn-secondary" @click="handleShowOperationModal(item)">
+                  <button
+                    v-if="userRole === 'admin' || userRole === 'editor'"
+                    class="btn-secondary"
+                    @click="handleShowOperationModal(item)"
+                  >
                     Operacje
                   </button>
-                  <button class="pokaż" @click="handleShowHistory(item)">Historia</button>
-                  <button class="edytuj" @click="handleShowEditModal(item)">Edytuj</button>
-                  <button class="usun" @click="handleDeleteItem(item.id)">Usuń</button>
+                  <button
+                    v-if="userRole === 'admin' || userRole === 'editor'"
+                    class="pokaż"
+                    @click="handleShowHistory(item)"
+                  >
+                    Historia
+                  </button>
+                  <button
+                    v-if="userRole === 'admin' || userRole === 'editor'"
+                    class="edytuj"
+                    @click="handleShowEditModal(item)"
+                  >
+                    Edytuj
+                  </button>
+                  <button
+                    v-if="userRole === 'admin' || userRole === 'editor'"
+                    class="usun"
+                    @click="handleDeleteItem(item.id)"
+                  >
+                    Usuń
+                  </button>
                 </td>
               </tr>
             </tbody>

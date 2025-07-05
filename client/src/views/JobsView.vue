@@ -1,14 +1,14 @@
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { getAuthHeaders } from '../auth/auth.js';
+import { getAuthHeaders, getUserRole } from '../auth/auth.js';
 import { formatDate } from '../utils/formatters.js';
 import vSelect from 'vue-select';
 import PaginationControls from '../components/PaginationControls.vue';
 
 const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
 const route = useRoute();
-
+const userRole = getUserRole();
 const isLoading = ref(true);
 const jobs = ref([]);
 const availableClients = ref([]);
@@ -286,7 +286,11 @@ onMounted(() => {
   <div class="container">
     <div class="header">
       <h1>Rejestr Zleceń ({{ totalItems }})</h1>
-      <button class="add-new-btn" @click="handleShowAddJobModal" :disabled="isLoading">
+      <button
+        v-if="userRole === 'admin' || userRole === 'editor'"
+        class="add-new-btn"
+        @click="handleShowAddJobModal"
+      >
         &#43; Dodaj Zlecenie
       </button>
     </div>
@@ -333,9 +337,23 @@ onMounted(() => {
                 </td>
                 <td data-label="Data">{{ formatDate(job.job_date) }}</td>
                 <td data-label="Akcje" class="actions-cell">
-                  <button class="pokaż" @click="handleShowDetails(job.id)">Szczegóły</button>
-                  <button class="edytuj" @click="handleShowEditModal(job)">Edytuj</button>
-                  <button class="usun" @click="handleDeleteJob(job.id)">Usuń</button>
+                  <button
+                    v-if="userRole === 'admin' || userRole === 'editor'"
+                    class="pokaż"
+                    @click="handleShowDetails(job.id)"
+                  >
+                    Szczegóły
+                  </button>
+                  <button
+                    v-if="userRole === 'admin' || userRole === 'editor'"
+                    class="edytuj"
+                    @click="handleShowEditModal(job)"
+                  >
+                    Edytuj
+                  </button>
+                  <button v-if="userRole === 'admin'" class="usun" @click="handleDeleteJob(job.id)">
+                    Usuń
+                  </button>
                 </td>
               </tr>
             </tbody>

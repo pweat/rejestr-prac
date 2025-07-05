@@ -1,11 +1,12 @@
 <script setup>
 import { ref, onMounted, watch } from 'vue';
 import { RouterLink, useRouter } from 'vue-router';
-import { getAuthHeaders, removeToken } from '../auth/auth.js';
 import PaginationControls from '../components/PaginationControls.vue';
+import { getAuthHeaders, removeToken, getUserRole } from '../auth/auth.js';
 
 const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
 const router = useRouter();
+const userRole = getUserRole();
 
 const isLoading = ref(true);
 const clients = ref([]);
@@ -191,7 +192,12 @@ onMounted(() => {
   <div class="container">
     <div class="header">
       <h1>Klienci ({{ totalItems }})</h1>
-      <button class="add-new-btn" @click="handleShowAddModal" :disabled="isLoading">
+      <button
+        v-if="userRole === 'admin' || userRole === 'editor'"
+        class="add-new-btn"
+        @click="handleShowAddModal"
+        :disabled="isLoading"
+      >
         &#43; Dodaj Klienta
       </button>
     </div>
@@ -237,8 +243,20 @@ onMounted(() => {
                   <RouterLink :to="`/zlecenia?clientId=${client.id}`"
                     ><button class="pokaż">Zlecenia</button></RouterLink
                   >
-                  <button class="edytuj" @click="handleShowEditModal(client)">Edytuj</button>
-                  <button class="usun" @click="handleDeleteClient(client.id)">Usuń</button>
+                  <button
+                    v-if="userRole === 'admin' || userRole === 'editor'"
+                    class="edytuj"
+                    @click="handleShowEditModal(client)"
+                  >
+                    Edytuj
+                  </button>
+                  <button
+                    v-if="userRole === 'admin'"
+                    class="usun"
+                    @click="handleDeleteClient(client.id)"
+                  >
+                    Usuń
+                  </button>
                 </td>
               </tr>
             </tbody>
