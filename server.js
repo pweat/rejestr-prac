@@ -3,6 +3,8 @@ const cors = require('cors');
 const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const PDFDocument = require('pdfkit');
+const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -1133,6 +1135,209 @@ app.get('/api/offers/:id', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error(`Błąd w GET /api/offers/${id}:`, error);
     res.status(500).json({ error: 'Wystąpił błąd serwera.' });
+  }
+});
+
+// DELETE /api/offers/:id - Usuń ofertę
+app.delete('/api/offers/:id', authenticateToken, isAdmin, async (req, res) => {
+  const { id } = req.params;
+  try {
+    // Dzięki "ON DELETE CASCADE" w definicji tabeli 'offer_items',
+    // usunięcie oferty automatycznie usunie wszystkie jej pozycje.
+    const deleteResult = await pool.query('DELETE FROM offers WHERE id = $1', [id]);
+
+    if (deleteResult.rowCount === 0) {
+      return res.status(404).json({ error: 'Nie znaleziono oferty o podanym ID.' });
+    }
+
+    res.status(204).send(); // 204 No Content - standardowa odpowiedź dla pomyślnego usunięcia
+  } catch (error) {
+    console.error(`Błąd w DELETE /api/offers/${id}:`, error);
+    res.status(500).json({ error: 'Wystąpił błąd serwera podczas usuwania oferty.' });
+  }
+});
+
+// PUT /api/offers/:id - Zaktualizuj ofertę
+app.put('/api/offers/:id', authenticateToken, canEdit, async (req, res) => {
+  const { id } = req.params;
+  const { clientId, issue_date, offer_type, vat_rate, notes, items } = req.body;
+
+  if (!clientId || !issue_date || !offer_type || !items) {
+    return res.status(400).json({ error: 'Brak wszystkich wymaganych danych oferty.' });
+  }
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Krok 1: Zaktualizuj główny rekord oferty
+    const offerSql = `
+      UPDATE offers 
+      SET client_id = $1, issue_date = $2, offer_type = $3, vat_rate = $4, notes = $5
+      WHERE id = $6;
+    `;
+    await client.query(offerSql, [clientId, issue_date, offer_type, vat_rate, notes, id]);
+
+    // Krok 2: Usuń wszystkie STARE pozycje dla tej oferty, aby zrobić miejsce na nowe
+    await client.query('DELETE FROM offer_items WHERE offer_id = $1', [id]);
+
+    // Krok 3: Wstaw wszystkie NOWE pozycje z edytowanego formularza
+    const itemSql = `
+      INSERT INTO offer_items (offer_id, name, quantity, unit, net_price)
+      VALUES ($1, $2, $3, $4, $5);
+    `;
+    for (const item of items) {
+      if (item.name && item.quantity > 0 && item.net_price >= 0) {
+        await client.query(itemSql, [id, item.name, item.quantity, item.unit, item.net_price]);
+      }
+    }
+
+    await client.query('COMMIT');
+    res.status(200).json({ message: 'Oferta pomyślnie zaktualizowana.' });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error(`Błąd w PUT /api/offers/${id}:`, error);
+    res.status(500).json({ error: 'Wystąpił błąd serwera podczas aktualizacji oferty.' });
+  } finally {
+    client.release();
+  }
+});
+
+// GET /api/offers/:id/download - Pobierz ofertę jako PDF
+app.get('/api/offers/:id/download', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  try {
+    // Krok 1: Pobierz dane (bez zmian)
+    const offerResult = await pool.query(
+      `SELECT o.*, c.name as client_name, c.address as client_address, c.phone_number as client_phone, c.email as client_email FROM offers o LEFT JOIN clients c ON o.client_id = c.id WHERE o.id = $1`,
+      [id]
+    );
+    if (offerResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Nie znaleziono oferty.' });
+    }
+    const offerData = offerResult.rows[0];
+    const itemsResult = await pool.query(
+      `SELECT * FROM offer_items WHERE offer_id = $1 ORDER BY id ASC`,
+      [id]
+    );
+    offerData.items = itemsResult.rows;
+
+    // Krok 2: Przygotuj dokument i nagłówki (bez zmian)
+    const doc = new PDFDocument({ margin: 40, size: 'A4' });
+    const fileName = `oferta-${offerData.offer_number.replace(/\//g, '_')}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    doc.pipe(res);
+
+    // Krok 3: ZAREJESTRUJ OBIE CZCIONKI
+    doc.registerFont('Lato', 'fonts/Lato-Regular.ttf');
+    doc.registerFont('Lato-Bold', 'fonts/Lato-Bold.ttf'); // <-- NOWA LINIA
+    doc.font('Lato'); // Ustawiamy domyślną
+
+    // --- Rysowanie PDF ---
+
+    // Dane firmy i oferty
+    doc.font('Lato-Bold').fontSize(12).text('Twoja Nazwa Firmy', 40, 40);
+    doc.font('Lato').fontSize(10).text('Twój Adres, 12-345 Miasto', 40, 55);
+    doc.text(`NIP: 123-456-78-90`, 40, 70);
+
+    doc
+      .font('Lato-Bold')
+      .fontSize(14)
+      .text(`Oferta nr ${offerData.offer_number}`, { align: 'right' });
+    doc
+      .font('Lato')
+      .fontSize(10)
+      .text(`Data wystawienia: ${new Date(offerData.issue_date).toLocaleDateString('pl-PL')}`, {
+        align: 'right',
+      });
+    doc.moveDown(2);
+
+    // Dane klienta
+    doc.font('Lato-Bold').fontSize(12).text('Dla:', 40);
+    doc.font('Lato').text(offerData.client_name || '', 40, doc.y);
+    doc.text(offerData.client_address || '');
+    doc.text(offerData.client_phone || '');
+    doc.text(offerData.client_email || '');
+    doc.moveDown(2);
+
+    // Tabela - definicja
+    const tableTop = doc.y;
+    const tableHeaders = [
+      'Lp.',
+      'Nazwa towaru / usługi',
+      'Ilość',
+      'J.m.',
+      'Cena netto',
+      'Wartość netto',
+    ];
+    function generateTableRow(y, lp, name, qty, unit, price, value) {
+      doc.fontSize(9).text(lp, 50, y, { width: 20, align: 'left' });
+      doc.text(name, 80, y, { width: 230, align: 'left' });
+      doc.text(qty, 320, y, { width: 40, align: 'right' });
+      doc.text(unit, 370, y, { width: 40, align: 'left' });
+      doc.text(price, 420, y, { width: 60, align: 'right' });
+      doc.text(value, 490, y, { width: 70, align: 'right' });
+    }
+
+    // Rysowanie nagłówków tabeli
+    doc.font('Lato-Bold');
+    generateTableRow(tableTop, ...tableHeaders);
+    doc.moveTo(40, doc.y).lineTo(570, doc.y).stroke();
+    doc.font('Lato');
+    let currentY = doc.y + 5;
+    let totalNet = 0;
+
+    // Rysowanie wierszy z danymi
+    offerData.items.forEach((item, index) => {
+      const netValue = item.quantity * item.net_price;
+      totalNet += netValue;
+      if (currentY > 750) {
+        // Proste łamanie strony
+        doc.addPage();
+        currentY = 40;
+      }
+      generateTableRow(
+        currentY,
+        index + 1,
+        item.name,
+        item.quantity,
+        item.unit,
+        `${item.net_price.toFixed(2)} zł`,
+        `${netValue.toFixed(2)} zł`
+      );
+      currentY += 15;
+    });
+    doc
+      .moveTo(40, currentY - 10)
+      .lineTo(570, currentY - 10)
+      .stroke();
+
+    // Podsumowanie
+    const vatValue = totalNet * (offerData.vat_rate / 100);
+    const totalGross = totalNet + vatValue;
+    currentY += 5;
+    doc.fontSize(10).text('Suma netto:', 400, currentY, { align: 'left' });
+    doc.text(`${totalNet.toFixed(2)} zł`, 0, currentY, { align: 'right' });
+    currentY += 15;
+    doc.fontSize(9).text(`Podatek VAT (${offerData.vat_rate}%):`, 400, currentY, { align: 'left' });
+    doc.text(`${vatValue.toFixed(2)} zł`, 0, currentY, { align: 'right' });
+    currentY += 15;
+    doc.font('Lato-Bold').fontSize(11).text('Do zapłaty brutto:', 400, currentY, { align: 'left' });
+    doc.text(`${totalGross.toFixed(2)} zł`, 0, currentY, { align: 'right' });
+
+    // Notatki
+    if (offerData.notes) {
+      doc
+        .font('Lato-Bold')
+        .fontSize(10)
+        .text('Uwagi:', 40, doc.y + 30);
+      doc.font('Lato').fontSize(9).text(offerData.notes, { width: 500, align: 'justify' });
+    }
+
+    doc.end();
+  } catch (error) {
+    console.error(`Błąd podczas generowania PDF dla oferty ${id}:`, error);
+    res.status(500).send('Nie udało się wygenerować PDF.');
   }
 });
 
