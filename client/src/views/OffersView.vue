@@ -3,6 +3,7 @@ import { ref, onMounted, computed } from 'vue';
 import { getAuthHeaders, getUserRole } from '../auth/auth.js';
 import vSelect from 'vue-select';
 import PaginationControls from '../components/PaginationControls.vue';
+import { generateOfferPdf } from '../utils/pdfGenerator.js';
 
 const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
 const userRole = getUserRole();
@@ -131,6 +132,21 @@ async function handleSaveOffer() {
   }
 }
 
+async function handleGeneratePdf(offerId) {
+  // Możemy tu dodać wskaźnik ładowania PDF w przyszłości
+  try {
+    const response = await fetch(`${API_URL}/api/offers/${offerId}`, { headers: getAuthHeaders() });
+    if (!response.ok) {
+      throw new Error('Nie udało się pobrać pełnych danych oferty do wygenerowania PDF.');
+    }
+    const fullOfferData = await response.json();
+    generateOfferPdf(fullOfferData);
+  } catch (error) {
+    console.error(error);
+    alert(error.message);
+  }
+}
+
 onMounted(() => {
   fetchClientsForSelect();
   fetchOffers();
@@ -173,7 +189,11 @@ onMounted(() => {
                   <td data-label="Wartość Netto">
                     {{ parseFloat(offer.total_net_value).toFixed(2) }} zł
                   </td>
-                  <td data-label="Akcje" class="actions-cell"></td>
+                  <td data-label="Akcje" class="actions-cell">
+                    <button class="zapisz" @click="handleGeneratePdf(offer.id)">Generuj PDF</button>
+                    <button class="edytuj" :disabled="true">Edytuj</button>
+                    <button class="usun" :disabled="true">Usuń</button>
+                  </td>
                 </tr>
               </tbody>
             </table>
