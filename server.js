@@ -27,8 +27,15 @@ const initializeDatabase = async () => {
     client = await pool.connect();
     console.log('Połączono z bazą danych PostgreSQL');
     await client.query(
-      `CREATE TABLE IF NOT EXISTS clients (id SERIAL PRIMARY KEY, name TEXT, phone_number TEXT NOT NULL UNIQUE, address TEXT, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`
+      `CREATE TABLE IF NOT EXISTS clients (id SERIAL PRIMARY KEY, name TEXT, phone_number TEXT NOT NULL UNIQUE, address TEXT, notes TEXT, email TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`
     );
+    const resClients = await client.query(
+      "SELECT column_name FROM information_schema.columns WHERE table_name='clients' AND column_name='email'"
+    );
+    if (resClients.rows.length === 0) {
+      await client.query('ALTER TABLE clients ADD COLUMN email TEXT');
+      console.log('Zaktualizowano tabelę "clients", dodano kolumnę "email".');
+    }
     console.log('Tabela "clients" jest gotowa.');
     await client.query(
       `CREATE TABLE IF NOT EXISTS jobs (id SERIAL PRIMARY KEY, client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE, job_type TEXT NOT NULL, job_date DATE NOT NULL, details_id INTEGER NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`
@@ -103,6 +110,29 @@ const initializeDatabase = async () => {
       `CREATE TABLE IF NOT EXISTS stock_history (id SERIAL PRIMARY KEY, item_id INTEGER NOT NULL REFERENCES inventory_items(id) ON DELETE CASCADE, change_quantity REAL NOT NULL, operation_type TEXT NOT NULL, operation_date TIMESTAMPTZ NOT NULL DEFAULT NOW(), user_id INTEGER REFERENCES users(id))`
     );
     console.log('Tabela "stock_history" jest gotowa.');
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS offers (
+        id SERIAL PRIMARY KEY,
+        offer_number TEXT NOT NULL UNIQUE,
+        client_id INTEGER REFERENCES clients(id) ON DELETE SET NULL,
+        issue_date DATE NOT NULL,
+        offer_type TEXT NOT NULL,
+        vat_rate REAL DEFAULT 23,
+        notes TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )`);
+    console.log('Tabela "offers" jest gotowa.');
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS offer_items (
+        id SERIAL PRIMARY KEY,
+        offer_id INTEGER NOT NULL REFERENCES offers(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        quantity REAL NOT NULL,
+        unit TEXT NOT NULL,
+        net_price REAL NOT NULL
+      )`);
+    console.log('Tabela "offer_items" jest gotowa.');
   } catch (err) {
     console.error('Błąd podczas inicjalizacji bazy danych:', err);
     process.exit(1);
@@ -244,12 +274,12 @@ app.get('/api/clients', authenticateToken, async (req, res) => {
 });
 app.post('/api/clients', authenticateToken, canEdit, async (req, res) => {
   try {
-    const { name, phone_number, address, notes } = req.body;
+    const { name, phone_number, address, notes, email } = req.body; // Dodano email
     if (!phone_number) {
       return res.status(400).json({ error: 'Numer telefonu jest wymagany.' });
     }
-    const sql = `INSERT INTO clients (name, phone_number, address, notes) VALUES ($1, $2, $3, $4) RETURNING *`;
-    const params = [name, phone_number, address, notes];
+    const sql = `INSERT INTO clients (name, phone_number, address, notes, email) VALUES ($1, $2, $3, $4, $5) RETURNING *`;
+    const params = [name, phone_number, address, notes, email]; // Dodano email
     const result = await pool.query(sql, params);
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -263,12 +293,12 @@ app.post('/api/clients', authenticateToken, canEdit, async (req, res) => {
 app.put('/api/clients/:id', authenticateToken, canEdit, async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, phone_number, address, notes } = req.body;
+    const { name, phone_number, address, notes, email } = req.body; // Dodano email
     if (!phone_number) {
       return res.status(400).json({ error: 'Numer telefonu jest wymagany.' });
     }
-    const sql = `UPDATE clients SET name = $1, phone_number = $2, address = $3, notes = $4 WHERE id = $5 RETURNING *`;
-    const params = [name, phone_number, address, notes, id];
+    const sql = `UPDATE clients SET name = $1, phone_number = $2, address = $3, notes = $4, email = $5 WHERE id = $6 RETURNING *`;
+    const params = [name, phone_number, address, notes, email, id]; // Dodano email
     const result = await pool.query(sql, params);
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Nie znaleziono klienta o podanym ID.' });
@@ -866,7 +896,7 @@ app.get('/api/inventory/low-stock', authenticateToken, async (req, res) => {
 // =================================================================
 // --- API STATYSTYK ---
 // =================================================================
-// Zastąp cały ten endpoint nową wersją
+
 app.get('/api/stats/monthly-summary', authenticateToken, async (req, res) => {
   try {
     const year = parseInt(req.query.year) || new Date().getFullYear();
@@ -939,6 +969,170 @@ app.get('/api/stats/monthly-summary', authenticateToken, async (req, res) => {
   } catch (err) {
     console.error('Błąd w GET /api/stats/monthly-summary:', err);
     res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
+
+// =================================================================
+// --- API OFERT ---
+// =================================================================
+app.post('/api/offers', authenticateToken, canEdit, async (req, res) => {
+  const { clientId, issue_date, offer_type, vat_rate, notes, items } = req.body;
+
+  if (!clientId || !issue_date || !offer_type || !items || !items.length) {
+    return res
+      .status(400)
+      .json({ error: 'Brak wszystkich wymaganych danych oferty (klient, data, typ, pozycje).' });
+  }
+
+  const client = await pool.connect();
+  try {
+    // Rozpoczynamy transakcję. Albo zapisze się wszystko (oferta + pozycje), albo nic.
+    await client.query('BEGIN');
+
+    // Generowanie numeru oferty w formacie OF/XXX/MM/YYYY
+    const issueDate = new Date(issue_date);
+    const year = issueDate.getFullYear();
+    const month = String(issueDate.getMonth() + 1).padStart(2, '0'); // Miesiące są od 0, więc +1
+
+    const countResult = await client.query(
+      'SELECT COUNT(*) FROM offers WHERE EXTRACT(YEAR FROM issue_date) = $1 AND EXTRACT(MONTH FROM issue_date) = $2',
+      [year, issueDate.getMonth() + 1]
+    );
+    const nextOfferNumberInMonth = parseInt(countResult.rows[0].count) + 1;
+    const offerNumber = `OF/${String(nextOfferNumberInMonth).padStart(3, '0')}/${month}/${year}`;
+    console.log(`Wygenerowano numer oferty: ${offerNumber}`);
+
+    // Krok 1: Wstawienie głównego rekordu oferty i pobranie jego nowego ID
+    const offerSql = `
+      INSERT INTO offers (offer_number, client_id, issue_date, offer_type, vat_rate, notes)
+      VALUES ($1, $2, $3, $4, $5, $6) RETURNING id;
+    `;
+    const offerResult = await client.query(offerSql, [
+      offerNumber,
+      clientId,
+      issue_date,
+      offer_type,
+      vat_rate,
+      notes,
+    ]);
+    const newOfferId = offerResult.rows[0].id;
+
+    // Krok 2: Wstawienie wszystkich pozycji z "koszyka" oferty
+    const itemSql = `
+      INSERT INTO offer_items (offer_id, name, quantity, unit, net_price)
+      VALUES ($1, $2, $3, $4, $5);
+    `;
+    // Używamy pętli, aby dodać każdą pozycję z tablicy 'items'
+    for (const item of items) {
+      // Zapisujemy tylko pozycje, które mają nazwę i poprawną ilość/cenę
+      if (item.name && item.quantity > 0 && item.net_price >= 0) {
+        await client.query(itemSql, [
+          newOfferId,
+          item.name,
+          item.quantity,
+          item.unit,
+          item.net_price,
+        ]);
+      }
+    }
+
+    // Jeśli wszystko powyżej się udało, zatwierdzamy zmiany w bazie danych
+    await client.query('COMMIT');
+    res.status(201).json({ message: 'Oferta pomyślnie utworzona', newOfferId, offerNumber });
+  } catch (error) {
+    // Jeśli gdziekolwiek wystąpił błąd, wycofujemy wszystkie zmiany z tej transakcji
+    await client.query('ROLLBACK');
+    console.error('Błąd w POST /api/offers:', error);
+    res.status(500).json({ error: 'Wystąpił błąd serwera podczas tworzenia oferty.' });
+  } finally {
+    // Zawsze zwalniamy połączenie z bazą
+    client.release();
+  }
+});
+
+//ENDPOINT DO LISTOWANIA OFERT
+// GET /api/offers - Pobierz listę ofert z paginacją
+app.get('/api/offers', authenticateToken, async (req, res) => {
+  const page = parseInt(req.query.page) || 1;
+  const limit = 15;
+  const offset = (page - 1) * limit;
+
+  try {
+    // Zapytanie do zliczenia wszystkich ofert
+    const totalResult = await pool.query('SELECT COUNT(*) FROM offers');
+    const totalItems = parseInt(totalResult.rows[0].count);
+    const totalPages = Math.ceil(totalItems / limit);
+
+    // Główne zapytanie pobierające oferty z danymi klienta i obliczoną wartością
+    const offersSql = `
+            SELECT 
+                o.id, 
+                o.offer_number, 
+                TO_CHAR(o.issue_date, 'YYYY-MM-DD') as issue_date, 
+                o.offer_type,
+                c.name as client_name,
+                c.phone_number as client_phone,
+        c.address as client_address,
+                (
+                    SELECT COALESCE(SUM(oi.quantity * oi.net_price), 0) 
+                    FROM offer_items oi 
+                    WHERE oi.offer_id = o.id
+                ) as total_net_value
+            FROM offers o
+            LEFT JOIN clients c ON o.client_id = c.id
+            ORDER BY o.issue_date DESC, o.id DESC
+            LIMIT $1 OFFSET $2;
+        `;
+    const offersResult = await pool.query(offersSql, [limit, offset]);
+
+    res.json({
+      data: offersResult.rows,
+      pagination: { totalItems, totalPages, currentPage: page },
+    });
+  } catch (error) {
+    console.error('Błąd w GET /api/offers:', error);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
+
+// GET /api/offers/:id - Pobierz szczegóły pojedynczej oferty
+app.get('/api/offers/:id', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  try {
+    // Pobieramy główne dane oferty i dane klienta
+    const offerSql = `
+      SELECT 
+        o.id, 
+        o.offer_number,
+        TO_CHAR(o.issue_date, 'YYYY-MM-DD') as issue_date,
+        o.offer_type,
+        o.vat_rate,
+        o.notes,
+        c.name as client_name, 
+        c.address as client_address, 
+        c.phone_number as client_phone,
+        -- Tutaj musimy dodać kolumnę email do klientów, jeśli jej nie ma
+        c.email as client_email 
+      FROM offers o
+      JOIN clients c ON o.client_id = c.id
+      WHERE o.id = $1;
+    `;
+    const offerResult = await pool.query(offerSql, [id]);
+
+    if (offerResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Nie znaleziono oferty.' });
+    }
+    const offerData = offerResult.rows[0];
+
+    // Pobieramy pozycje przypisane do tej oferty
+    const itemsSql = `SELECT * FROM offer_items WHERE offer_id = $1 ORDER BY id ASC;`;
+    const itemsResult = await pool.query(itemsSql, [id]);
+    offerData.items = itemsResult.rows;
+
+    res.json(offerData);
+  } catch (error) {
+    console.error(`Błąd w GET /api/offers/${id}:`, error);
+    res.status(500).json({ error: 'Wystąpił błąd serwera.' });
   }
 });
 

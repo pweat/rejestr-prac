@@ -38,6 +38,7 @@ const handleLogout = () => {
         <RouterLink to="/klienci" @click="closeMobileMenu">Klienci</RouterLink>
         <RouterLink to="/zlecenia" @click="closeMobileMenu">Zlecenia</RouterLink>
         <RouterLink to="/magazyn" @click="closeMobileMenu">Magazyn</RouterLink>
+        <RouterLink to="/oferty" @click="closeMobileMenu">Oferty</RouterLink>
         <button @click="handleLogout" class="logout-btn mobile-logout">Wyloguj</button>
       </template>
     </nav>

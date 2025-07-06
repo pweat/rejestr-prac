@@ -229,6 +229,7 @@ onMounted(() => {
                   Adres
                   <span v-if="sortBy === 'address'">{{ sortOrder === 'asc' ? '▲' : '▼' }}</span>
                 </th>
+                <th>Email</th>
                 <th>Notatki</th>
                 <th>Akcje</th>
               </tr>
@@ -238,6 +239,7 @@ onMounted(() => {
                 <td data-label="Nazwa Klienta">{{ client.name || '-' }}</td>
                 <td data-label="Telefon">{{ client.phone_number }}</td>
                 <td data-label="Adres">{{ client.address || '-' }}</td>
+                <td data-label="Email">{{ client.email || '-' }}</td>
                 <td data-label="Notatki" class="col-informacje">{{ client.notes || '-' }}</td>
                 <td data-label="Akcje" class="actions-cell">
                   <RouterLink :to="`/zlecenia?clientId=${client.id}`"
@@ -297,6 +299,10 @@ onMounted(() => {
             ><input type="text" id="clientAddress" v-model="nowyKlient.address" />
           </div>
           <div class="form-group">
+            <label for="clientEmail">Adres e-mail</label>
+            <input type="email" id="clientEmail" v-model="nowyKlient.email" />
+          </div>
+          <div class="form-group">
             <label for="clientNotes">Notatki</label
             ><textarea id="clientNotes" v-model="nowyKlient.notes" rows="3"></textarea>
           </div>
@@ -333,6 +339,10 @@ onMounted(() => {
           <div class="form-group">
             <label for="editClientAddress">Adres</label
             ><input type="text" id="editClientAddress" v-model="edytowanyKlient.address" />
+          </div>
+          <div class="form-group">
+            <label for="editClientEmail">Adres e-mail</label>
+            <input type="email" id="editClientEmail" v-model="edytowanyKlient.email" />
           </div>
           <div class="form-group">
             <label for="editClientNotes">Notatki</label
