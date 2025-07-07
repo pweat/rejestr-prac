@@ -657,20 +657,21 @@ app.get('/api/jobs', authenticateToken, async (req, res) => {
 
     if (search) {
       const searchTerm = `%${search}%`;
-      const searchSubQuery = `
-        SELECT j_sub.id FROM jobs j_sub
-        JOIN clients c_sub ON j_sub.client_id = c_sub.id
-        LEFT JOIN well_details wd_sub ON j_sub.details_id = wd_sub.id AND j_sub.job_type = 'well_drilling'
-        WHERE c_sub.name ILIKE $${paramIndex} OR c_sub.phone_number ILIKE $${paramIndex} OR wd_sub.miejscowosc ILIKE $${paramIndex}
-      `;
-      whereClauses.push(`j.id IN (${searchSubQuery})`);
+      whereClauses.push(
+        `(c.name ILIKE $${paramIndex} OR c.phone_number ILIKE $${paramIndex} OR wd.miejscowosc ILIKE $${paramIndex})`
+      );
       queryParams.push(searchTerm);
       paramIndex++;
     }
 
     const whereString = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
 
-    const countSql = `SELECT COUNT(j.id) FROM jobs j ${whereString}`;
+    const countJoin = `
+      JOIN clients c ON j.client_id = c.id
+      LEFT JOIN well_details wd ON j.details_id = wd.id AND j.job_type = 'well_drilling'
+    `;
+
+    const countSql = `SELECT COUNT(j.id) FROM jobs j ${countJoin} ${whereString}`;
     const countResult = await pool.query(countSql, queryParams);
     const totalItems = parseInt(countResult.rows[0].count);
     const totalPages = Math.ceil(totalItems / limit);
@@ -682,14 +683,10 @@ app.get('/api/jobs', authenticateToken, async (req, res) => {
         TO_CHAR(j.job_date, 'YYYY-MM-DD') as job_date, 
         c.name as client_name, 
         c.phone_number as client_phone,
-        (SELECT wd.miejscowosc 
-         FROM well_details wd 
-         JOIN jobs sub_j ON sub_j.details_id = wd.id 
-         WHERE sub_j.client_id = j.client_id AND sub_j.job_type = 'well_drilling' 
-         ORDER BY sub_j.job_date DESC 
-         LIMIT 1) as miejscowosc
+        wd.miejscowosc
       FROM jobs j
       JOIN clients c ON j.client_id = c.id
+      LEFT JOIN well_details wd ON j.details_id = wd.id AND j.job_type = 'well_drilling'
       ${whereString}
       ORDER BY ${sortBy} ${sortOrder} NULLS LAST
       LIMIT $${paramIndex++} OFFSET $${paramIndex++}
