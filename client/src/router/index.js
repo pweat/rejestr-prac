@@ -87,12 +87,18 @@ const router = createRouter({
  * @param {function} next - Funkcja, którą należy wywołać, aby kontynuować lub przekierować nawigację.
  */
 router.beforeEach((to, from, next) => {
-  // Sprawdzamy, czy ścieżka DOCELOWA wymaga uwierzytelnienia ORAZ czy użytkownik NIE JEST zalogowany.
-  if (to.meta.requiresAuth && !isAuthenticated.value) {
-    // Jeśli tak, przekierowujemy użytkownika na stronę logowania.
+  const loggedIn = isAuthenticated.value;
+
+  // Jeśli strona wymaga logowania, a użytkownik NIE JEST zalogowany -> przekieruj na /login
+  if (to.meta.requiresAuth && !loggedIn) {
     next({ name: 'login' });
-  } else {
-    // W przeciwnym wypadku pozwalamy na kontynuowanie nawigacji.
+  }
+  // NOWA REGUŁA: Jeśli użytkownik JEST zalogowany i próbuje wejść na /login -> przekieruj na pulpit
+  else if (to.name === 'login' && loggedIn) {
+    next({ name: 'dashboard' });
+  }
+  // W każdym innym przypadku, po prostu pozwól na nawigację
+  else {
     next();
   }
 });

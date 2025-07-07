@@ -72,8 +72,8 @@ const handleLogin = async () => {
 
     // Zapisujemy token w localStorage.
     setToken(data.token);
-    // Przekierowujemy użytkownika na stronę główną.
-    router.push('/');
+    // Przekierowujemy przez twarde przeładowanie strony, co gwarantuje wczytanie nowego stanu.
+    window.location.href = '/';
   } catch (err) {
     // Przechwytujemy błąd i przypisujemy jego treść do zmiennej, która wyświetli go w szablonie.
     error.value = err.message;

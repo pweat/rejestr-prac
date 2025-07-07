@@ -51,7 +51,7 @@ const closeMobileMenu = () => {
 const handleLogout = () => {
   removeToken();
   closeMobileMenu();
-  router.push('/login');
+  window.location.href = '/login';
 };
 </script>
 
