@@ -1,24 +1,53 @@
 <script setup>
+/**
+ * @file App.vue
+ * @description Główny komponent aplikacji, który renderuje stałe elementy interfejsu,
+ * takie jak nagłówek nawigacyjny, oraz zarządza wyświetlaniem podstron za pomocą RouterView.
+ * Zawiera także globalne style CSS dla całego projektu.
+ */
+
+// ===================================================================================
+// 📜 IMPORTS
+// ===================================================================================
 import { RouterView, RouterLink, useRouter } from 'vue-router';
 import { ref } from 'vue';
 import { isAuthenticated, removeToken } from './auth/auth.js';
 
+// ===================================================================================
+// ⚙️ INICJALIZACJA
+// ===================================================================================
+
+/** Dostęp do instancji routera Vue. */
 const router = useRouter();
 
-// Zmienna, która przechowuje stan menu mobilnego (otwarte/zamknięte)
+// ===================================================================================
+// ✨ STAN KOMPONENTU
+// ===================================================================================
+
+/** Przechowuje stan menu mobilnego (true = otwarte, false = zamknięte). */
 const isMobileMenuOpen = ref(false);
 
-// Funkcja do przełączania stanu menu mobilnego
+// ===================================================================================
+// ⚡ OBSŁUGA ZDARZEŃ
+// ===================================================================================
+
+/**
+ * Przełącza widoczność menu mobilnego.
+ */
 const toggleMobileMenu = () => {
   isMobileMenuOpen.value = !isMobileMenuOpen.value;
 };
 
-// Funkcja do zamykania menu mobilnego (np. po kliknięciu linku)
+/**
+ * Zamyka menu mobilne. Przydatne po kliknięciu linku nawigacyjnego.
+ */
 const closeMobileMenu = () => {
   isMobileMenuOpen.value = false;
 };
 
-// Funkcja do wylogowywania użytkownika
+/**
+ * Obsługuje proces wylogowania użytkownika.
+ */
 const handleLogout = () => {
   removeToken();
   closeMobileMenu();
@@ -67,24 +96,28 @@ const handleLogout = () => {
 </template>
 
 <style>
-/* --- Style Globalne i Reset --- */
+/* ==========================================================================
+   GLOBALNE STYLE I ZMIENNE CSS
+   ========================================================================== */
+
+/* --- Zmienne (Design Tokens) --- */
 :root {
   --text-color: #2c3e50;
+  --text-color-secondary: #555;
   --border-color: #e0e0e0;
   --background-light: #ffffff;
+  --background-light-secondary: #f8f9fa;
   --background-page: #f4f7f9;
-  --header-background: #f8f9fa;
   --green: #28a745;
   --red: #dc3545;
   --blue: #007bff;
   --grey: #6c757d;
   --white: #fff;
+  --dark: #343a40;
   --shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
-html,
-body {
-  overflow-x: hidden;
-}
+
+/* --- Globalny reset i podstawowe style --- */
 html {
   box-sizing: border-box;
 }
@@ -98,22 +131,26 @@ body {
   color: var(--text-color);
   background-color: var(--background-page);
   margin: 0;
+  overflow-x: hidden;
 }
 #app {
   width: 100%;
 }
 main {
+  /* Odstęp od góry, aby treść nie chowała się pod stałym nagłówkiem */
   padding-top: 80px;
 }
 
-/* --- Nagłówek i Nawigacja --- */
+/* ==========================================================================
+   NAGŁÓWEK I NAWIGACJA
+   ========================================================================== */
 .main-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 0 25px;
-  background-color: #343a40;
-  color: white;
+  background-color: var(--dark);
+  color: var(--white);
   height: 60px;
   position: fixed;
   top: 0;
@@ -122,7 +159,7 @@ main {
   z-index: 1001;
 }
 .logo-container .logo-link {
-  color: white;
+  color: var(--white);
   font-weight: bold;
   font-size: 22px;
   text-decoration: none;
@@ -133,7 +170,7 @@ main {
   gap: 10px;
 }
 .main-nav a {
-  color: #f8f9fa;
+  color: var(--background-light-secondary);
   text-decoration: none;
   padding: 10px 15px;
   border-radius: 6px;
@@ -142,6 +179,7 @@ main {
 }
 .main-nav a.router-link-exact-active {
   background-color: var(--blue);
+  color: var(--white);
 }
 .main-nav a:hover {
   background-color: #495057;
@@ -151,15 +189,12 @@ main {
   align-items: center;
   gap: 15px;
 }
-.logout-btn {
-  background-color: var(--grey);
-}
-.mobile-logout {
-  display: none;
-}
+.mobile-logout,
 .hamburger-btn {
   display: none;
 }
+
+/* --- Style przycisku "Hamburger" --- */
 .hamburger-box {
   width: 30px;
   height: 24px;
@@ -171,14 +206,10 @@ main {
 .hamburger-inner::after {
   width: 100%;
   height: 3px;
-  background-color: #fff;
+  background-color: var(--white);
   border-radius: 3px;
   position: absolute;
-  transition:
-    transform 0.25s ease-in-out,
-    top 0.25s ease-in-out,
-    bottom 0.25s ease-in-out,
-    background-color 0.25s ease-in-out;
+  transition: all 0.25s ease-in-out;
 }
 .hamburger-inner {
   top: 50%;
@@ -207,7 +238,11 @@ main {
   transform: rotate(-45deg);
 }
 
-/* --- Style Ogólne --- */
+/* ==========================================================================
+   STYLE WSPÓLNYCH KOMPONENTÓW
+   ========================================================================== */
+
+/* --- Główny kontener strony --- */
 .container {
   width: 98%;
   max-width: 1800px;
@@ -231,11 +266,8 @@ main {
   margin: 0;
   font-size: 24px;
 }
-.add-new-btn {
-  background-color: var(--green);
-  font-size: 16px;
-  padding: 12px 20px;
-}
+
+/* --- Wyszukiwarka i wskaźnik ładowania --- */
 .search-container {
   margin-bottom: 1.5rem;
 }
@@ -245,7 +277,6 @@ main {
   font-size: 16px;
   border: 1px solid var(--border-color);
   border-radius: 6px;
-  box-sizing: border-box;
 }
 .main-content-wrapper {
   position: relative;
@@ -276,15 +307,15 @@ main {
   animation: spin 1s linear infinite;
 }
 @keyframes spin {
-  0% {
+  from {
     transform: rotate(0deg);
   }
-  100% {
+  to {
     transform: rotate(360deg);
   }
 }
 
-/* --- Style Tabel --- */
+/* --- Tabele --- */
 .table-container {
   width: 100%;
   overflow-x: auto;
@@ -302,7 +333,7 @@ td {
   vertical-align: middle;
 }
 th {
-  background-color: var(--header-background);
+  background-color: var(--background-light-secondary);
   font-weight: 600;
 }
 th.sortable {
@@ -313,38 +344,39 @@ th.sortable:hover {
   background-color: #e9ecef;
 }
 td {
-  color: #555;
-}
-.empty-table-message {
-  padding: 30px;
-  text-align: center;
-  color: var(--grey);
+  color: var(--text-color-secondary);
 }
 .actions-cell {
   white-space: nowrap;
-}
-.actions-cell > * {
-  margin-right: 8px;
-}
-.actions-cell > *:last-child {
-  margin-right: 0;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end; /* wyrównanie do prawej na desktopie */
 }
 
-/* --- Style Przycisków --- */
+/* --- Przyciski --- */
 button {
   padding: 8px 12px;
-  color: #fff;
+  color: var(--white);
   border: none;
   border-radius: 6px;
   cursor: pointer;
-  margin: 0;
   font-size: 14px;
   font-weight: 500;
   transition: all 0.2s;
 }
-button:hover {
+button:hover:not(:disabled) {
   transform: translateY(-1px);
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+button:disabled {
+  background-color: var(--grey);
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+.add-new-btn {
+  background-color: var(--green);
+  font-size: 16px;
+  padding: 12px 20px;
 }
 button.pokaż {
   background-color: #17a2b8;
@@ -359,20 +391,13 @@ button.zapisz {
   background-color: var(--green);
 }
 button.anuluj {
-  background-color: #868e96;
+  background-color: var(--grey);
 }
 .logout-btn {
   background-color: var(--grey);
 }
-button:disabled {
-  background-color: var(--grey);
-  cursor: not-allowed;
-  opacity: 0.7;
-  transform: none;
-  box-shadow: none;
-}
 
-/* --- Style Modali --- */
+/* --- Okna modalne --- */
 .modal-backdrop {
   position: fixed;
   top: 0;
@@ -381,19 +406,16 @@ button:disabled {
   height: 100%;
   background-color: rgba(0, 0, 0, 0.65);
   z-index: 1000;
-  overflow-y: auto; /* Pozwala przewijać całe tło, jeśli modal jest za wysoki */
-  padding: 80px 15px 40px 15px; /* Zwiększony padding od góry, aby ominąć nawigację */
-  text-align: center; /* Potrzebne do wycentrowania w poziomie */
+  overflow-y: auto;
+  padding: 80px 15px 40px;
+  text-align: center;
 }
 .modal-content {
-  display: inline-block; /* Kluczowa zmiana dla tej techniki */
-  text-align: left; /* Resetujemy wyrównanie tekstu dla zawartości modala */
-
-  width: 100%; /* Szerokość dostosuje się do paddingu rodzica */
+  display: inline-block;
+  text-align: left;
+  width: 100%;
   max-width: 1000px;
-  margin-bottom: auto; /* "Sztuczka" aby modal trzymał się góry w miarę możliwości */
-
-  /* Pozostałe style bez zmian */
+  margin-bottom: auto;
   background-color: var(--background-light);
   border-radius: 8px;
   box-shadow: var(--shadow);
@@ -406,15 +428,12 @@ button:disabled {
   border-bottom: 1px solid var(--border-color);
 }
 .modal-header h3 {
-  border-bottom: none;
-  padding-bottom: 0;
   margin: 0;
 }
 .close-button {
-  background: 0 0;
+  background: none;
   border: none;
   font-size: 28px;
-  font-weight: 300;
   color: var(--grey);
   cursor: pointer;
   padding: 0;
@@ -422,7 +441,6 @@ button:disabled {
 }
 .modal-content form {
   padding: 25px;
-  border: none;
 }
 .form-grid {
   display: grid;
@@ -433,9 +451,6 @@ button:disabled {
   display: flex;
   flex-direction: column;
 }
-.form-group.full-width {
-  grid-column: 1/-1;
-}
 .form-group label {
   margin-bottom: 8px;
   font-weight: 600;
@@ -443,14 +458,15 @@ button:disabled {
 }
 .form-group input,
 .form-group textarea,
-.form-group select {
+.form-group select,
+.v-select {
   padding: 12px;
   border: 1px solid var(--border-color);
   border-radius: 6px;
   font-size: 14px;
-  transition:
-    border-color 0.3s,
-    box-shadow 0.3s;
+}
+.v-select {
+  padding: 0;
 }
 .form-group input:focus,
 .form-group textarea:focus,
@@ -460,7 +476,6 @@ button:disabled {
   box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.2);
 }
 .modal-actions {
-  grid-column: 1/-1;
   display: flex;
   justify-content: flex-end;
   margin-top: 20px;
@@ -468,27 +483,22 @@ button:disabled {
   border-top: 1px solid var(--border-color);
   gap: 10px;
 }
-.error-message {
-  color: var(--red);
-  font-size: 13px;
-  margin-top: 15px;
-  margin-bottom: 15px;
-  text-align: center;
-}
 
-/* --- Responsywność (Mobile) --- */
+/* ==========================================================================
+   RESPONSYWNOŚĆ (MOBILE)
+   ========================================================================== */
 @media screen and (max-width: 850px) {
+  /* --- Nawigacja mobilna --- */
   .main-nav {
     display: none;
     position: absolute;
     top: 60px;
     left: 0;
     width: 100%;
-    background-color: #343a40;
+    background-color: var(--dark);
     flex-direction: column;
     padding: 10px 0;
     border-top: 1px solid #495057;
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
   }
   .main-nav.is-open {
     display: flex;
@@ -518,6 +528,7 @@ button:disabled {
     width: auto;
   }
 
+  /* --- Responsywna tabela --- */
   table thead {
     border: none;
     clip: rect(0 0 0 0);
@@ -551,18 +562,26 @@ button:disabled {
     font-weight: 700;
     text-transform: uppercase;
     font-size: 11px;
-    color: #6c757d;
+    color: var(--grey);
   }
   .actions-cell {
-    text-align: center;
+    padding-top: 20px;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
   }
   .actions-cell::before {
-    display: none;
+    display: none; /* Ukryj label dla komórki akcji */
   }
+
+  /* --- Dostosowanie ogólnego layoutu --- */
   .container {
     width: auto;
-    margin: 20px 10px;
+    margin: 15px 10px;
     padding: 15px;
+  }
+  main {
+    padding-top: 75px;
   }
 }
 </style>

@@ -1,4 +1,7 @@
 <script setup>
+// ================================================================================================
+// 📜 IMPORTS
+// ================================================================================================
 import { ref, onMounted, computed, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { getAuthHeaders, getUserRole } from '../auth/auth.js';
@@ -6,33 +9,69 @@ import { formatDate } from '../utils/formatters.js';
 import vSelect from 'vue-select';
 import PaginationControls from '../components/PaginationControls.vue';
 
+// ================================================================================================
+// ⚙️ KONFIGURACJA I INICJALIZACJA
+// ================================================================================================
+
+/** @const {string} Bazowy URL do API. */
 const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
+
+/** Dostęp do aktualnej ścieżki (URL) i jej parametrów. */
 const route = useRoute();
+
+/** Rola zalogowanego użytkownika. */
 const userRole = getUserRole();
+
+// ================================================================================================
+// ✨ STAN KOMPONENTU (REFS)
+// ================================================================================================
+
+// --- Stan UI ---
 const isLoading = ref(true);
+const isDetailsLoading = ref(false);
+const showAddJobModal = ref(false);
+const showDetailsModal = ref(false);
+const showEditJobModal = ref(false);
+
+// --- Stan Danych ---
 const jobs = ref([]);
 const availableClients = ref([]);
+
+// --- Stan Listy (Paginacja, Sortowanie, Wyszukiwanie) ---
 const totalItems = ref(0);
 const currentPage = ref(1);
 const totalPages = ref(1);
 const searchQuery = ref('');
 const sortBy = ref('job_date');
 const sortOrder = ref('desc');
-const showAddJobModal = ref(false);
-const showDetailsModal = ref(false);
-const showEditJobModal = ref(false);
-const newJobData = ref({});
-const selectedJobDetails = ref(null);
+
+// --- Stan Formularzy i Modali ---
+const newJobData = ref(initializeNewJob());
 const editedJobData = ref(null);
-const isDetailsLoading = ref(false);
+const selectedJobDetails = ref(null);
 
-const inicjalizujNoweZlecenie = () => ({
-  clientId: null,
-  jobType: 'well_drilling',
-  jobDate: new Date().toISOString().slice(0, 10),
-  details: {},
-});
+// ================================================================================================
+// 헬 FUNKCJE POMOCNICZE
+// ================================================================================================
 
+/**
+ * Tworzy i zwraca pusty obiekt nowego zlecenia.
+ * @returns {object} Obiekt z polami nowego zlecenia.
+ */
+function initializeNewJob() {
+  return {
+    clientId: null,
+    jobType: 'well_drilling',
+    jobDate: new Date().toISOString().slice(0, 10),
+    details: {},
+  };
+}
+
+/**
+ * Tłumaczy techniczny typ zlecenia na nazwę czytelną dla użytkownika.
+ * @param {string} type - Typ zlecenia (np. 'well_drilling').
+ * @returns {string} Przetłumaczona nazwa.
+ */
 function translateJobType(type) {
   const types = {
     well_drilling: 'Wykonanie Studni',
@@ -43,55 +82,12 @@ function translateJobType(type) {
   return types[type] || type;
 }
 
-const wellDrillingProfit = computed(() => {
-  const details = selectedJobDetails.value?.details;
-  if (!details) return { revenue: null, totalCost: null, profit: null };
-
-  const revenue = (parseFloat(details.ilosc_metrow) || 0) * (parseFloat(details.cena_za_metr) || 0);
-  const totalCost =
-    (parseFloat(details.wyplaty) || 0) +
-    (parseFloat(details.rury) || 0) +
-    (parseFloat(details.inne_koszta) || 0);
-  const profit = revenue - totalCost;
-
-  return { revenue, totalCost, profit };
-});
-
-const connectionProfit = computed(() => {
-  const details = selectedJobDetails.value?.details;
-  if (!details) return { profit: null, totalCost: null };
-
-  const revenue = parseFloat(details.revenue) || 0;
-  const totalCost =
-    (parseFloat(details.casing_cost) || 0) +
-    (parseFloat(details.equipment_cost) || 0) +
-    (parseFloat(details.labor_cost) || 0) +
-    (parseFloat(details.wholesale_materials_cost) || 0);
-  const profit = revenue - totalCost;
-  return { profit, totalCost };
-});
-
-const stationProfit = computed(() => {
-  const details = selectedJobDetails.value?.details;
-  if (!details) return { profit: null, totalCost: null };
-
-  const revenue = parseFloat(details.revenue) || 0;
-  const totalCost =
-    (parseFloat(details.equipment_cost) || 0) +
-    (parseFloat(details.labor_cost) || 0) +
-    (parseFloat(details.wholesale_materials_cost) || 0);
-  const profit = revenue - totalCost;
-  return { profit, totalCost };
-});
-
-const serviceProfit = computed(() => {
-  const details = selectedJobDetails.value?.details;
-  if (!details || details.is_warranty) return { profit: 0, totalCost: 0 };
-  const revenue = parseFloat(details.revenue) || 0;
-  const totalCost = parseFloat(details.labor_cost) || 0;
-  return { profit: revenue - totalCost, totalCost };
-});
-
+/**
+ * Funkcja dla v-select do filtrowania klientów po nazwie i numerze telefonu.
+ * @param {Array} options - Lista opcji (klientów).
+ * @param {string} search - Tekst wpisany w wyszukiwarkę.
+ * @returns {Array} Przefiltrowana lista.
+ */
 const filterClients = (options, search) => {
   const lowerSearch = search.toLowerCase();
   return options.filter((client) => {
@@ -101,16 +97,73 @@ const filterClients = (options, search) => {
   });
 };
 
+// ================================================================================================
+// 🧮 WŁAŚCIWOŚCI OBLICZENIOWE (COMPUTED)
+// ================================================================================================
+
+/** Oblicza przychód, koszty i dochód dla zlecenia typu "Wykonanie Studni". */
+const wellDrillingProfit = computed(() => {
+  const details = selectedJobDetails.value?.details;
+  if (!details) return { revenue: 0, totalCost: 0, profit: 0 };
+  const revenue = (parseFloat(details.ilosc_metrow) || 0) * (parseFloat(details.cena_za_metr) || 0);
+  const totalCost =
+    (parseFloat(details.wyplaty) || 0) +
+    (parseFloat(details.rury) || 0) +
+    (parseFloat(details.inne_koszta) || 0);
+  return { revenue, totalCost, profit: revenue - totalCost };
+});
+
+/** Oblicza dochód i koszty dla zlecenia typu "Podłączenie". */
+const connectionProfit = computed(() => {
+  const details = selectedJobDetails.value?.details;
+  if (!details) return { profit: 0, totalCost: 0 };
+  const revenue = parseFloat(details.revenue) || 0;
+  const totalCost =
+    (parseFloat(details.casing_cost) || 0) +
+    (parseFloat(details.equipment_cost) || 0) +
+    (parseFloat(details.labor_cost) || 0) +
+    (parseFloat(details.wholesale_materials_cost) || 0);
+  return { profit: revenue - totalCost, totalCost };
+});
+
+/** Oblicza dochód i koszty dla zlecenia typu "Stacja Uzdatniania". */
+const stationProfit = computed(() => {
+  const details = selectedJobDetails.value?.details;
+  if (!details) return { profit: 0, totalCost: 0 };
+  const revenue = parseFloat(details.revenue) || 0;
+  const totalCost =
+    (parseFloat(details.equipment_cost) || 0) +
+    (parseFloat(details.labor_cost) || 0) +
+    (parseFloat(details.wholesale_materials_cost) || 0);
+  return { profit: revenue - totalCost, totalCost };
+});
+
+/** Oblicza dochód i koszty dla zlecenia typu "Serwis". */
+const serviceProfit = computed(() => {
+  const details = selectedJobDetails.value?.details;
+  if (!details || details.is_warranty) return { profit: 0, totalCost: 0 };
+  const revenue = parseFloat(details.revenue) || 0;
+  const totalCost = parseFloat(details.labor_cost) || 0;
+  return { profit: revenue - totalCost, totalCost };
+});
+
+// ================================================================================================
+// 🔄 LOGIKA API (CRUD)
+// ================================================================================================
+
+/**
+ * Pobiera listę zleceń z API na podstawie filtrów.
+ */
 async function fetchJobs() {
   isLoading.value = true;
   try {
     const params = new URLSearchParams({
       page: currentPage.value,
-      limit: 15,
       search: searchQuery.value,
       sortBy: sortBy.value,
       sortOrder: sortOrder.value,
     });
+    // Jeśli w URL jest ID klienta, dodajemy je do filtrów
     if (route.query.clientId) {
       params.append('clientId', route.query.clientId);
     }
@@ -131,6 +184,9 @@ async function fetchJobs() {
   }
 }
 
+/**
+ * Pobiera listę klientów do użycia w formularzu select.
+ */
 async function fetchClientsForSelect() {
   try {
     const response = await fetch(`${API_URL}/api/clients-for-select`, {
@@ -143,11 +199,9 @@ async function fetchClientsForSelect() {
   }
 }
 
-function handleShowAddJobModal() {
-  newJobData.value = inicjalizujNoweZlecenie();
-  showAddJobModal.value = true;
-}
-
+/**
+ * Dodaje nowe zlecenie do bazy danych.
+ */
 async function handleAddJob() {
   if (!newJobData.value.clientId || !newJobData.value.jobDate || !newJobData.value.jobType) {
     alert('Klient, data i typ zlecenia są wymagane.');
@@ -169,41 +223,9 @@ async function handleAddJob() {
   }
 }
 
-async function handleShowDetails(jobId) {
-  selectedJobDetails.value = null;
-  isDetailsLoading.value = true;
-  showDetailsModal.value = true;
-  try {
-    const response = await fetch(`${API_URL}/api/jobs/${jobId}`, { headers: getAuthHeaders() });
-    if (!response.ok) throw new Error('Błąd pobierania szczegółów zlecenia');
-    selectedJobDetails.value = await response.json();
-  } catch (error) {
-    console.error('Błąd podczas pobierania szczegółów zlecenia:', error);
-    alert(error.message);
-    showDetailsModal.value = false;
-  } finally {
-    isDetailsLoading.value = false;
-  }
-}
-
-async function handleShowEditModal(job) {
-  editedJobData.value = null;
-  isDetailsLoading.value = true;
-  showEditJobModal.value = true;
-  try {
-    const response = await fetch(`${API_URL}/api/jobs/${job.id}`, { headers: getAuthHeaders() });
-    if (!response.ok) throw new Error('Błąd pobierania pełnych danych zlecenia do edycji');
-    const fullJobData = await response.json();
-    editedJobData.value = fullJobData;
-  } catch (error) {
-    console.error('Błąd w handleShowEditModal:', error);
-    alert(error.message);
-    showEditJobModal.value = false;
-  } finally {
-    isDetailsLoading.value = false;
-  }
-}
-
+/**
+ * Aktualizuje istniejące zlecenie.
+ */
 async function handleUpdateJob() {
   if (!editedJobData.value) return;
   try {
@@ -229,6 +251,10 @@ async function handleUpdateJob() {
   }
 }
 
+/**
+ * Usuwa zlecenie o podanym ID.
+ * @param {number} jobId - ID zlecenia do usunięcia.
+ */
 async function handleDeleteJob(jobId) {
   if (!confirm('Czy na pewno chcesz usunąć to zlecenie? Tej operacji nie można cofnąć.')) return;
   try {
@@ -246,20 +272,89 @@ async function handleDeleteJob(jobId) {
   }
 }
 
+// ================================================================================================
+// ⚡ OBSŁUGA ZDARZEŃ UI
+// ================================================================================================
+
+/**
+ * Pokazuje modal dodawania nowego zlecenia.
+ */
+function handleShowAddJobModal() {
+  newJobData.value = initializeNewJob();
+  showAddJobModal.value = true;
+}
+
+/**
+ * Pobiera pełne dane zlecenia i pokazuje modal ze szczegółami.
+ * @param {number} jobId - ID zlecenia.
+ */
+async function handleShowDetails(jobId) {
+  selectedJobDetails.value = null;
+  isDetailsLoading.value = true;
+  showDetailsModal.value = true;
+  try {
+    const response = await fetch(`${API_URL}/api/jobs/${jobId}`, { headers: getAuthHeaders() });
+    if (!response.ok) throw new Error('Błąd pobierania szczegółów zlecenia');
+    selectedJobDetails.value = await response.json();
+  } catch (error) {
+    console.error('Błąd podczas pobierania szczegółów zlecenia:', error);
+    alert(error.message);
+    showDetailsModal.value = false;
+  } finally {
+    isDetailsLoading.value = false;
+  }
+}
+
+/**
+ * Pobiera pełne dane zlecenia i pokazuje modal edycji.
+ * @param {object} job - Podstawowy obiekt zlecenia z listy.
+ */
+async function handleShowEditModal(job) {
+  editedJobData.value = null;
+  isDetailsLoading.value = true;
+  showEditJobModal.value = true;
+  try {
+    const response = await fetch(`${API_URL}/api/jobs/${job.id}`, { headers: getAuthHeaders() });
+    if (!response.ok) throw new Error('Błąd pobierania danych do edycji');
+    editedJobData.value = await response.json();
+  } catch (error) {
+    console.error('Błąd w handleShowEditModal:', error);
+    alert(error.message);
+    showEditJobModal.value = false;
+  } finally {
+    isDetailsLoading.value = false;
+  }
+}
+
+/**
+ * Obsługuje zmianę strony w paginacji.
+ * @param {number} newPage - Nowy numer strony.
+ */
 function handlePageChange(newPage) {
   currentPage.value = newPage;
 }
 
+/**
+ * Zmienia kryterium sortowania.
+ * @param {string} key - Klucz kolumny do sortowania.
+ */
 function changeSort(key) {
   if (sortBy.value === key) {
     sortOrder.value = sortOrder.value === 'asc' ? 'desc' : 'asc';
   } else {
     sortBy.value = key;
-    sortOrder.value = 'desc';
+    sortOrder.value = 'desc'; // Domyślnie sortuj malejąco (np. po dacie)
   }
 }
 
+// ================================================================================================
+// 👀 WATCHERS & CYKL ŻYCIA
+// ================================================================================================
+
+/** Obserwuje zmiany w paginacji i sortowaniu, by odświeżyć listę. */
 watch([currentPage, sortBy, sortOrder], fetchJobs);
+
+/** Obserwuje pole wyszukiwania z opóźnieniem (debounce). */
 let searchTimeout = null;
 watch(searchQuery, () => {
   clearTimeout(searchTimeout);
@@ -268,14 +363,16 @@ watch(searchQuery, () => {
     fetchJobs();
   }, 300);
 });
+
+/** Obserwuje zmianę typu zlecenia w formularzu dodawania i resetuje szczegóły. */
 watch(
   () => newJobData.value.jobType,
-  (newType, oldType) => {
-    if (newType !== oldType) {
-      newJobData.value.details = {};
-    }
+  () => {
+    newJobData.value.details = {};
   }
 );
+
+/** Po zamontowaniu komponentu pobiera początkowe dane. */
 onMounted(() => {
   fetchJobs();
   fetchClientsForSelect();
@@ -286,14 +383,11 @@ onMounted(() => {
   <div class="container">
     <div class="header">
       <h1>Rejestr Zleceń ({{ totalItems }})</h1>
-      <button
-        v-if="userRole === 'admin' || userRole === 'editor'"
-        class="add-new-btn"
-        @click="handleShowAddJobModal"
-      >
+      <button v-if="userRole !== 'viewer'" class="add-new-btn" @click="handleShowAddJobModal">
         &#43; Dodaj Zlecenie
       </button>
     </div>
+
     <div class="search-container">
       <input
         type="text"
@@ -301,6 +395,7 @@ onMounted(() => {
         placeholder="Szukaj po kliencie, telefonie, miejscowości..."
       />
     </div>
+
     <div class="main-content-wrapper">
       <div v-if="isLoading" class="loading-overlay"><div class="spinner"></div></div>
       <div class="table-and-pagination" :class="{ 'is-loading': isLoading }">
@@ -326,6 +421,11 @@ onMounted(() => {
               </tr>
             </thead>
             <tbody>
+              <tr v-if="!jobs.length && !isLoading">
+                <td colspan="6" class="empty-table-message">
+                  <p>Brak zleceń w bazie lub pasujących do wyszukiwania.</p>
+                </td>
+              </tr>
               <tr v-for="job in jobs" :key="job.id">
                 <td data-label="Klient">{{ job.client_name || '-' }}</td>
                 <td data-label="Telefon Klienta">{{ job.client_phone }}</td>
@@ -338,14 +438,14 @@ onMounted(() => {
                 <td data-label="Data">{{ formatDate(job.job_date) }}</td>
                 <td data-label="Akcje" class="actions-cell">
                   <button
-                    v-if="userRole === 'admin' || userRole === 'editor'"
+                    v-if="userRole !== 'viewer'"
                     class="pokaż"
                     @click="handleShowDetails(job.id)"
                   >
                     Szczegóły
                   </button>
                   <button
-                    v-if="userRole === 'admin' || userRole === 'editor'"
+                    v-if="userRole !== 'viewer'"
                     class="edytuj"
                     @click="handleShowEditModal(job)"
                   >
@@ -358,9 +458,6 @@ onMounted(() => {
               </tr>
             </tbody>
           </table>
-          <div v-if="!jobs.length && !isLoading" class="empty-table-message">
-            <p>Brak zleceń w bazie lub pasujących do wyszukiwania.</p>
-          </div>
         </div>
         <PaginationControls
           v-if="totalPages > 1"
@@ -373,7 +470,7 @@ onMounted(() => {
   </div>
 
   <div v-if="showAddJobModal" class="modal-backdrop">
-    <div class="modal-content">
+    <div class="modal-content modal-lg">
       <div class="modal-header">
         <h3>Dodaj nowe zlecenie</h3>
         <button class="close-button" @click="showAddJobModal = false">&times;</button>
@@ -381,40 +478,42 @@ onMounted(() => {
       <form @submit.prevent="handleAddJob">
         <div class="form-grid-single-col">
           <div class="form-group">
-            <label>1. Wybierz klienta</label
-            ><v-select
+            <label>1. Wybierz klienta</label>
+            <v-select
               :options="availableClients"
               :get-option-label="(option) => option.name || 'Brak Nazwy'"
               :filter="filterClients"
               :reduce="(client) => client.id"
               v-model="newJobData.clientId"
               placeholder="-- Wyszukaj klienta --"
-              ><template #option="{ name, phone_number }"
-                ><div>
-                  <strong>{{ name || 'Brak nazwy' }}</strong
-                  ><br /><small>{{ phone_number }}</small>
-                </div></template
-              ><template #selected-option="{ name, phone_number }"
-                ><div>
-                  <strong>{{ name || 'Brak nazwy' }}</strong
-                  ><br /><small>{{ phone_number }}</small>
-                </div></template
-              ></v-select
             >
+              <template #option="{ name, phone_number }"
+                ><div>
+                  <strong>{{ name || 'Brak nazwy' }}</strong
+                  ><br /><small>{{ phone_number }}</small>
+                </div></template
+              >
+              <template #selected-option="{ name, phone_number }"
+                ><div>
+                  <strong>{{ name || 'Brak nazwy' }}</strong> <small>({{ phone_number }})</small>
+                </div></template
+              >
+            </v-select>
           </div>
           <div class="form-group">
-            <label>2. Data zlecenia</label
-            ><input type="date" v-model="newJobData.jobDate" required />
+            <label>2. Data zlecenia</label>
+            <input type="date" v-model="newJobData.jobDate" required />
           </div>
           <div class="form-group">
-            <label>3. Typ zlecenia</label
-            ><select v-model="newJobData.jobType">
+            <label>3. Typ zlecenia</label>
+            <select v-model="newJobData.jobType">
               <option value="well_drilling">Wykonanie Studni</option>
               <option value="connection">Podłączenie</option>
               <option value="treatment_station">Stacja Uzdatniania</option>
               <option value="service">Serwis</option>
             </select>
           </div>
+
           <div class="details-section">
             <hr />
             <h4>4. Wprowadź szczegóły zlecenia</h4>
@@ -540,7 +639,6 @@ onMounted(() => {
                 />
               </div>
             </div>
-
             <div v-else-if="newJobData.jobType === 'treatment_station'" class="form-grid">
               <div class="form-group">
                 <label>Model stacji:</label
@@ -602,11 +700,10 @@ onMounted(() => {
                 />
               </div>
             </div>
-
             <div v-else-if="newJobData.jobType === 'service'" class="form-grid-single-col">
               <div class="form-group full-width">
-                <label>Opis wykonanych prac serwisowych:</label>
-                <textarea v-model="newJobData.details.description" rows="4"></textarea>
+                <label>Opis wykonanych prac serwisowych:</label
+                ><textarea v-model="newJobData.details.description" rows="4"></textarea>
               </div>
               <div class="form-group checkbox-item">
                 <input
@@ -630,23 +727,21 @@ onMounted(() => {
           </div>
         </div>
         <div class="modal-actions">
-          <button type="submit" class="zapisz">Zapisz Zlecenie</button
-          ><button type="button" class="anuluj" @click="showAddJobModal = false">Anuluj</button>
+          <button type="submit" class="zapisz">Zapisz Zlecenie</button>
+          <button type="button" class="anuluj" @click="showAddJobModal = false">Anuluj</button>
         </div>
       </form>
     </div>
   </div>
 
   <div v-if="showDetailsModal" class="modal-backdrop">
-    <div class="modal-content">
+    <div class="modal-content modal-lg">
       <div class="modal-header">
         <h3>Szczegóły zlecenia #{{ selectedJobDetails?.id }}</h3>
         <button class="close-button" @click="showDetailsModal = false">&times;</button>
       </div>
       <div class="modal-body">
-        <div v-if="isDetailsLoading" class="modal-loading-spinner">
-          <div class="spinner"></div>
-        </div>
+        <div v-if="isDetailsLoading" class="modal-loading-spinner"><div class="spinner"></div></div>
         <div v-else-if="selectedJobDetails" class="details-view-grid">
           <div class="details-section">
             <h4>Dane Klienta</h4>
@@ -662,7 +757,6 @@ onMounted(() => {
             </p>
             <p><strong>Data zlecenia:</strong> {{ formatDate(selectedJobDetails.job_date) }}</p>
           </div>
-
           <div
             v-if="selectedJobDetails.job_type === 'well_drilling'"
             class="details-section full-width"
@@ -719,15 +813,14 @@ onMounted(() => {
                 <span>{{ wellDrillingProfit.totalCost?.toFixed(2) || '0.00' }} zł</span>
               </p>
               <p class="full-width-p profit-summary">
-                <strong>Dochód:</strong>
-                <span
+                <strong>Dochód:</strong
+                ><span
                   :class="wellDrillingProfit.profit >= 0 ? 'profit-positive' : 'profit-negative'"
                   >{{ wellDrillingProfit.profit?.toFixed(2) || '0.00' }} zł</span
                 >
               </p>
             </div>
           </div>
-
           <div
             v-else-if="selectedJobDetails.job_type === 'connection'"
             class="details-section full-width"
@@ -753,8 +846,8 @@ onMounted(() => {
                 {{ selectedJobDetails.details.hydrophore_model || '-' }}
               </p>
               <p class="full-width-p">
-                <strong>Faktura (materiały):</strong>
-                <a
+                <strong>Faktura (materiały):</strong
+                ><a
                   v-if="selectedJobDetails.details.materials_invoice_url"
                   :href="selectedJobDetails.details.materials_invoice_url"
                   target="_blank"
@@ -764,8 +857,8 @@ onMounted(() => {
                 ><span v-else>-</span>
               </p>
               <p class="full-width-p">
-                <strong>Oferta (klient):</strong>
-                <a
+                <strong>Oferta (klient):</strong
+                ><a
                   v-if="selectedJobDetails.details.client_offer_url"
                   :href="selectedJobDetails.details.client_offer_url"
                   target="_blank"
@@ -793,14 +886,13 @@ onMounted(() => {
                 <span>{{ connectionProfit.totalCost?.toFixed(2) || '0.00' }} zł</span>
               </p>
               <p class="full-width-p profit-summary">
-                <strong>Dochód:</strong>
-                <span :class="connectionProfit.profit >= 0 ? 'profit-positive' : 'profit-negative'"
+                <strong>Dochód:</strong
+                ><span :class="connectionProfit.profit >= 0 ? 'profit-positive' : 'profit-negative'"
                   >{{ connectionProfit.profit?.toFixed(2) || '0.00' }} zł</span
                 >
               </p>
             </div>
           </div>
-
           <div
             v-else-if="selectedJobDetails.job_type === 'treatment_station'"
             class="details-section full-width"
@@ -826,8 +918,8 @@ onMounted(() => {
                 {{ selectedJobDetails.details.service_interval_months || '12' }} mies.
               </p>
               <p class="full-width-p">
-                <strong>Faktura (materiały):</strong>
-                <a
+                <strong>Faktura (materiały):</strong
+                ><a
                   v-if="selectedJobDetails.details.materials_invoice_url"
                   :href="selectedJobDetails.details.materials_invoice_url"
                   target="_blank"
@@ -837,8 +929,8 @@ onMounted(() => {
                 ><span v-else>-</span>
               </p>
               <p class="full-width-p">
-                <strong>Oferta (klient):</strong>
-                <a
+                <strong>Oferta (klient):</strong
+                ><a
                   v-if="selectedJobDetails.details.client_offer_url"
                   :href="selectedJobDetails.details.client_offer_url"
                   target="_blank"
@@ -863,14 +955,13 @@ onMounted(() => {
                 <span>{{ stationProfit.totalCost?.toFixed(2) || '0.00' }} zł</span>
               </p>
               <p class="full-width-p profit-summary">
-                <strong>Dochód:</strong>
-                <span :class="stationProfit.profit >= 0 ? 'profit-positive' : 'profit-negative'"
+                <strong>Dochód:</strong
+                ><span :class="stationProfit.profit >= 0 ? 'profit-positive' : 'profit-negative'"
                   >{{ stationProfit.profit?.toFixed(2) || '0.00' }} zł</span
                 >
               </p>
             </div>
           </div>
-
           <div
             v-else-if="selectedJobDetails.job_type === 'service'"
             class="details-section full-width"
@@ -890,8 +981,8 @@ onMounted(() => {
                 <p><strong>Przychód:</strong> {{ selectedJobDetails.details.revenue || 0 }} zł</p>
                 <p><strong>Wypłaty:</strong> {{ selectedJobDetails.details.labor_cost || 0 }} zł</p>
                 <p class="full-width-p profit-summary">
-                  <strong>Dochód:</strong>
-                  <span :class="serviceProfit.profit >= 0 ? 'profit-positive' : 'profit-negative'"
+                  <strong>Dochód:</strong
+                  ><span :class="serviceProfit.profit >= 0 ? 'profit-positive' : 'profit-negative'"
                     >{{ serviceProfit.profit?.toFixed(2) || '0.00' }} zł</span
                   >
                 </p>
@@ -904,7 +995,7 @@ onMounted(() => {
   </div>
 
   <div v-if="showEditJobModal" class="modal-backdrop">
-    <div class="modal-content">
+    <div class="modal-content modal-lg">
       <div class="modal-header">
         <h3>Edytuj zlecenie #{{ editedJobData?.id }}</h3>
         <button class="close-button" @click="showEditJobModal = false">&times;</button>
@@ -1094,7 +1185,6 @@ onMounted(() => {
                   />
                 </div>
               </div>
-
               <div v-else-if="editedJobData.job_type === 'treatment_station'" class="form-grid">
                 <div class="form-group">
                   <label>Model stacji:</label
@@ -1159,16 +1249,15 @@ onMounted(() => {
                   />
                 </div>
               </div>
-
-              <div v-else-if="editedJobData.jobType === 'service'" class="form-grid-single-col">
+              <div v-else-if="editedJobData.job_type === 'service'" class="form-grid-single-col">
                 <div class="form-group full-width">
-                  <label>Opis wykonanych prac serwisowych:</label>
-                  <textarea v-model="editedJobData.details.description" rows="4"></textarea>
+                  <label>Opis wykonanych prac serwisowych:</label
+                  ><textarea v-model="editedJobData.details.description" rows="4"></textarea>
                 </div>
                 <div class="form-group checkbox-item">
                   <input
                     type="checkbox"
-                    id="is_warranty_add"
+                    id="is_warranty_edit"
                     v-model="editedJobData.details.is_warranty"
                   />
                   <label for="is_warranty_edit">Serwis gwarancyjny (bezpłatny)</label>
@@ -1192,43 +1281,11 @@ onMounted(() => {
                   </div>
                 </template>
               </div>
-              <div v-else-if="editedJobData.job_type === 'service'" class="form-grid-single-col">
-                <div class="form-group full-width">
-                  <label>Opis wykonanych prac serwisowych:</label>
-                  <textarea v-model="editedJobData.details.description" rows="4"></textarea>
-                </div>
-                <div class="form-group checkbox-item">
-                  <input
-                    type="checkbox"
-                    id="is_warranty_edit"
-                    v-model="editedJobData.details.is_warranty"
-                  />
-                  <label for="is_warranty_edit">Serwis gwarancyjny (bezpłatny)</label>
-                </div>
-                <template v-if="!editedJobData.details.is_warranty">
-                  <div class="form-group">
-                    <label>Przychód:</label>
-                    <input
-                      type="number"
-                      step="any"
-                      v-model.number="editedJobData.details.revenue"
-                    />
-                  </div>
-                  <div class="form-group">
-                    <label>Wypłaty:</label>
-                    <input
-                      type="number"
-                      step="any"
-                      v-model.number="editedJobData.details.labor_cost"
-                    />
-                  </div>
-                </template>
-              </div>
             </div>
           </div>
           <div class="modal-actions">
-            <button type="submit" class="zapisz">Zapisz zmiany</button
-            ><button type="button" class="anuluj" @click="showEditJobModal = false">Anuluj</button>
+            <button type="submit" class="zapisz">Zapisz zmiany</button>
+            <button type="button" class="anuluj" @click="showEditJobModal = false">Anuluj</button>
           </div>
         </form>
       </div>
