@@ -73,16 +73,8 @@ const handleLogout = () => {
     </nav>
 
     <div class="actions-container">
-      <button v-if="isAuthenticated" @click="handleLogout" class="logout-btn desktop-logout">
-        Wyloguj
-      </button>
-      <button
-        v-if="isAuthenticated"
-        class="hamburger-btn"
-        @click="toggleMobileMenu"
-        :class="{ 'is-active': isMobileMenuOpen }"
-        aria-label="Otwórz menu"
-      >
+      <button v-if="isAuthenticated" @click="handleLogout" class="logout-btn desktop-logout">Wyloguj</button>
+      <button v-if="isAuthenticated" class="hamburger-btn" @click="toggleMobileMenu" :class="{ 'is-active': isMobileMenuOpen }" aria-label="Otwórz menu">
         <span class="hamburger-box">
           <span class="hamburger-inner"></span>
         </span>
@@ -347,10 +339,9 @@ td {
   color: var(--text-color-secondary);
 }
 .actions-cell {
-  white-space: nowrap;
   display: flex;
   gap: 8px;
-  justify-content: flex-end; /* wyrównanie do prawej na desktopie */
+  justify-content: flex-start; /* ZMIANA: Wyrównanie do lewej */
 }
 
 /* --- Przyciski --- */
@@ -377,6 +368,9 @@ button:disabled {
   background-color: var(--green);
   font-size: 16px;
   padding: 12px 20px;
+}
+.btn-secondary {
+  background-color: var(--grey);
 }
 button.pokaż {
   background-color: #17a2b8;

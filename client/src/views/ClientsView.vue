@@ -183,12 +183,7 @@ async function handleUpdateClient() {
  * @param {number} clientId - ID klienta do usunięcia.
  */
 async function handleDeleteClient(clientId) {
-  if (
-    !confirm(
-      'Czy na pewno chcesz usunąć tego klienta? Usunięcie go skasuje również WSZYSTKIE jego zlecenia.'
-    )
-  )
-    return;
+  if (!confirm('Czy na pewno chcesz usunąć tego klienta? Usunięcie go skasuje również WSZYSTKIE jego zlecenia.')) return;
 
   try {
     const response = await fetch(`${API_URL}/api/clients/${clientId}`, {
@@ -284,22 +279,11 @@ onMounted(() => {
   <div class="container">
     <div class="header">
       <h1>Klienci ({{ totalItems }})</h1>
-      <button
-        v-if="userRole === 'admin' || userRole === 'editor'"
-        class="add-new-btn"
-        @click="handleShowAddModal"
-        :disabled="isLoading"
-      >
-        &#43; Dodaj Klienta
-      </button>
+      <button v-if="userRole === 'admin' || userRole === 'editor'" class="add-new-btn" @click="handleShowAddModal" :disabled="isLoading">&#43; Dodaj Klienta</button>
     </div>
 
     <div class="search-container">
-      <input
-        type="text"
-        v-model="searchQuery"
-        placeholder="Szukaj po nazwie, telefonie, adresie..."
-      />
+      <input type="text" v-model="searchQuery" placeholder="Szukaj po nazwie, telefonie, adresie..." />
     </div>
 
     <div class="main-content-wrapper">
@@ -342,32 +326,15 @@ onMounted(() => {
                   <RouterLink :to="`/zlecenia?clientId=${client.id}`">
                     <button class="pokaż">Zlecenia</button>
                   </RouterLink>
-                  <button
-                    v-if="userRole === 'admin' || userRole === 'editor'"
-                    class="edytuj"
-                    @click="handleShowEditModal(client)"
-                  >
-                    Edytuj
-                  </button>
-                  <button
-                    v-if="userRole === 'admin'"
-                    class="usun"
-                    @click="handleDeleteClient(client.id)"
-                  >
-                    Usuń
-                  </button>
+                  <button v-if="userRole === 'admin' || userRole === 'editor'" class="edytuj" @click="handleShowEditModal(client)">Edytuj</button>
+                  <button v-if="userRole === 'admin'" class="usun" @click="handleDeleteClient(client.id)">Usuń</button>
                 </td>
               </tr>
             </tbody>
           </table>
         </div>
 
-        <PaginationControls
-          v-if="totalPages > 1"
-          :current-page="currentPage"
-          :total-pages="totalPages"
-          @page-changed="handlePageChange"
-        />
+        <PaginationControls v-if="totalPages > 1" :current-page="currentPage" :total-pages="totalPages" @page-changed="handlePageChange" />
       </div>
     </div>
   </div>
@@ -423,12 +390,7 @@ onMounted(() => {
           </div>
           <div class="form-group">
             <label for="editClientPhone">Numer telefonu (wymagane)</label>
-            <input
-              type="text"
-              id="editClientPhone"
-              v-model="editedClientData.phone_number"
-              required
-            />
+            <input type="text" id="editClientPhone" v-model="editedClientData.phone_number" required />
           </div>
           <div class="form-group">
             <label for="editClientAddress">Adres</label>
