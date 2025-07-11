@@ -1393,32 +1393,36 @@ app.get('/api/offers/:id/download', authenticateToken, async (req, res) => {
     doc.text(offerData.client_address || '', { width: 200 });
     doc.text(offerData.client_email || '', { width: 200 });
 
-    // --- LOGIKA TABELI ---
+    // --- TABELA Z DYNAMICZNĄ WYSOKOŚCIĄ ---
     const tableTop = 190;
-    const rowHeight = 25;
     const tableMargin = 40;
     const textPadding = 5;
+    const minRowHeight = 20; // Minimalna wysokość wiersza
 
     const columns = [
-      { header: 'Lp.', width: 30, align: 'left' },
-      { header: 'Nazwa towaru / usługi', width: 270, align: 'left' },
-      { header: 'Ilość', width: 40, align: 'center' },
-      { header: 'J.m.', width: 40, align: 'center' },
-      { header: 'Cena netto', width: 70, align: 'right' },
-      { header: 'Wartość netto', width: 70, align: 'right' },
+      { key: 'lp', header: 'Lp.', width: 30, align: 'left' },
+      { key: 'name', header: 'Nazwa towaru / usługi', width: 260, align: 'left' },
+      { key: 'quantity', header: 'Ilość', width: 40, align: 'center' },
+      { key: 'unit', header: 'J.m.', width: 40, align: 'center' },
+      { key: 'price', header: 'Cena netto', width: 70, align: 'right' },
+      { key: 'value', header: 'Wartość netto', width: 80, align: 'right' },
     ];
+    const tableWidth = columns.reduce((sum, col) => sum + col.width, 0);
+
     let currentY = tableTop;
 
-    // --- Funkcja do rysowania wiersza z pełnym obramowaniem ---
-    function drawRow(y, rowData, isHeader = false) {
+    // --- Funkcja pomocnicza do rysowania wiersza ---
+    function drawRow(y, rowData, rowHeight, isHeader = false) {
       doc.font(isHeader ? 'Lato-Bold' : 'Lato').fontSize(isHeader ? 9 : 8);
 
       let currentX = tableMargin;
       rowData.forEach((text, i) => {
-        const col = columns[i];
-        doc.rect(currentX, y, col.width, rowHeight).strokeColor('#cccccc').stroke();
-        doc.text(text, currentX + textPadding, y + 5, { width: col.width - textPadding * 2, align: col.align });
-        currentX += col.width;
+        doc.rect(currentX, y, columns[i].width, rowHeight).strokeColor('#cccccc').stroke();
+        doc.text(text.toString(), currentX + textPadding, y + 5, {
+          width: columns[i].width - textPadding * 2,
+          align: columns[i].align,
+        });
+        currentX += columns[i].width;
       });
     }
 
@@ -1426,65 +1430,58 @@ app.get('/api/offers/:id/download', authenticateToken, async (req, res) => {
     drawRow(
       currentY,
       columns.map((c) => c.header),
+      minRowHeight,
       true
     );
-    currentY += rowHeight;
+    currentY += minRowHeight;
 
     // Rysowanie wierszy z danymi
-    let totalUnitPrice = 0;
     let totalNetValue = 0;
 
     offerData.items.forEach((item, index) => {
       const netValue = item.quantity * item.net_price;
-      totalUnitPrice += item.net_price;
       totalNetValue += netValue;
 
-      if (currentY + rowHeight > 750) {
+      const row = [index + 1, item.name, item.quantity, item.unit, item.net_price.toFixed(2), netValue.toFixed(2)];
+
+      // Oblicz dynamiczną wysokość wiersza na podstawie najdłuższej komórki (nazwy)
+      const nameHeight = doc
+        .font('Lato')
+        .fontSize(8)
+        .heightOfString(item.name, {
+          width: columns[1].width - textPadding * 2,
+        });
+      const dynamicRowHeight = Math.max(minRowHeight, nameHeight + textPadding * 2);
+
+      if (currentY + dynamicRowHeight > 750) {
+        // Łamanie strony
         doc.addPage();
         currentY = 40;
         drawRow(
           currentY,
           columns.map((c) => c.header),
+          minRowHeight,
           true
         );
-        currentY += rowHeight;
+        currentY += minRowHeight;
       }
 
-      const row = [index + 1, item.name, item.quantity, item.unit, item.net_price.toFixed(2), netValue.toFixed(2)];
-      drawRow(currentY, row);
-      currentY += rowHeight;
+      drawRow(currentY, row, dynamicRowHeight);
+      currentY += dynamicRowHeight;
     });
 
-    // --- NOWE PODSUMOWANIE (bez obramowania) ---
-    const summaryY = currentY + 10; // Odstęp od tabeli
+    // Podsumowanie
+    const summaryY = currentY + 10;
     doc.font('Lato-Bold').fontSize(10);
-
-    // Obliczamy pozycje X na podstawie szerokości kolumn zdefiniowanych wcześniej
-    const colWidths = columns.map((c) => c.width);
-
-    // Pozycja dla "Razem"
-    const summaryLabelX = tableMargin + columns.slice(0, 4).reduce((sum, col) => sum + col.width, 0);
-    doc.text('Razem:', summaryLabelX, currentY + 7, {
-      width: columns[4].width - textPadding,
-      align: 'right',
-    });
-
-    // Pozycja dla sumy wartości netto
-    const valueSumX = tableMargin + columns.slice(0, 5).reduce((sum, col) => sum + col.width, 0);
-    doc.text(`${totalNetValue.toFixed(2)} zł`, valueSumX, currentY + 7, {
-      width: columns[5].width - textPadding,
-      align: 'right',
-    });
-
-    // Ustawiamy kursor Y dla notatek
-    currentY = summaryY;
+    doc.text('Suma Wartości Netto:', 400, summaryY, { align: 'right' });
+    doc.text(`${totalNetValue.toFixed(2)} zł`, 0, summaryY, { align: 'right' });
 
     // Notatki
     if (offerData.notes) {
       doc
         .font('Lato-Bold')
         .fontSize(10)
-        .text('Uwagi:', 40, currentY + 15);
+        .text('Uwagi:', 40, currentY + 30);
       doc.font('Lato').fontSize(9).text(offerData.notes, { width: 520, align: 'left' });
     }
 
