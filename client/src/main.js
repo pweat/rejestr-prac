@@ -26,3 +26,16 @@ app.use(router);
 
 // Montowanie aplikacji do elementu DOM z identyfikatorem #app w pliku index.html
 app.mount('#app');
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker
+      .register('/sw.js')
+      .then((registration) => {
+        console.log('Service Worker zarejestrowany pomyślnie:', registration);
+      })
+      .catch((error) => {
+        console.error('Błąd rejestracji Service Workera:', error);
+      });
+  });
+}
