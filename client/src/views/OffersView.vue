@@ -79,6 +79,7 @@ const initializeNewOffer = () => {
     clientId: null,
     issue_date: new Date().toISOString().slice(0, 10),
     offer_type: defaultOfferType,
+    company_profile_key: 'firma_a',
     vat_rate: 23,
     notes: 'Termin ważności oferty: 14 dni. \nGwarancja na wykonane usługi: 24 miesiące.',
     // Głęboka kopia pozycji z szablonu, aby uniknąć referencji
@@ -402,9 +403,7 @@ onMounted(() => {
   <div class="container">
     <div class="header">
       <h1>Generator Ofert ({{ totalItems }})</h1>
-      <button v-if="userRole !== 'viewer'" class="add-new-btn" @click="handleShowAddOfferModal">
-        &#43; Stwórz nową ofertę
-      </button>
+      <button v-if="userRole !== 'viewer'" class="add-new-btn" @click="handleShowAddOfferModal">&#43; Stwórz nową ofertę</button>
     </div>
 
     <div class="main-content-wrapper">
@@ -439,37 +438,18 @@ onMounted(() => {
                 </td>
                 <td data-label="Miejscowość">{{ offer.client_address || '-' }}</td>
                 <td data-label="Data Wystawienia">{{ offer.issue_date }}</td>
-                <td data-label="Wartość Netto">
-                  {{ parseFloat(offer.total_net_value).toFixed(2) }} zł
-                </td>
+                <td data-label="Wartość Netto">{{ parseFloat(offer.total_net_value).toFixed(2) }} zł</td>
                 <td data-label="Akcje" class="actions-cell">
                   <button class="zapisz" @click="handleGeneratePdf(offer.id)">Generuj PDF</button>
-                  <button
-                    v-if="userRole === 'admin' || userRole === 'editor'"
-                    class="edytuj"
-                    @click="handleShowEditModal(offer.id)"
-                  >
-                    Edytuj
-                  </button>
-                  <button
-                    v-if="userRole === 'admin'"
-                    class="usun"
-                    @click="handleDeleteOffer(offer.id)"
-                  >
-                    Usuń
-                  </button>
+                  <button v-if="userRole === 'admin' || userRole === 'editor'" class="edytuj" @click="handleShowEditModal(offer.id)">Edytuj</button>
+                  <button v-if="userRole === 'admin'" class="usun" @click="handleDeleteOffer(offer.id)">Usuń</button>
                 </td>
               </tr>
             </tbody>
           </table>
         </div>
 
-        <PaginationControls
-          v-if="totalPages > 1"
-          :current-page="currentPage"
-          :total-pages="totalPages"
-          @page-changed="handlePageChange"
-        />
+        <PaginationControls v-if="totalPages > 1" :current-page="currentPage" :total-pages="totalPages" @page-changed="handlePageChange" />
       </div>
     </div>
 
@@ -484,6 +464,13 @@ onMounted(() => {
             <div class="details-section">
               <h4>Dane Główne</h4>
               <div class="form-grid">
+                <div class="form-group">
+                  <label>Wybierz profil firmy</label>
+                  <select v-model="newOfferData.company_profile_key">
+                    <option value="firma_a">Wierttrans</option>
+                    <option value="firma_b">MDS Studnie</option>
+                  </select>
+                </div>
                 <div class="form-group">
                   <label>Klient</label>
                   <v-select
@@ -539,11 +526,7 @@ onMounted(() => {
                   <div>Cena netto</div>
                   <div>Akcje</div>
                 </div>
-                <div
-                  v-for="(item, index) in newOfferData.items"
-                  :key="index"
-                  class="offer-item-row"
-                >
+                <div v-for="(item, index) in newOfferData.items" :key="index" class="offer-item-row">
                   <div>{{ index + 1 }}</div>
                   <div>
                     <input v-model="item.name" type="text" placeholder="np. Pompa głębinowa" />
@@ -552,30 +535,17 @@ onMounted(() => {
                   <div><input v-model="item.unit" type="text" /></div>
                   <div><input v-model.number="item.net_price" type="number" step="any" /></div>
                   <div>
-                    <button type="button" class="usun" @click="removeOfferItem(index, false)">
-                      Usuń
-                    </button>
+                    <button type="button" class="usun" @click="removeOfferItem(index, false)">Usuń</button>
                   </div>
                 </div>
               </div>
-              <button
-                type="button"
-                class="btn-secondary"
-                style="margin-top: 10px"
-                @click="addOfferItem(false)"
-              >
-                + Dodaj kolejną pozycję
-              </button>
+              <button type="button" class="btn-secondary" style="margin-top: 10px" @click="addOfferItem(false)">+ Dodaj kolejną pozycję</button>
             </div>
 
             <div class="details-section">
               <h4>Notatki i dodatkowe warunki</h4>
               <div class="form-group">
-                <textarea
-                  v-model="newOfferData.notes"
-                  rows="4"
-                  placeholder="np. Termin ważności oferty, warunki płatności..."
-                ></textarea>
+                <textarea v-model="newOfferData.notes" rows="4" placeholder="np. Termin ważności oferty, warunki płatności..."></textarea>
               </div>
             </div>
           </div>
@@ -656,11 +626,7 @@ onMounted(() => {
                   <div>Cena netto</div>
                   <div>Akcje</div>
                 </div>
-                <div
-                  v-for="(item, index) in editedOfferData.items"
-                  :key="index"
-                  class="offer-item-row"
-                >
+                <div v-for="(item, index) in editedOfferData.items" :key="index" class="offer-item-row">
                   <div>{{ index + 1 }}</div>
                   <div>
                     <input v-model="item.name" type="text" placeholder="np. Pompa głębinowa" />
@@ -669,30 +635,17 @@ onMounted(() => {
                   <div><input v-model="item.unit" type="text" /></div>
                   <div><input v-model.number="item.net_price" type="number" step="any" /></div>
                   <div>
-                    <button type="button" class="usun" @click="removeOfferItem(index, true)">
-                      Usuń
-                    </button>
+                    <button type="button" class="usun" @click="removeOfferItem(index, true)">Usuń</button>
                   </div>
                 </div>
               </div>
-              <button
-                type="button"
-                class="btn-secondary"
-                style="margin-top: 10px"
-                @click="addOfferItem(true)"
-              >
-                + Dodaj kolejną pozycję
-              </button>
+              <button type="button" class="btn-secondary" style="margin-top: 10px" @click="addOfferItem(true)">+ Dodaj kolejną pozycję</button>
             </div>
 
             <div class="details-section">
               <h4>Notatki i dodatkowe warunki</h4>
               <div class="form-group">
-                <textarea
-                  v-model="editedOfferData.notes"
-                  rows="4"
-                  placeholder="np. Termin ważności oferty, warunki płatności..."
-                ></textarea>
+                <textarea v-model="editedOfferData.notes" rows="4" placeholder="np. Termin ważności oferty, warunki płatności..."></textarea>
               </div>
             </div>
           </div>
