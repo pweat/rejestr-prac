@@ -339,9 +339,18 @@ td {
   color: var(--text-color-secondary);
 }
 .actions-cell {
-  display: flex;
-  gap: 8px;
-  justify-content: flex-start; /* ZMIANA: Wyrównanie do lewej */
+  /* Wyrównuje tekst i elementy wewnątrz do lewej */
+  text-align: left;
+}
+
+/* Dodajemy odstęp między przyciskami */
+.actions-cell button + button {
+  margin-left: 8px;
+}
+
+.actions-cell::before {
+  /* Ta reguła pozostaje bez zmian */
+  display: none;
 }
 
 /* --- Przyciski --- */
@@ -559,10 +568,9 @@ button.anuluj {
     color: var(--grey);
   }
   .actions-cell {
-    padding-top: 20px;
     display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
+    gap: 8px;
+    justify-content: flex-start;
   }
   .actions-cell::before {
     display: none; /* Ukryj label dla komórki akcji */
