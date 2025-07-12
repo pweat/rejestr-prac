@@ -14,6 +14,8 @@ export default defineConfig({
         short_name: 'Zentroo',
         description: 'Aplikacja do zarządzania zleceniami firmy Zentroo.',
         theme_color: '#ffffff',
+        start_url: '/',
+        display: 'standalone',
         icons: [
           {
             src: 'icon-192x192.png',
