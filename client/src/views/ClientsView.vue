@@ -269,7 +269,7 @@ watch(searchQuery, () => {
 onMounted(() => {
   fetchClients();
   // Sprawdzamy, czy URL zawiera specjalną akcję ze skrótu PWA
-  if (route.query.action === 'new') {
+  if (router.query.action === 'new') {
     handleShowAddModal();
   }
 });
