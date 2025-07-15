@@ -272,6 +272,9 @@ watch(searchQuery, () => {
 /** Pobiera początkową listę klientów po zamontowaniu komponentu. */
 onMounted(() => {
   fetchClients();
+  if (route.query.action === 'new') {
+    handleShowAddModal();
+  }
 });
 </script>
 

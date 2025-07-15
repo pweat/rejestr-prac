@@ -292,6 +292,9 @@ watch(
 onMounted(() => {
   fetchJobs();
   fetchClientsForSelect();
+  if (route.query.action === 'new') {
+    handleShowAddJobModal();
+  }
 });
 </script>
 
