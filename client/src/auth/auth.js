@@ -84,3 +84,9 @@ export function getUserRole() {
     return null;
   }
 }
+
+export function clearAuthData() {
+  localStorage.removeItem(TOKEN_KEY);
+  // W przyszłości, jeśli będziemy zapisywać więcej danych (np. nazwę użytkownika),
+  // dodamy je tutaj do usunięcia.
+}

@@ -1,32 +1,12 @@
 /**
  * @file router/index.js
  * @description Główny plik konfiguracyjny dla Vue Router.
- * Definiuje wszystkie ścieżki (trasy) w aplikacji, włącza leniwe ładowanie (lazy loading)
- * dla widoków oraz implementuje globalną ochronę ścieżek wymagających uwierzytelnienia.
  */
-
-// ===================================================================================
-// 📜 IMPORTS
-// ===================================================================================
 
 import { createRouter, createWebHistory } from 'vue-router';
-import { isAuthenticated } from '../auth/auth.js';
+// Zmieniamy import - potrzebujemy tylko funkcji getToken
+import { getToken } from '../auth/auth.js';
 
-// ===================================================================================
-// 🗺️ DEFINICJE ŚCIEŻEK (ROUTES)
-// ===================================================================================
-
-/**
- * Tablica obiektów definiujących każdą dostępną ścieżkę w aplikacji.
- *
- * Użycie `component: () => import(...)` to tzw. "lazy loading" (leniwe ładowanie).
- * Oznacza to, że kod dla danego widoku zostanie pobrany przez przeglądarkę
- * dopiero wtedy, gdy użytkownik wejdzie na tę konkretną podstronę,
- * co przyspiesza początkowe ładowanie aplikacji.
- *
- * Pole `meta: { requiresAuth: true }` to niestandardowe dane, które pozwalają nam
- * oznaczyć ścieżki wymagające zalogowania.
- */
 const routes = [
   {
     path: '/',
@@ -62,49 +42,28 @@ const routes = [
     path: '/login',
     name: 'login',
     component: () => import('../views/LoginView.vue'),
-    // Ta ścieżka nie wymaga autoryzacji
   },
 ];
 
-// ===================================================================================
-// 🚀 TWORZENIE INSTANCJI ROUTERA
-// ===================================================================================
-
 const router = createRouter({
-  // Używa `createWebHistory` dla "czystych" adresów URL bez hasha (#).
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: routes,
 });
 
-// ===================================================================================
-// 🛡️ GLOBALNA OCHRONA ŚCIEŻEK (NAVIGATION GUARD)
-// ===================================================================================
-
-/**
- * Ta funkcja jest wywoływana przed każdą próbą zmiany ścieżki w aplikacji.
- * @param {object} to - Obiekt reprezentujący ścieżkę, do której nawigujemy.
- * @param {object} from - Obiekt reprezentujący ścieżkę, z której przychodzimy.
- * @param {function} next - Funkcja, którą należy wywołać, aby kontynuować lub przekierować nawigację.
- */
 router.beforeEach((to, from, next) => {
-  const loggedIn = isAuthenticated.value;
+  // === KLUCZOWA POPRAWKA ===
+  // Zamiast używać reaktywnego 'isAuthenticated.value',
+  // bezpośrednio sprawdzamy, czy token istnieje w momencie nawigacji.
+  // To rozwiązuje problem z "mignięciem", ponieważ jest to natychmiastowe.
+  const loggedIn = !!getToken();
 
-  // Jeśli strona wymaga logowania, a użytkownik NIE JEST zalogowany -> przekieruj na /login
   if (to.meta.requiresAuth && !loggedIn) {
     next({ name: 'login' });
-  }
-  // NOWA REGUŁA: Jeśli użytkownik JEST zalogowany i próbuje wejść na /login -> przekieruj na pulpit
-  else if (to.name === 'login' && loggedIn) {
+  } else if (to.name === 'login' && loggedIn) {
     next({ name: 'dashboard' });
-  }
-  // W każdym innym przypadku, po prostu pozwól na nawigację
-  else {
+  } else {
     next();
   }
 });
-
-// ===================================================================================
-//  EXPORT
-// ===================================================================================
 
 export default router;

@@ -6,6 +6,7 @@ import { ref, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { getAuthHeaders, removeToken } from '../auth/auth.js';
 import { formatDate } from '../utils/formatters.js';
+import { authenticatedFetch } from '../api/api.js';
 
 // ================================================================================================
 // ⚙️ KONFIGURACJA I INICJALIZACJA
@@ -45,7 +46,7 @@ const selectedMonth = ref(new Date().toISOString().slice(0, 7));
  */
 async function fetchServiceReminders() {
   try {
-    const response = await fetch(`${API_URL}/api/service-reminders`, { headers: getAuthHeaders() });
+    const response = await authenticatedFetch(`${API_URL}/api/service-reminders`);
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || 'Błąd pobierania powiadomień');
     serviceReminders.value = result;
@@ -62,9 +63,7 @@ async function fetchServiceReminders() {
  */
 async function fetchLowStockItems() {
   try {
-    const response = await fetch(`${API_URL}/api/inventory/low-stock`, {
-      headers: getAuthHeaders(),
-    });
+    const response = await authenticatedFetch(`${API_URL}/api/inventory/low-stock`);
     if (!response.ok) throw new Error('Błąd pobierania danych o niskim stanie magazynowym');
     lowStockItems.value = await response.json();
   } catch (error) {
@@ -82,9 +81,7 @@ async function getStatsForMonth() {
   try {
     const [year, month] = selectedMonth.value.split('-');
     const params = new URLSearchParams({ year, month });
-    const response = await fetch(`${API_URL}/api/stats/monthly-summary?${params.toString()}`, {
-      headers: getAuthHeaders(),
-    });
+    const response = await authenticatedFetch(`${API_URL}/api/stats/monthly-summary?${params.toString()}`);
     if (!response.ok) throw new Error('Błąd pobierania statystyk');
     monthlyStats.value = await response.json();
   } catch (error) {
@@ -172,9 +169,7 @@ onMounted(() => {
             <div class="reminder-icon">⚠️</div>
             <div class="reminder-details">
               <strong>{{ reminder.client_name || 'Klient' }} ({{ reminder.client_phone }})</strong>
-              <span
-                >Wymaga serwisu! Ostatnia usługa: {{ formatDate(reminder.last_event_date) }}</span
-              >
+              <span>Wymaga serwisu! Ostatnia usługa: {{ formatDate(reminder.last_event_date) }}</span>
               <small>Następny serwis do: {{ formatDate(reminder.next_service_due) }}</small>
             </div>
           </div>
@@ -212,9 +207,7 @@ onMounted(() => {
           </div>
           <div class="stat-item total-profit">
             <span>Dochód w tym miesiącu:</span>
-            <strong :class="monthlyStats.totalProfit >= 0 ? 'profit-positive' : 'profit-negative'">
-              {{ (monthlyStats.totalProfit || 0).toFixed(2) }} zł
-            </strong>
+            <strong :class="monthlyStats.totalProfit >= 0 ? 'profit-positive' : 'profit-negative'"> {{ (monthlyStats.totalProfit || 0).toFixed(2) }} zł </strong>
           </div>
         </div>
         <div v-else class="empty-message">
@@ -232,10 +225,7 @@ onMounted(() => {
             <div class="reminder-icon">❗</div>
             <div class="reminder-details">
               <strong>{{ item.name }}</strong>
-              <span
-                >Stan: {{ item.quantity }} {{ item.unit }} (Minimum:
-                {{ item.min_stock_level }})</span
-              >
+              <span>Stan: {{ item.quantity }} {{ item.unit }} (Minimum: {{ item.min_stock_level }})</span>
             </div>
           </div>
         </div>

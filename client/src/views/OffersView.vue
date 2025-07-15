@@ -6,6 +6,7 @@ import { ref, onMounted, watch } from 'vue';
 import { getAuthHeaders, getUserRole } from '../auth/auth.js';
 import vSelect from 'vue-select';
 import PaginationControls from '../components/PaginationControls.vue';
+import { authenticatedFetch } from '../api/api.js';
 
 // ================================================================================================
 // STAŁE I KONFIGURACJA
@@ -112,9 +113,7 @@ const filterClients = (options, search) => {
 async function fetchOffers() {
   isLoading.value = true;
   try {
-    const response = await fetch(`${API_URL}/api/offers?page=${currentPage.value}`, {
-      headers: getAuthHeaders(),
-    });
+    const response = await authenticatedFetch(`${API_URL}/api/offers?page=${currentPage.value}`);
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || 'Błąd pobierania ofert');
 
@@ -135,9 +134,7 @@ async function fetchOffers() {
  */
 async function fetchClientsForSelect() {
   try {
-    const response = await fetch(`${API_URL}/api/clients-for-select`, {
-      headers: getAuthHeaders(),
-    });
+    const response = await authenticatedFetch(`${API_URL}/api/clients-for-select`);
     if (!response.ok) throw new Error('Błąd pobierania listy klientów');
     availableClients.value = await response.json();
   } catch (error) {
@@ -166,9 +163,8 @@ async function handleSaveOffer() {
   }
 
   try {
-    const response = await fetch(`${API_URL}/api/offers`, {
+    const response = await authenticatedFetch(`${API_URL}/api/offers`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
       body: JSON.stringify(payload),
     });
 
@@ -202,9 +198,8 @@ async function handleUpdateOffer() {
   };
 
   try {
-    const response = await fetch(`${API_URL}/api/offers/${editedOfferData.value.id}`, {
+    const response = await authenticatedFetch(`${API_URL}/api/offers/${editedOfferData.value.id}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
       body: JSON.stringify(payload),
     });
     if (!response.ok) {
@@ -229,9 +224,8 @@ async function handleDeleteOffer(offerId) {
     return;
   }
   try {
-    const response = await fetch(`${API_URL}/api/offers/${offerId}`, {
+    const response = await authenticatedFetch(`${API_URL}/api/offers/${offerId}`, {
       method: 'DELETE',
-      headers: getAuthHeaders(),
     });
 
     if (!response.ok && response.status !== 204) {
@@ -254,9 +248,7 @@ async function handleDeleteOffer(offerId) {
 async function handleGeneratePdf(offerId) {
   try {
     // 1. Wykonaj zapytanie do serwera
-    const response = await fetch(`${API_URL}/api/offers/${offerId}/download`, {
-      headers: getAuthHeaders(),
-    });
+    const response = await authenticatedFetch(`${API_URL}/api/offers/${offerId}/download`);
 
     if (!response.ok) {
       try {
@@ -325,7 +317,7 @@ async function handleShowEditModal(offerId) {
   editedOfferData.value = null; // Zresetuj dane na wypadek błędu
   showEditOfferModal.value = true;
   try {
-    const response = await fetch(`${API_URL}/api/offers/${offerId}`, { headers: getAuthHeaders() });
+    const response = await authenticatedFetch(`${API_URL}/api/offers/${offerId}`);
     if (!response.ok) throw new Error('Błąd pobierania danych oferty do edycji.');
 
     const fullOfferData = await response.json();

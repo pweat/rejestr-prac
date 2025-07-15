@@ -6,6 +6,7 @@ import { ref, onMounted, watch } from 'vue';
 import { RouterLink, useRouter } from 'vue-router';
 import PaginationControls from '../components/PaginationControls.vue';
 import { getAuthHeaders, removeToken, getUserRole } from '../auth/auth.js';
+import { authenticatedFetch } from '../api/api.js';
 
 // ================================================================================================
 // ⚙️ KONFIGURACJA I INICJALIZACJA
@@ -100,9 +101,7 @@ async function fetchClients() {
       sortBy: sortBy.value,
       sortOrder: sortOrder.value,
     });
-    const response = await fetch(`${API_URL}/api/clients?${params.toString()}`, {
-      headers: getAuthHeaders(),
-    });
+    const response = await authenticatedFetch(`${API_URL}/api/clients?${params.toString()}`);
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || 'Błąd pobierania listy klientów');
 
@@ -129,9 +128,8 @@ async function handleAddClient() {
     return;
   }
   try {
-    const response = await fetch(`${API_URL}/api/clients`, {
+    const response = await authenticatedFetch(`${API_URL}/api/clients`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
       body: JSON.stringify(newClientData.value),
     });
     const result = await response.json();
@@ -155,9 +153,8 @@ async function handleUpdateClient() {
   if (!editedClientData.value) return;
   try {
     const client = editedClientData.value;
-    const response = await fetch(`${API_URL}/api/clients/${client.id}`, {
+    const response = await authenticatedFetch(`${API_URL}/api/clients/${client.id}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
       body: JSON.stringify(client),
     });
     const result = await response.json();
@@ -186,9 +183,8 @@ async function handleDeleteClient(clientId) {
   if (!confirm('Czy na pewno chcesz usunąć tego klienta? Usunięcie go skasuje również WSZYSTKIE jego zlecenia.')) return;
 
   try {
-    const response = await fetch(`${API_URL}/api/clients/${clientId}`, {
+    const response = await authenticatedFetch(`${API_URL}/api/clients/${clientId}`, {
       method: 'DELETE',
-      headers: getAuthHeaders(),
     });
     if (!response.ok && response.status !== 204) {
       const result = await response.json();

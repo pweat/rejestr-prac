@@ -6,6 +6,7 @@ import { ref, onMounted, watch } from 'vue';
 import { getAuthHeaders, getUserRole } from '../auth/auth.js';
 import { formatDate } from '../utils/formatters.js';
 import PaginationControls from '../components/PaginationControls.vue';
+import { authenticatedFetch } from '../api/api.js';
 
 // ================================================================================================
 // ⚙️ KONFIGURACJA I INICJALIZACJA
@@ -126,9 +127,7 @@ async function fetchItems() {
       sortBy: sortBy.value,
       sortOrder: sortOrder.value,
     });
-    const response = await fetch(`${API_URL}/api/inventory?${params.toString()}`, {
-      headers: getAuthHeaders(),
-    });
+    const response = await authenticatedFetch(`${API_URL}/api/inventory?${params.toString()}`);
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || 'Błąd pobierania danych z magazynu');
     processPaginatedResponse(result);
@@ -149,9 +148,8 @@ async function handleAddItem() {
     return;
   }
   try {
-    const response = await fetch(`${API_URL}/api/inventory`, {
+    const response = await authenticatedFetch(`${API_URL}/api/inventory`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
       body: JSON.stringify(newItemData.value),
     });
     const result = await response.json();
@@ -171,9 +169,7 @@ async function handleAddItem() {
 async function handleUpdateItem() {
   if (!editedItemData.value) return;
   try {
-    const response = await fetch(`${API_URL}/api/inventory/${editedItemData.value.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+    const response = await authenticatedFetch(`${API_URL}/api/inventory/${editedItemData.value.id}`, {
       body: JSON.stringify(editedItemData.value),
     });
     const updatedItem = await response.json();
@@ -196,17 +192,11 @@ async function handleUpdateItem() {
  * @param {number} itemId - ID przedmiotu do usunięcia.
  */
 async function handleDeleteItem(itemId) {
-  if (
-    !confirm(
-      'Czy na pewno chcesz trwale usunąć ten przedmiot z magazynu? Usunie to również całą jego historię operacji.'
-    )
-  )
-    return;
+  if (!confirm('Czy na pewno chcesz trwale usunąć ten przedmiot z magazynu? Usunie to również całą jego historię operacji.')) return;
 
   try {
-    const response = await fetch(`${API_URL}/api/inventory/${itemId}`, {
+    const response = await authenticatedFetch(`${API_URL}/api/inventory/${itemId}`, {
       method: 'DELETE',
-      headers: getAuthHeaders(),
     });
     if (!response.ok && response.status !== 204) {
       const result = await response.json();
@@ -223,17 +213,13 @@ async function handleDeleteItem(itemId) {
  * Przetwarza operację magazynową (przyjęcie, wydanie, zmiana statusu).
  */
 async function handleProcessOperation() {
-  if (
-    (operationType.value === 'delivery' || operationType.value === 'withdrawal') &&
-    (!operationQuantity.value || operationQuantity.value <= 0)
-  ) {
+  if ((operationType.value === 'delivery' || operationType.value === 'withdrawal') && (!operationQuantity.value || operationQuantity.value <= 0)) {
     alert('Proszę podać dodatnią ilość dla tej operacji.');
     return;
   }
   try {
-    const response = await fetch(`${API_URL}/api/inventory/operation`, {
+    const response = await authenticatedFetch(`${API_URL}/api/inventory/operation`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
       body: JSON.stringify({
         itemId: currentOperationItem.value.id,
         operationType: operationType.value,
@@ -264,9 +250,7 @@ async function handleShowHistory(item) {
   isHistoryLoading.value = true;
   showHistoryModal.value = true;
   try {
-    const response = await fetch(`${API_URL}/api/inventory/${item.id}/history`, {
-      headers: getAuthHeaders(),
-    });
+    const response = await authenticatedFetch(`${API_URL}/api/inventory/${item.id}/history`);
     if (!response.ok) throw new Error('Błąd pobierania historii operacji');
     itemHistory.value = await response.json();
   } catch (error) {
@@ -344,14 +328,7 @@ onMounted(() => {
   <div class="container">
     <div class="header">
       <h1>Stan Magazynowy ({{ totalItems }})</h1>
-      <button
-        v-if="userRole !== 'viewer'"
-        class="add-new-btn"
-        @click="handleShowAddItemModal"
-        :disabled="isLoading"
-      >
-        &#43; Dodaj Przedmiot
-      </button>
+      <button v-if="userRole !== 'viewer'" class="add-new-btn" @click="handleShowAddItemModal" :disabled="isLoading">&#43; Dodaj Przedmiot</button>
     </div>
 
     <div class="search-container">
@@ -387,59 +364,24 @@ onMounted(() => {
                   <p>Brak przedmiotów w magazynie.</p>
                 </td>
               </tr>
-              <tr
-                v-for="item in inventoryItems"
-                :key="item.id"
-                :class="getItemStatus(item).class.replace('status', 'status-row')"
-              >
+              <tr v-for="item in inventoryItems" :key="item.id" :class="getItemStatus(item).class.replace('status', 'status-row')">
                 <td data-label="Nazwa Przedmiotu">{{ item.name }}</td>
                 <td data-label="Ilość" class="quantity-cell">{{ item.quantity }}</td>
                 <td data-label="Jednostka">{{ item.unit }}</td>
                 <td data-label="Status">
-                  <span class="status-badge" :class="getItemStatus(item).class">{{
-                    getItemStatus(item).text
-                  }}</span>
+                  <span class="status-badge" :class="getItemStatus(item).class">{{ getItemStatus(item).text }}</span>
                 </td>
                 <td data-label="Akcje" class="actions-cell">
-                  <button
-                    v-if="userRole !== 'viewer'"
-                    class="btn-secondary"
-                    @click="handleShowOperationModal(item)"
-                  >
-                    Operacje
-                  </button>
-                  <button
-                    v-if="userRole !== 'viewer'"
-                    class="pokaż"
-                    @click="handleShowHistory(item)"
-                  >
-                    Historia
-                  </button>
-                  <button
-                    v-if="userRole !== 'viewer'"
-                    class="edytuj"
-                    @click="handleShowEditModal(item)"
-                  >
-                    Edytuj
-                  </button>
-                  <button
-                    v-if="userRole === 'admin'"
-                    class="usun"
-                    @click="handleDeleteItem(item.id)"
-                  >
-                    Usuń
-                  </button>
+                  <button v-if="userRole !== 'viewer'" class="btn-secondary" @click="handleShowOperationModal(item)">Operacje</button>
+                  <button v-if="userRole !== 'viewer'" class="pokaż" @click="handleShowHistory(item)">Historia</button>
+                  <button v-if="userRole !== 'viewer'" class="edytuj" @click="handleShowEditModal(item)">Edytuj</button>
+                  <button v-if="userRole === 'admin'" class="usun" @click="handleDeleteItem(item.id)">Usuń</button>
                 </td>
               </tr>
             </tbody>
           </table>
         </div>
-        <PaginationControls
-          v-if="totalPages > 1"
-          :current-page="currentPage"
-          :total-pages="totalPages"
-          @page-changed="handlePageChange"
-        />
+        <PaginationControls v-if="totalPages > 1" :current-page="currentPage" :total-pages="totalPages" @page-changed="handlePageChange" />
       </div>
     </div>
   </div>
@@ -458,33 +400,15 @@ onMounted(() => {
           </div>
           <div class="form-group">
             <label for="itemUnit">Jednostka miary</label>
-            <input
-              type="text"
-              id="itemUnit"
-              v-model="newItemData.unit"
-              placeholder="np. szt., m, kg"
-              required
-            />
+            <input type="text" id="itemUnit" v-model="newItemData.unit" placeholder="np. szt., m, kg" required />
           </div>
           <div class="form-group">
             <label for="itemQuantity">Ilość początkowa</label>
-            <input
-              type="number"
-              step="any"
-              id="itemQuantity"
-              v-model.number="newItemData.quantity"
-              required
-            />
+            <input type="number" step="any" id="itemQuantity" v-model.number="newItemData.quantity" required />
           </div>
           <div class="form-group">
             <label for="itemMinStock">Minimalny stan magazynowy (próg alertu)</label>
-            <input
-              type="number"
-              step="any"
-              id="itemMinStock"
-              v-model.number="newItemData.min_stock_level"
-              required
-            />
+            <input type="number" step="any" id="itemMinStock" v-model.number="newItemData.min_stock_level" required />
           </div>
         </div>
         <div class="modal-actions">
@@ -513,23 +437,11 @@ onMounted(() => {
           </div>
           <div class="form-group">
             <label for="editItemQuantity">Ilość</label>
-            <input
-              type="number"
-              step="any"
-              id="editItemQuantity"
-              v-model.number="editedItemData.quantity"
-              required
-            />
+            <input type="number" step="any" id="editItemQuantity" v-model.number="editedItemData.quantity" required />
           </div>
           <div class="form-group">
             <label for="editItemMinStock">Minimalny stan magazynowy</label>
-            <input
-              type="number"
-              step="any"
-              id="editItemMinStock"
-              v-model.number="editedItemData.min_stock_level"
-              required
-            />
+            <input type="number" step="any" id="editItemMinStock" v-model.number="editedItemData.min_stock_level" required />
           </div>
         </div>
         <div class="modal-actions">
@@ -554,44 +466,17 @@ onMounted(() => {
           </p>
           <div class="form-group operation-type-group">
             <label>Typ operacji:</label>
+            <div><input type="radio" id="op_delivery" value="delivery" v-model="operationType" /><label for="op_delivery">Przyjęcie (Dostawa)</label></div>
+            <div><input type="radio" id="op_withdrawal" value="withdrawal" v-model="operationType" /><label for="op_withdrawal">Wydanie</label></div>
             <div>
-              <input type="radio" id="op_delivery" value="delivery" v-model="operationType" /><label
-                for="op_delivery"
-                >Przyjęcie (Dostawa)</label
-              >
-            </div>
-            <div>
-              <input
-                type="radio"
-                id="op_withdrawal"
-                value="withdrawal"
-                v-model="operationType"
-              /><label for="op_withdrawal">Wydanie</label>
-            </div>
-            <div>
-              <input
-                type="radio"
-                id="op_toggle_ordered"
-                value="toggle_ordered"
-                v-model="operationType"
-              /><label for="op_toggle_ordered"
-                >Zmień status 'Zamówione' (aktualnie:
-                {{ currentOperationItem.is_ordered ? 'Tak' : 'Nie' }})</label
+              <input type="radio" id="op_toggle_ordered" value="toggle_ordered" v-model="operationType" /><label for="op_toggle_ordered"
+                >Zmień status 'Zamówione' (aktualnie: {{ currentOperationItem.is_ordered ? 'Tak' : 'Nie' }})</label
               >
             </div>
           </div>
-          <div
-            v-if="operationType === 'delivery' || operationType === 'withdrawal'"
-            class="form-group"
-          >
+          <div v-if="operationType === 'delivery' || operationType === 'withdrawal'" class="form-group">
             <label for="opQuantity">Ilość:</label>
-            <input
-              type="number"
-              step="any"
-              id="opQuantity"
-              v-model.number="operationQuantity"
-              min="0.01"
-            />
+            <input type="number" step="any" id="opQuantity" v-model.number="operationQuantity" min="0.01" />
           </div>
         </div>
         <div class="modal-actions">
@@ -618,11 +503,7 @@ onMounted(() => {
               <span>przez: {{ entry.username || 'Brak danych' }}</span>
               <span>dnia: {{ formatDate(entry.operation_date, true) }}</span>
             </div>
-            <div
-              v-if="entry.change_quantity !== 0"
-              class="history-quantity"
-              :class="entry.change_quantity > 0 ? 'delivery' : 'withdrawal'"
-            >
+            <div v-if="entry.change_quantity !== 0" class="history-quantity" :class="entry.change_quantity > 0 ? 'delivery' : 'withdrawal'">
               {{ entry.change_quantity > 0 ? '+' : '' }}{{ entry.change_quantity }}
             </div>
           </div>

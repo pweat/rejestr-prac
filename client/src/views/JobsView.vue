@@ -8,6 +8,7 @@ import { getAuthHeaders, getUserRole } from '../auth/auth.js';
 import { formatDate } from '../utils/formatters.js';
 import vSelect from 'vue-select';
 import PaginationControls from '../components/PaginationControls.vue';
+import { authenticatedFetch } from '../api/api.js';
 
 // ================================================================================================
 // ⚙️ KONFIGURACJA I INICJALIZACJA
@@ -118,9 +119,7 @@ async function fetchJobs() {
     if (route.query.clientId) {
       params.append('clientId', route.query.clientId);
     }
-    const response = await fetch(`${API_URL}/api/jobs?${params.toString()}`, {
-      headers: getAuthHeaders(),
-    });
+    const response = await authenticatedFetch(`${API_URL}/api/jobs?${params.toString()}`);
     if (!response.ok) throw new Error('Błąd pobierania listy zleceń');
     const result = await response.json();
     jobs.value = result.data;
@@ -137,9 +136,7 @@ async function fetchJobs() {
 
 async function fetchClientsForSelect() {
   try {
-    const response = await fetch(`${API_URL}/api/clients-for-select`, {
-      headers: getAuthHeaders(),
-    });
+    const response = await authenticatedFetch(`${API_URL}/api/clients-for-select`);
     if (!response.ok) throw new Error('Błąd pobierania listy klientów');
     availableClients.value = await response.json();
   } catch (error) {
@@ -153,9 +150,8 @@ async function handleAddJob() {
     return;
   }
   try {
-    const response = await fetch(`${API_URL}/api/jobs`, {
+    const response = await authenticatedFetch(`${API_URL}/api/jobs`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
       body: JSON.stringify(newJobData.value),
     });
     const result = await response.json();
@@ -180,9 +176,8 @@ async function handleUpdateJob() {
   };
 
   try {
-    const response = await fetch(`${API_URL}/api/jobs/${editedJobData.value.id}`, {
+    const response = await authenticatedFetch(`${API_URL}/api/jobs/${editedJobData.value.id}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
       body: JSON.stringify(payload),
     });
     if (!response.ok) {
@@ -200,9 +195,8 @@ async function handleUpdateJob() {
 async function handleDeleteJob(jobId) {
   if (!confirm('Czy na pewno chcesz usunąć to zlecenie? Tej operacji nie można cofnąć.')) return;
   try {
-    const response = await fetch(`${API_URL}/api/jobs/${jobId}`, {
+    const response = await authenticatedFetch(`${API_URL}/api/jobs/${jobId}`, {
       method: 'DELETE',
-      headers: getAuthHeaders(),
     });
     if (!response.ok && response.status !== 204) {
       throw new Error('Nie udało się usunąć zlecenia.');
@@ -227,7 +221,7 @@ async function handleShowDetails(jobId) {
   isDetailsLoading.value = true;
   showDetailsModal.value = true;
   try {
-    const response = await fetch(`${API_URL}/api/jobs/${jobId}`, { headers: getAuthHeaders() });
+    const response = await authenticatedFetch(`${API_URL}/api/jobs/${jobId}`);
     if (!response.ok) throw new Error('Błąd pobierania szczegółów zlecenia');
     selectedJobDetails.value = await response.json();
   } catch (error) {
@@ -243,7 +237,7 @@ async function handleShowEditModal(job) {
   isDetailsLoading.value = true;
   showEditJobModal.value = true;
   try {
-    const response = await fetch(`${API_URL}/api/jobs/${job.id}`, { headers: getAuthHeaders() });
+    const response = await authenticatedFetch(`${API_URL}/api/jobs/${job.id}`);
     if (!response.ok) throw new Error('Błąd pobierania danych do edycji');
     editedJobData.value = await response.json();
   } catch (error) {
