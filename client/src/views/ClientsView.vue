@@ -268,6 +268,7 @@ watch(searchQuery, () => {
 /** Pobiera początkową listę klientów po zamontowaniu komponentu. */
 onMounted(() => {
   fetchClients();
+  // Sprawdzamy, czy URL zawiera specjalną akcję ze skrótu PWA
   if (route.query.action === 'new') {
     handleShowAddModal();
   }
