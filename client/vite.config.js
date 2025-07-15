@@ -8,24 +8,26 @@ export default defineConfig({
     // Konfiguracja dodatku PWA
     VitePWA({
       registerType: 'autoUpdate',
-      // manifest.json jest teraz generowany stąd
       manifest: {
-        name: 'Zentroo - Studnie',
-        short_name: 'Zentroo',
-        description: 'Aplikacja do zarządzania zleceniami firmy Zentroo.',
-        theme_color: '#ffffff',
-        start_url: '/',
-        display: 'standalone',
-        icons: [
+        // ... ta sekcja pozostaje bez zmian ...
+      },
+      // 👇 DODAJ TEN NOWY BLOK 👇
+      workbox: {
+        runtimeCaching: [
           {
-            src: 'icon-192x192.png',
-            sizes: '192x192',
-            type: 'image/png',
-          },
-          {
-            src: 'icon-512x512.png',
-            sizes: '512x512',
-            type: 'image/png',
+            // Strategia dla naszego API
+            urlPattern: ({ url }) => url.pathname.startsWith('/api'),
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'api-cache',
+              expiration: {
+                maxEntries: 50,
+                maxAgeSeconds: 60 * 60 * 24, // 1 dzień
+              },
+              cacheableResponse: {
+                statuses: [0, 200],
+              },
+            },
           },
         ],
       },
