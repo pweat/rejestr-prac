@@ -1,21 +1,49 @@
 import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
-import { VitePWA } from 'vite-plugin-pwa'; // <-- Importujemy dodatek
+import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
   plugins: [
     vue(),
-    // Konfiguracja dodatku PWA
     VitePWA({
       registerType: 'autoUpdate',
+      // Ta sekcja musi być w pełni uzupełniona
       manifest: {
-        // ... ta sekcja pozostaje bez zmian ...
+        name: 'Zentroo - Rejestr Prac',
+        short_name: 'Zentroo',
+        description: 'Aplikacja do zarządzania zleceniami firmy Zentroo.',
+        theme_color: '#ffffff',
+        background_color: '#ffffff',
+        start_url: '/',
+        display: 'standalone',
+        icons: [
+          {
+            src: 'icon-192x192.png',
+            sizes: '192x192',
+            type: 'image/png',
+          },
+          {
+            src: 'icon-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+          },
+        ],
+        shortcuts: [
+          {
+            name: 'Nowe Zlecenie',
+            url: '/zlecenia?action=new',
+            icons: [{ src: '/icon-192x192.png', sizes: '192x192' }],
+          },
+          {
+            name: 'Nowy Klient',
+            url: '/klienci?action=new',
+            icons: [{ src: '/icon-192x192.png', sizes: '192x192' }],
+          },
+        ],
       },
-      // 👇 DODAJ TEN NOWY BLOK 👇
       workbox: {
         runtimeCaching: [
           {
-            // Strategia dla naszego API
             urlPattern: ({ url }) => url.pathname.startsWith('/api'),
             handler: 'NetworkFirst',
             options: {
