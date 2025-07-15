@@ -3,7 +3,7 @@
 // 📜 IMPORTS
 // ================================================================================================
 import { ref, onMounted, watch } from 'vue';
-import { RouterLink, useRouter } from 'vue-router';
+import { RouterLink, useRouter, useRoute } from 'vue-router';
 import PaginationControls from '../components/PaginationControls.vue';
 import { getAuthHeaders, removeToken, getUserRole } from '../auth/auth.js';
 import { authenticatedFetch } from '../api/api.js';
@@ -17,6 +17,7 @@ const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
 
 /** Dostęp do instancji routera Vue. */
 const router = useRouter();
+const route = useRoute();
 
 /** Rola zalogowanego użytkownika, pobierana z tokenu. */
 const userRole = getUserRole();
@@ -269,7 +270,7 @@ watch(searchQuery, () => {
 onMounted(() => {
   fetchClients();
   // Sprawdzamy, czy URL zawiera specjalną akcję ze skrótu PWA
-  if (router.query.action === 'new') {
+  if (route.query.action === 'new') {
     handleShowAddModal();
   }
 });
