@@ -35,7 +35,7 @@ export default defineConfig({
             description: 'Szybko utwórz nowe zlecenie',
             icons: [
               {
-                src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='192' height='192' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 5v14m-7-7h14'%3E%3C/path%3E%3C/svg%3E",
+                src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='192' height='192' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 5v14m-7-7h14'/%3E%3C/svg%3E",
                 sizes: '192x192',
                 type: 'image/svg+xml',
               },
@@ -45,9 +45,10 @@ export default defineConfig({
             name: 'Nowy Klient',
             url: '/klienci?action=new',
             description: 'Szybko dodaj nowego klienta',
+            // Upewnij się, że ta sekcja jest DOKŁADNĄ kopią tej powyżej
             icons: [
               {
-                src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='192' height='192' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 5v14m-7-7h14'%3E%3C/path%3E%3C/svg%3E",
+                src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='192' height='192' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 5v14m-7-7h14'/%3E%3C/svg%3E",
                 sizes: '192x192',
                 type: 'image/svg+xml',
               },
