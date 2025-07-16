@@ -1,15 +1,18 @@
-// plik: client/src/api/api.js
-
 import { getAuthHeaders, clearAuthData } from '../auth/auth.js';
 
-// Nasz nowy, inteligentny "strażnik" dla zapytań fetch
 export async function authenticatedFetch(url, options = {}) {
-  // Dołączamy nagłówki autoryzacji do każdego zapytania
+  const defaultHeaders = getAuthHeaders();
+
+  // NOWA LOGIKA: Jeśli w zapytaniu jest 'body', automatycznie dodaj nagłówek JSON
+  if (options.body) {
+    defaultHeaders['Content-Type'] = 'application/json';
+  }
+
   const newOptions = {
     ...options,
     headers: {
+      ...defaultHeaders,
       ...options.headers,
-      ...getAuthHeaders(),
     },
   };
 
@@ -17,8 +20,8 @@ export async function authenticatedFetch(url, options = {}) {
 
   // Jeśli sesja wygasła (błąd 401 lub 403), wyloguj i przeładuj
   if (response.status === 401 || response.status === 403) {
-    clearAuthData(); // Czyścimy stary token
-    window.location.href = '/login'; // Przekierowujemy do logowania
+    clearAuthData();
+    window.location.href = '/login';
     // Rzucamy błąd, aby zatrzymać dalsze wykonywanie kodu w komponencie
     throw new Error('Sesja wygasła. Proszę zalogować się ponownie.');
   }
