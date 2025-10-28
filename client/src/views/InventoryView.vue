@@ -7,6 +7,7 @@ import { getAuthHeaders, getUserRole } from '../auth/auth.js';
 import { formatDate } from '../utils/formatters.js';
 import PaginationControls from '../components/PaginationControls.vue';
 import { authenticatedFetch } from '../api/api.js';
+import vSelect from 'vue-select';
 
 // ================================================================================================
 // ⚙️ KONFIGURACJA I INICJALIZACJA
@@ -50,6 +51,13 @@ const searchQuery = ref('');
 const sortBy = ref('name');
 const sortOrder = ref('asc');
 
+// NOWE: Stan dla kategorii
+const categories = ref([]); // Lista wszystkich kategorii
+const selectedCategoryId = ref(null); // ID wybranej kategorii do filtrowania
+const showCategoryModal = ref(false); // Widoczność modala zarządzania kategoriami
+const newCategoryName = ref(''); // Nazwa nowej kategorii
+const editingCategory = ref(null); // Kategoria w trakcie edycji
+
 // ================================================================================================
 // 헬 FUNKCJE POMOCNICZE
 // ================================================================================================
@@ -64,6 +72,7 @@ function initializeNewItem() {
     quantity: 0,
     unit: 'szt.',
     min_stock_level: 0,
+    category_id: null, // Dodano category_id
   };
 }
 
@@ -116,6 +125,90 @@ const getItemStatus = (item) => {
 // ================================================================================================
 
 /**
+ * Pobiera listę kategorii z API.
+ */
+async function fetchCategories() {
+  try {
+    const response = await authenticatedFetch(`${API_URL}/api/inventory/categories`);
+    if (!response.ok) throw new Error('Błąd pobierania kategorii');
+    categories.value = await response.json();
+  } catch (error) {
+    console.error('Błąd podczas pobierania kategorii:', error);
+    // Nie alertujemy, żeby nie spamować przy każdym ładowaniu
+  }
+}
+
+/**
+ * Dodaje nową kategorię.
+ */
+async function handleAddCategory() {
+  if (!newCategoryName.value.trim()) {
+    alert('Nazwa kategorii nie może być pusta.');
+    return;
+  }
+  try {
+    const response = await authenticatedFetch(`${API_URL}/api/inventory/categories`, {
+      method: 'POST',
+      body: JSON.stringify({ name: newCategoryName.value.trim() }),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Błąd dodawania kategorii.');
+    await fetchCategories(); // Odśwież listę
+    newCategoryName.value = ''; // Wyczyść pole
+  } catch (error) {
+    console.error('Błąd podczas dodawania kategorii:', error);
+    alert(error.message);
+  }
+}
+
+/**
+ * Aktualizuje nazwę kategorii.
+ */
+async function handleUpdateCategory() {
+  if (!editingCategory.value || !editingCategory.value.name.trim()) {
+    alert('Nazwa kategorii nie może być pusta.');
+    return;
+  }
+  try {
+    const response = await authenticatedFetch(`${API_URL}/api/inventory/categories/${editingCategory.value.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name: editingCategory.value.name.trim() }),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Błąd aktualizacji kategorii.');
+    await fetchCategories(); // Odśwież listę
+    editingCategory.value = null; // Zakończ edycję
+  } catch (error) {
+    console.error('Błąd podczas aktualizacji kategorii:', error);
+    alert(error.message);
+  }
+}
+
+/**
+ * Usuwa kategorię.
+ */
+async function handleDeleteCategory(categoryId) {
+  if (!confirm('Czy na pewno chcesz usunąć tę kategorię? Przedmioty z tej kategorii nie zostaną usunięte, ale stracą przypisanie.')) return;
+  try {
+    const response = await authenticatedFetch(`${API_URL}/api/inventory/categories/${categoryId}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok && response.status !== 204) {
+       const result = await response.json();
+       throw new Error(result.error || 'Nie udało się usunąć kategorii.');
+    }
+    await fetchCategories(); // Odśwież listę
+    // Jeśli usunięto aktualnie wybraną kategorię, zresetuj filtr
+    if (selectedCategoryId.value === categoryId) {
+      selectedCategoryId.value = null;
+    }
+  } catch (error) {
+    console.error('Błąd podczas usuwania kategorii:', error);
+    alert(error.message);
+  }
+}
+
+/**
  * Pobiera przedmioty z magazynu na podstawie aktualnych filtrów.
  */
 async function fetchItems() {
@@ -124,6 +217,7 @@ async function fetchItems() {
     const params = new URLSearchParams({
       page: currentPage.value,
       search: searchQuery.value,
+      categoryId: selectedCategoryId.value || '', // Dodano categoryId
       sortBy: sortBy.value,
       sortOrder: sortOrder.value,
     });
@@ -305,6 +399,11 @@ function changeSort(key) {
 // 👀 WATCHERS & CYKL ŻYCIA
 // ================================================================================================
 
+watch(selectedCategoryId, () => {
+    currentPage.value = 1; // Wróć na 1 stronę po zmianie kategorii
+    fetchItems();
+});
+
 /** Obserwuje zmiany w paginacji i sortowaniu, by odświeżyć listę. */
 watch([currentPage, sortBy, sortOrder], fetchItems);
 
@@ -321,6 +420,7 @@ watch(searchQuery, () => {
 /** Pobiera dane po zamontowaniu komponentu. */
 onMounted(() => {
   fetchItems();
+  fetchCategories(); // Dodano pobieranie kategorii przy starcie
 });
 </script>
 
@@ -335,6 +435,19 @@ onMounted(() => {
       <input type="text" v-model="searchQuery" placeholder="Szukaj po nazwie lub jednostce..." />
     </div>
 
+    <div class="filter-container">
+  <div class="form-group">
+    <label for="categoryFilter">Filtruj wg kategorii:</label>
+    <select id="categoryFilter" v-model="selectedCategoryId">
+      <option :value="null">-- Wszystkie kategorie --</option>
+      <option v-for="cat in categories" :key="cat.id" :value="cat.id">
+        {{ cat.name }}
+      </option>
+    </select>
+  </div>
+  <button class="btn-secondary" @click="showCategoryModal = true">Zarządzaj Kategoriami</button>
+</div>
+
     <div class="main-content-wrapper">
       <div v-if="isLoading" class="loading-overlay"><div class="spinner"></div></div>
       <div class="table-and-pagination" :class="{ 'is-loading': isLoading }">
@@ -342,6 +455,7 @@ onMounted(() => {
           <table>
             <thead>
               <tr>
+                <th>Kategoria</th>
                 <th @click="changeSort('name')" class="sortable">
                   Nazwa Przedmiotu
                   <span v-if="sortBy === 'name'">{{ sortOrder === 'asc' ? '▲' : '▼' }}</span>
@@ -365,6 +479,7 @@ onMounted(() => {
                 </td>
               </tr>
               <tr v-for="item in inventoryItems" :key="item.id" :class="getItemStatus(item).class.replace('status', 'status-row')">
+                <td data-label="Kategoria">{{ item.category_name || '-' }}</td>
                 <td data-label="Nazwa Przedmiotu">{{ item.name }}</td>
                 <td data-label="Ilość" class="quantity-cell">{{ item.quantity }}</td>
                 <td data-label="Jednostka">{{ item.unit }}</td>
@@ -410,6 +525,15 @@ onMounted(() => {
             <label for="itemMinStock">Minimalny stan magazynowy (próg alertu)</label>
             <input type="number" step="any" id="itemMinStock" v-model.number="newItemData.min_stock_level" required />
           </div>
+          <div class="form-group">
+  <label for="itemCategory">Kategoria (opcjonalnie)</label>
+  <select id="itemCategory" v-model="newItemData.category_id">
+    <option :value="null">-- Brak kategorii --</option>
+    <option v-for="cat in categories" :key="cat.id" :value="cat.id">
+      {{ cat.name }}
+    </option>
+  </select>
+</div>
         </div>
         <div class="modal-actions">
           <button type="submit" class="zapisz">Dodaj przedmiot</button>
@@ -443,6 +567,15 @@ onMounted(() => {
             <label for="editItemMinStock">Minimalny stan magazynowy</label>
             <input type="number" step="any" id="editItemMinStock" v-model.number="editedItemData.min_stock_level" required />
           </div>
+          <div class="form-group">
+  <label for="editItemCategory">Kategoria (opcjonalnie)</label>
+  <select id="editItemCategory" v-model="editedItemData.category_id">
+    <option :value="null">-- Brak kategorii --</option>
+    <option v-for="cat in categories" :key="cat.id" :value="cat.id">
+      {{ cat.name }}
+    </option>
+  </select>
+</div>
         </div>
         <div class="modal-actions">
           <button type="submit" class="zapisz">Zapisz zmiany</button>
@@ -511,6 +644,40 @@ onMounted(() => {
       </div>
     </div>
   </div>
+  <div v-if="showCategoryModal" class="modal-backdrop">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3>Zarządzaj Kategoriami Magazynu</h3>
+      <button class="close-button" @click="showCategoryModal = false">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="category-manager">
+        <form @submit.prevent="handleAddCategory" class="add-category-form">
+          <input type="text" v-model="newCategoryName" placeholder="Nazwa nowej kategorii..." required>
+          <button type="submit" class="zapisz">Dodaj</button>
+        </form>
+
+        <ul class="category-list">
+          <li v-for="cat in categories" :key="cat.id">
+            <template v-if="editingCategory && editingCategory.id === cat.id">
+              <input type="text" v-model="editingCategory.name" required>
+              <button class="zapisz" @click="handleUpdateCategory">Zapisz</button>
+              <button class="anuluj" @click="editingCategory = null">Anuluj</button>
+            </template>
+            <template v-else>
+              <span>{{ cat.name }}</span>
+              <div class="category-actions">
+                <button class="edytuj" @click="editingCategory = { ...cat }">Edytuj</button>
+                <button class="usun" @click="handleDeleteCategory(cat.id)">Usuń</button>
+              </div>
+            </template>
+          </li>
+          <li v-if="!categories.length">Brak zdefiniowanych kategorii.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
 </template>
 
 <style scoped>
@@ -602,5 +769,93 @@ onMounted(() => {
 }
 .operation-type-group input[type='radio'] {
   margin-right: 10px;
+}
+/* Style dla filtrowania i zarządzania kategoriami */
+.filter-container {
+  display: flex;
+  gap: 15px;
+  align-items: flex-end; /* Wyrównuje label i przycisk do dołu */
+  margin-bottom: 1.5rem;
+  padding: 15px;
+  background-color: var(--background-light-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+}
+
+.filter-container .form-group {
+  margin-bottom: 0; /* Usuwamy domyślny margines z form-group */
+  flex-grow: 1; /* Pozwala selectowi zająć dostępną przestrzeń */
+}
+
+.filter-container label {
+  font-weight: 600;
+  margin-bottom: 5px;
+  font-size: 14px;
+}
+
+.filter-container select {
+  width: 100%;
+  padding: 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  font-size: 14px;
+}
+
+.category-manager {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.add-category-form {
+  display: flex;
+  gap: 10px;
+}
+
+.add-category-form input {
+  flex-grow: 1;
+  padding: 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.category-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.category-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-color);
+}
+.category-list li:last-child {
+  border-bottom: none;
+}
+
+.category-list input {
+  padding: 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font-size: 14px;
+  flex-grow: 1;
+  margin-right: 10px;
+}
+
+.category-actions {
+  display: flex;
+  gap: 5px;
+  flex-shrink: 0; /* Zapobiega kurczeniu się przycisków */
+}
+
+/* Dostosowanie marginesów dla przycisków wewnątrz listy kategorii */
+.category-list button {
+  margin: 0;
 }
 </style>

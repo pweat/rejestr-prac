@@ -231,6 +231,28 @@ const initializeDatabase = async () => {
         net_price REAL NOT NULL
       )`);
 
+      // --- NOWY FRAGMENT: Dodano tworzenie tabeli inventory_categories ---
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS inventory_categories (
+        id SERIAL PRIMARY KEY,
+        name TEXT UNIQUE NOT NULL
+      )`);
+
+    // --- NOWY FRAGMENT: Dodano logikę dodawania kolumny category_id do inventory_items ---
+    const checkColumnQuery = `
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_name = 'inventory_items' AND column_name = 'category_id';
+    `;
+    const res = await client.query(checkColumnQuery);
+    if (res.rows.length === 0) {
+      await client.query(`
+        ALTER TABLE inventory_items
+        ADD COLUMN category_id INTEGER REFERENCES inventory_categories(id) ON DELETE SET NULL;
+      `);
+      console.log('🔧 Zaktualizowano tabelę "inventory_items", dodano kolumnę "category_id".');
+    }
+
     console.log('✅ Tabele zostały zweryfikowane i są gotowe.');
 
     // Logika migracji - dodawanie brakujących kolumn, jeśli ich nie ma
@@ -1033,31 +1055,130 @@ app.get('/api/stats/monthly-summary', authenticateToken, async (req, res) => {
 });
 
 // =================================================================================================
+// 🆕 API ROUTES: Kategorie Magazynu (Inventory Categories)
+// =================================================================================================
+
+/**
+ * @route GET /api/inventory/categories
+ * @description Zwraca listę wszystkich kategorii magazynowych.
+ * @access Private
+ */
+app.get('/api/inventory/categories', authenticateToken, async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM inventory_categories ORDER BY name ASC');
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Błąd w GET /api/inventory/categories:', err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
+
+/**
+ * @route POST /api/inventory/categories
+ * @description Tworzy nową kategorię magazynową.
+ * @access Private (Editor, Admin)
+ */
+app.post('/api/inventory/categories', authenticateToken, canEdit, async (req, res) => {
+  try {
+    const { name } = req.body;
+    if (!name) {
+      return res.status(400).json({ error: 'Nazwa kategorii jest wymagana.' });
+    }
+    const result = await pool.query('INSERT INTO inventory_categories (name) VALUES ($1) RETURNING *', [name]);
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    if (err.code === '23505') { // Unique violation
+      return res.status(400).json({ error: 'Kategoria o tej nazwie już istnieje.' });
+    }
+    console.error('Błąd w POST /api/inventory/categories:', err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
+
+/**
+ * @route PUT /api/inventory/categories/:id
+ * @description Aktualizuje nazwę istniejącej kategorii.
+ * @access Private (Editor, Admin)
+ */
+app.put('/api/inventory/categories/:id', authenticateToken, canEdit, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name } = req.body;
+    if (!name) {
+      return res.status(400).json({ error: 'Nazwa kategorii jest wymagana.' });
+    }
+    const result = await pool.query('UPDATE inventory_categories SET name = $1 WHERE id = $2 RETURNING *', [name, id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Nie znaleziono kategorii o podanym ID.' });
+    }
+    res.json(result.rows[0]);
+  } catch (err) {
+    if (err.code === '23505') {
+      return res.status(400).json({ error: 'Kategoria o tej nazwie już istnieje.' });
+    }
+    console.error(`Błąd w PUT /api/inventory/categories/${req.params.id}:`, err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
+
+/**
+ * @route DELETE /api/inventory/categories/:id
+ * @description Usuwa kategorię magazynową (powiązane przedmioty będą miały category_id = NULL).
+ * @access Private (Admin)
+ */
+app.delete('/api/inventory/categories/:id', authenticateToken, isAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query('DELETE FROM inventory_categories WHERE id = $1', [id]);
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Nie znaleziono kategorii o podanym ID.' });
+    }
+    res.status(204).send();
+  } catch (err) {
+    console.error(`Błąd w DELETE /api/inventory/categories/${req.params.id}:`, err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
+
+// =================================================================================================
 // API ROUTES: Magazyn (Inventory)
 // =================================================================================================
 
 // Funkcja pomocnicza do pobierania spaginowanej listy przedmiotów
-const getPaginatedInventory = async (page = 1, search = '', sortBy = 'name', sortOrder = 'asc') => {
+const getPaginatedInventory = async (page = 1, search = '', categoryId = null, sortBy = 'name', sortOrder = 'asc') => {
   const limit = 15;
   const offset = (page - 1) * limit;
 
-  let whereClause = '';
+  let whereClauses = [];
   let queryParams = [];
+  let paramIndex = 1;
+
   if (search) {
-    whereClause = `WHERE name ILIKE $1 OR unit ILIKE $1`;
+    whereClauses.push(`(i.name ILIKE $${paramIndex} OR i.unit ILIKE $${paramIndex})`);
     queryParams.push(`%${search}%`);
+    paramIndex++;
+  }
+  if (categoryId) { // Dodano filtrowanie po kategorii
+    whereClauses.push(`i.category_id = $${paramIndex}`);
+    queryParams.push(categoryId);
+    paramIndex++;
   }
 
-  const countSql = `SELECT COUNT(*) FROM inventory_items ${whereClause}`;
+  const whereString = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
+  const countSql = `SELECT COUNT(i.id) FROM inventory_items i ${whereString}`;
   const countResult = await pool.query(countSql, queryParams);
   const totalItems = parseInt(countResult.rows[0].count);
   const totalPages = Math.ceil(totalItems / limit);
 
+  // Dodano LEFT JOIN i wybór nazwy kategorii
   const dataSql = `
-    SELECT * FROM inventory_items 
-    ${whereClause} 
-    ORDER BY ${sortBy} ${sortOrder} 
-    LIMIT $${queryParams.length + 1} OFFSET $${queryParams.length + 2}
+    SELECT i.*, c.name as category_name
+    FROM inventory_items i
+    LEFT JOIN inventory_categories c ON i.category_id = c.id
+    ${whereString}
+    ORDER BY ${sortBy} ${sortOrder}
+    LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
   `;
   const dataResult = await pool.query(dataSql, [...queryParams, limit, offset]);
 
@@ -1069,7 +1190,13 @@ const getPaginatedInventory = async (page = 1, search = '', sortBy = 'name', sor
 
 app.get('/api/inventory', authenticateToken, async (req, res) => {
   try {
-    const paginatedData = await getPaginatedInventory(parseInt(req.query.page) || 1, req.query.search || '', req.query.sortBy, req.query.sortOrder);
+    const paginatedData = await getPaginatedInventory(
+      parseInt(req.query.page) || 1,
+      req.query.search || '',
+      req.query.categoryId || null, // Przekazanie categoryId
+      req.query.sortBy || 'name',
+      req.query.sortOrder || 'asc'
+    );
     res.json(paginatedData);
   } catch (err) {
     console.error('Błąd w GET /api/inventory:', err);
@@ -1079,17 +1206,16 @@ app.get('/api/inventory', authenticateToken, async (req, res) => {
 
 app.post('/api/inventory', authenticateToken, canEdit, async (req, res) => {
   try {
-    const { name, quantity, unit, min_stock_level } = req.body;
+    const { name, quantity, unit, min_stock_level, category_id } = req.body; // Dodano category_id
     if (!name || !unit) {
       return res.status(400).json({ error: 'Nazwa i jednostka miary są wymagane.' });
     }
-    const sql = `INSERT INTO inventory_items (name, quantity, unit, min_stock_level, is_ordered) VALUES ($1, $2, $3, $4, false) RETURNING *`;
-    const result = await pool.query(sql, [name, quantity || 0, unit, min_stock_level || 0]);
+    // Dodano category_id do INSERT
+    const sql = `INSERT INTO inventory_items (name, quantity, unit, min_stock_level, category_id, is_ordered) VALUES ($1, $2, $3, $4, $5, false) RETURNING *`;
+    const result = await pool.query(sql, [name, quantity || 0, unit, min_stock_level || 0, category_id || null]);
     res.status(201).json(result.rows[0]);
   } catch (err) {
-    if (err.code === '23505') {
-      return res.status(400).json({ error: 'Przedmiot o tej nazwie już istnieje w magazynie.' });
-    }
+    if (err.code === '23505') { return res.status(400).json({ error: 'Przedmiot o tej nazwie już istnieje w magazynie.' }); }
     console.error('Błąd w POST /api/inventory:', err);
     res.status(500).json({ error: 'Wystąpił błąd serwera' });
   }
@@ -1098,17 +1224,17 @@ app.post('/api/inventory', authenticateToken, canEdit, async (req, res) => {
 app.put('/api/inventory/:id', authenticateToken, canEdit, async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, quantity, unit, min_stock_level } = req.body;
+    const { name, quantity, unit, min_stock_level, category_id } = req.body; // Dodano category_id
     if (!name || !unit) {
       return res.status(400).json({ error: 'Nazwa i jednostka miary są wymagane.' });
     }
-    const sql = `UPDATE inventory_items SET name = $1, quantity = $2, unit = $3, min_stock_level = $4 WHERE id = $5 RETURNING *`;
-    const result = await pool.query(sql, [name, quantity || 0, unit, min_stock_level || 0, id]);
+    // Dodano category_id do UPDATE
+    const sql = `UPDATE inventory_items SET name = $1, quantity = $2, unit = $3, min_stock_level = $4, category_id = $5 WHERE id = $6 RETURNING *`;
+    const result = await pool.query(sql, [name, quantity || 0, unit, min_stock_level || 0, category_id || null, id]);
+    if (result.rows.length === 0) { return res.status(404).json({ error: 'Nie znaleziono przedmiotu.' }); }
     res.status(200).json(result.rows[0]);
   } catch (err) {
-    if (err.code === '23505') {
-      return res.status(400).json({ error: 'Przedmiot o tej nazwie już istnieje w magazynie.' });
-    }
+    if (err.code === '23505') { return res.status(400).json({ error: 'Przedmiot o tej nazwie już istnieje w magazynie.' }); }
     console.error(`Błąd w PUT /api/inventory/${req.params.id}:`, err);
     res.status(500).json({ error: 'Wystąpił błąd serwera' });
   }

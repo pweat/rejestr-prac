@@ -1,42 +1,21 @@
 <script setup>
-// ================================================================================================
-// 📜 IMPORTS
-// ================================================================================================
 import { ref, onMounted, watch } from 'vue';
 import { RouterLink, useRouter, useRoute } from 'vue-router';
 import PaginationControls from '../components/PaginationControls.vue';
 import { getAuthHeaders, removeToken, getUserRole } from '../auth/auth.js';
 import { authenticatedFetch } from '../api/api.js';
 
-// ================================================================================================
-// ⚙️ KONFIGURACJA I INICJALIZACJA
-// ================================================================================================
-
-/** @const {string} Bazowy URL do API. */
 const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
-
-/** Dostęp do instancji routera Vue. */
 const router = useRouter();
 const route = useRoute();
-
-/** Rola zalogowanego użytkownika, pobierana z tokenu. */
 const userRole = getUserRole();
 
-// ================================================================================================
-// ✨ STAN KOMPONENTU (REFS)
-// ================================================================================================
-
-// --- Stan interfejsu ---
 const isLoading = ref(true);
 const showAddModal = ref(false);
 const showEditModal = ref(false);
-
-// --- Stan danych ---
 const clients = ref([]);
 const newClientData = ref(initializeNewClient());
 const editedClientData = ref(null);
-
-// --- Stan paginacji, sortowania i wyszukiwania ---
 const currentPage = ref(1);
 const totalPages = ref(1);
 const totalItems = ref(0);
@@ -44,37 +23,15 @@ const searchQuery = ref('');
 const sortBy = ref('name');
 const sortOrder = ref('asc');
 
-// ================================================================================================
-// 헬 FUNKCJE POMOCNICZE
-// ================================================================================================
-
-/**
- * Tworzy i zwraca pusty obiekt klienta.
- * @returns {object} Obiekt z polami nowego klienta.
- */
 function initializeNewClient() {
-  return {
-    name: '',
-    phone_number: '',
-    address: '',
-    notes: '',
-    email: '',
-  };
+  return { name: '', phone_number: '', address: '', notes: '', email: '' };
 }
 
-/**
- * Obsługuje wylogowanie użytkownika przez usunięcie tokenu i przekierowanie do strony logowania.
- */
 const handleLogout = () => {
   removeToken();
   router.push('/login');
 };
 
-/**
- * Centralna obsługa błędów autoryzacji. Jeśli błąd to 401/403, wylogowuje użytkownika.
- * @param {Error} error - Obiekt błędu.
- * @returns {boolean} `true` jeśli błąd został obsłużony, w przeciwnym razie `false`.
- */
 const handleAuthError = (error) => {
   if (error.message.includes('401') || error.message.includes('403')) {
     alert('Twoja sesja wygasła lub jest nieprawidłowa. Proszę zalogować się ponownie.');
@@ -84,14 +41,6 @@ const handleAuthError = (error) => {
   return false;
 };
 
-// ================================================================================================
-// 🔄 LOGIKA CRUD (Create, Read, Update, Delete)
-// ================================================================================================
-
-/**
- * Asynchronicznie pobiera listę klientów z API na podstawie aktualnych filtrów,
- * sortowania i paginacji.
- */
 async function fetchClients() {
   isLoading.value = true;
   try {
@@ -105,7 +54,6 @@ async function fetchClients() {
     const response = await authenticatedFetch(`${API_URL}/api/clients?${params.toString()}`);
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || 'Błąd pobierania listy klientów');
-
     clients.value = result.data;
     totalPages.value = result.pagination.totalPages;
     totalItems.value = result.pagination.totalItems;
@@ -120,9 +68,6 @@ async function fetchClients() {
   }
 }
 
-/**
- * Wysyła dane nowego klienta do API.
- */
 async function handleAddClient() {
   if (!newClientData.value.phone_number) {
     alert('Numer telefonu jest polem wymaganym.');
@@ -135,8 +80,6 @@ async function handleAddClient() {
     });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || 'Błąd podczas dodawania klienta.');
-
-    // Po dodaniu odświeżamy listę, aby zachować spójność danych.
     await fetchClients();
     showAddModal.value = false;
   } catch (error) {
@@ -147,9 +90,6 @@ async function handleAddClient() {
   }
 }
 
-/**
- * Wysyła zaktualizowane dane klienta do API.
- */
 async function handleUpdateClient() {
   if (!editedClientData.value) return;
   try {
@@ -160,13 +100,10 @@ async function handleUpdateClient() {
     });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || 'Błąd podczas aktualizacji klienta.');
-
-    // Zamiast pobierać całą listę od nowa, podmieniamy tylko zaktualizowany element.
     const index = clients.value.findIndex((c) => c.id === result.id);
     if (index !== -1) {
       clients.value[index] = result;
     }
-
     showEditModal.value = false;
   } catch (error) {
     console.error('Błąd podczas aktualizacji klienta:', error);
@@ -176,13 +113,8 @@ async function handleUpdateClient() {
   }
 }
 
-/**
- * Wysyła żądanie usunięcia klienta do API.
- * @param {number} clientId - ID klienta do usunięcia.
- */
 async function handleDeleteClient(clientId) {
   if (!confirm('Czy na pewno chcesz usunąć tego klienta? Usunięcie go skasuje również WSZYSTKIE jego zlecenia.')) return;
-
   try {
     const response = await authenticatedFetch(`${API_URL}/api/clients/${clientId}`, {
       method: 'DELETE',
@@ -191,7 +123,6 @@ async function handleDeleteClient(clientId) {
       const result = await response.json();
       throw new Error(result.error || 'Nie udało się usunąć klienta.');
     }
-    // Po usunięciu odświeżamy listę.
     await fetchClients();
   } catch (error) {
     console.error('Błąd podczas usuwania klienta:', error);
@@ -201,38 +132,20 @@ async function handleDeleteClient(clientId) {
   }
 }
 
-// ================================================================================================
-// ⚡ OBSŁUGA ZDARZEŃ
-// ================================================================================================
-
-/** Pokazuje modal dodawania nowego klienta. */
 function handleShowAddModal() {
   newClientData.value = initializeNewClient();
   showAddModal.value = true;
 }
 
-/**
- * Pokazuje modal edycji i wypełnia go danymi wybranego klienta.
- * @param {object} client - Obiekt klienta do edycji.
- */
 function handleShowEditModal(client) {
-  // Tworzymy kopię obiektu, aby uniknąć mutacji oryginalnych danych w tabeli.
   editedClientData.value = { ...client };
   showEditModal.value = true;
 }
 
-/**
- * Aktualizuje stan paginacji po kliknięciu w kontrolkach.
- * @param {number} newPage - Nowy numer strony.
- */
 function handlePageChange(newPage) {
   currentPage.value = newPage;
 }
 
-/**
- * Zmienia kryterium sortowania lub jego porządek (rosnąco/malejąco).
- * @param {string} key - Klucz (kolumna) do sortowania, np. 'name' lub 'address'.
- */
 function changeSort(key) {
   if (sortBy.value === key) {
     sortOrder.value = sortOrder.value === 'asc' ? 'desc' : 'asc';
@@ -242,34 +155,19 @@ function changeSort(key) {
   }
 }
 
-// ================================================================================================
-// 👀 WATCHERS (OBSERWATORZY)
-// ================================================================================================
-
-/** Obserwuje zmiany w paginacji i sortowaniu, a następnie pobiera dane na nowo. */
 watch([currentPage, sortBy, sortOrder], fetchClients);
 
-/**
- * Obserwuje zmiany w polu wyszukiwania. Używa "debounce" (opóźnienia),
- * aby uniknąć wysyłania żądań do API po każdej wpisanej literze.
- */
 let searchTimeout = null;
 watch(searchQuery, () => {
   clearTimeout(searchTimeout);
   searchTimeout = setTimeout(() => {
-    currentPage.value = 1; // Resetuj do pierwszej strony przy nowym wyszukiwaniu
+    currentPage.value = 1;
     fetchClients();
-  }, 300); // Czeka 300ms po ostatniej zmianie przed wysłaniem żądania
+  }, 300);
 });
 
-// ================================================================================================
-// 🚀 CYKL ŻYCIA KOMPONENTU
-// ================================================================================================
-
-/** Pobiera początkową listę klientów po zamontowaniu komponentu. */
 onMounted(() => {
   fetchClients();
-  // Sprawdzamy, czy URL zawiera specjalną akcję ze skrótu PWA
   if (route.query.action === 'new') {
     handleShowAddModal();
   }
@@ -416,6 +314,18 @@ onMounted(() => {
 </template>
 
 <style scoped>
+/* ZMIANA: Dodano styl dla .actions-cell */
+.actions-cell {
+  display: flex; /* Ustawia elementy w rzędzie */
+  gap: 8px; /* Dodaje odstęp między elementami */
+}
+
+/* ZMIANA: Zresetowano marginesy domyślne dla przycisków wewnątrz */
+.actions-cell button,
+.actions-cell a > button {
+  margin: 0;
+}
+
 .form-grid-single-col {
   display: flex;
   flex-direction: column;
@@ -423,7 +333,7 @@ onMounted(() => {
 }
 .main-content-wrapper {
   position: relative;
-  min-height: 300px; /* Zapobiega "skakaniu" layoutu podczas ładowania */
+  min-height: 300px;
 }
 .table-and-pagination.is-loading {
   opacity: 0.5;
@@ -440,7 +350,7 @@ onMounted(() => {
   justify-content: center;
   align-items: flex-start;
   padding-top: 50px;
-  background-color: rgba(255, 255, 255, 0.5); /* Lekkie tło dla lepszego efektu */
+  background-color: rgba(255, 255, 255, 0.5);
   z-index: 10;
 }
 .spinner {
@@ -463,5 +373,11 @@ onMounted(() => {
   text-align: center;
   padding: 40px 20px;
   color: var(--text-color-secondary);
+}
+.col-informacje {
+  max-width: 250px; /* Limit szerokości */
+  white-space: nowrap; /* Zapobiega łamaniu linii */
+  overflow: hidden; /* Ukrywa nadmiarowy tekst */
+  text-overflow: ellipsis; /* Dodaje '...' na końcu */
 }
 </style>
