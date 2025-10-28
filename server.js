@@ -44,13 +44,25 @@ const COMPANY_PROFILES = {
 };
 
 // Middlewares
-// Ulepszona konfiguracja CORS, która "odsłania" nagłówek Content-Disposition
+// ZMIANA: Lista dozwolonych źródeł (origins)
+const allowedOrigins = [
+  'https://rejestr-prac.onrender.com', // Adres produkcyjny front-endu
+  'http://localhost:5173'             // Adres deweloperski front-endu
+];
+
 const corsOptions = {
-  origin: 'https://rejestr-prac.onrender.com', // <-- WAŻNE: Wpisz tutaj DOKŁADNY adres URL Twojego front-endu
+  origin: function (origin, callback) {
+    // Zezwalaj na zapytania bez 'origin' (np. z narzędzi typu Postman) LUB jeśli origin jest na liście dozwolonych
+    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
-  credentials: true, // Jeśli w przyszłości będziemy używać ciasteczek
+  credentials: true,
   optionsSuccessStatus: 204,
-  exposedHeaders: ['Content-Disposition'], // Upewniamy się, że to nadal jest
+  exposedHeaders: ['Content-Disposition'],
 };
 app.use(cors(corsOptions));
 // Koniec zmiany
@@ -1151,7 +1163,7 @@ app.delete('/api/inventory/categories/:id', authenticateToken, isAdmin, async (r
 
 // Funkcja pomocnicza do pobierania spaginowanej listy przedmiotów
 const getPaginatedInventory = async (page = 1, search = '', categoryId = null, sortBy = 'name', sortOrder = 'asc') => {
-  const limit = 15;
+  const limit = 30;
   const offset = (page - 1) * limit;
 
   let whereClauses = [];
