@@ -216,6 +216,7 @@ async function fetchItems() {
   try {
     const params = new URLSearchParams({
       page: currentPage.value,
+      limit: 30,
       search: searchQuery.value,
       categoryId: selectedCategoryId.value || '', // Dodano categoryId
       sortBy: sortBy.value,
