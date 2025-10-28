@@ -45,11 +45,16 @@ const COMPANY_PROFILES = {
 
 // Middlewares
 // Ulepszona konfiguracja CORS, która "odsłania" nagłówek Content-Disposition
-app.use(
-  cors({
-    exposedHeaders: ['Content-Disposition'],
-  })
-);
+const corsOptions = {
+  origin: 'https://rejestr-prac.onrender.com', // <-- WAŻNE: Wpisz tutaj DOKŁADNY adres URL Twojego front-endu
+  methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+  credentials: true, // Jeśli w przyszłości będziemy używać ciasteczek
+  optionsSuccessStatus: 204,
+  exposedHeaders: ['Content-Disposition'], // Upewniamy się, że to nadal jest
+};
+app.use(cors(corsOptions));
+// Koniec zmiany
+
 app.use(express.json());
 
 // Konfiguracja połączenia z bazą danych PostgreSQL
