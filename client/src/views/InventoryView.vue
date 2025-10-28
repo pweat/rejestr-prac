@@ -264,6 +264,7 @@ async function handleUpdateItem() {
   if (!editedItemData.value) return;
   try {
     const response = await authenticatedFetch(`${API_URL}/api/inventory/${editedItemData.value.id}`, {
+      method: 'PUT',
       body: JSON.stringify(editedItemData.value),
     });
     const updatedItem = await response.json();
