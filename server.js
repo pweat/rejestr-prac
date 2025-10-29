@@ -4,7 +4,8 @@
 
 const express = require('express');
 const cors = require('cors');
-const { Pool } = require('pg');
+const { Pool, types } = require('pg');
+types.setTypeParser(1082, (val) => val);
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const PDFDocument = require('pdfkit');
@@ -254,6 +255,64 @@ const initializeDatabase = async () => {
         id SERIAL PRIMARY KEY,
         name TEXT UNIQUE NOT NULL
       )`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS employees (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        hourly_rate REAL DEFAULT 0,
+        is_active BOOLEAN DEFAULT true,
+        notes TEXT
+      )`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS weekly_settlements (
+        id SERIAL PRIMARY KEY,
+        employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+        week_start_date DATE NOT NULL,
+        hours_worked REAL DEFAULT 0,
+        notes TEXT,
+        job_payments REAL DEFAULT 0,
+        hourly_earnings REAL DEFAULT 0,
+        total_earnings REAL DEFAULT 0,
+        previous_week_balance REAL DEFAULT 0,
+        total_due_this_week REAL DEFAULT 0,
+        amount_paid_this_week REAL DEFAULT 0,
+        paid_date DATE,
+        current_week_balance REAL DEFAULT 0,
+        connections_payment REAL DEFAULT 0,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (employee_id, week_start_date)
+      )`);
+
+    // --- KONIEC NOWYCH TABEL ---
+
+    // --- TRIGGER (jeśli go tu nie było) ---
+    await client.query(`
+        CREATE OR REPLACE FUNCTION update_updated_at_column()
+        RETURNS TRIGGER AS $$
+        BEGIN
+           NEW.updated_at = NOW();
+           RETURN NEW;
+        END;
+        $$ language 'plpgsql';
+      `);
+    await client.query(`
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT FROM pg_trigger
+                WHERE tgname = 'update_weekly_settlements_updated_at'
+            ) THEN
+                CREATE TRIGGER update_weekly_settlements_updated_at
+                BEFORE UPDATE ON weekly_settlements
+                FOR EACH ROW
+                EXECUTE FUNCTION update_updated_at_column();
+            END IF;
+        END $$;
+      `);
+    // --- KONIEC TRIGGERA ---
 
     // --- NOWY FRAGMENT: Dodano logikę dodawania kolumny category_id do inventory_items ---
     const checkColumnQuery = `
@@ -587,6 +646,405 @@ app.get('/api/clients-for-select', authenticateToken, async (req, res) => {
     res.json(result.rows);
   } catch (err) {
     console.error('Błąd w GET /api/clients-for-select:', err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
+
+// =================================================================================================
+// 🆕 API ROUTES: Pracownicy (Employees)
+// =================================================================================================
+
+/**
+ * @route GET /api/employees
+ * @description Zwraca listę wszystkich aktywnych pracowników (do wyboru w formularzach).
+ * @access Private
+ */
+app.get('/api/employees', authenticateToken, async (req, res) => {
+  try {
+    // Na razie pobieramy tylko aktywnych, posortowanych alfabetycznie
+    const result = await pool.query('SELECT * FROM employees WHERE is_active = true ORDER BY name ASC');
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Błąd w GET /api/employees:', err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
+
+/**
+ * @route POST /api/employees
+ * @description Dodaje nowego pracownika.
+ * @access Private (Admin) - Tylko admin może dodawać pracowników
+ */
+app.post('/api/employees', authenticateToken, isAdmin, async (req, res) => {
+  try {
+    const { name, hourly_rate, notes } = req.body;
+    if (!name) {
+      return res.status(400).json({ error: 'Imię i nazwisko pracownika jest wymagane.' });
+    }
+    const sql = `INSERT INTO employees (name, hourly_rate, is_active, notes) VALUES ($1, $2, true, $3) RETURNING *`;
+    const result = await pool.query(sql, [name, hourly_rate || 0, notes]);
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('Błąd w POST /api/employees:', err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
+
+/**
+ * @route PUT /api/employees/:id
+ * @description Aktualizuje dane pracownika.
+ * @access Private (Admin)
+ */
+app.put('/api/employees/:id', authenticateToken, isAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, hourly_rate, is_active, notes } = req.body;
+    if (!name) {
+      return res.status(400).json({ error: 'Imię i nazwisko pracownika jest wymagane.' });
+    }
+    const sql = `UPDATE employees SET name = $1, hourly_rate = $2, is_active = $3, notes = $4 WHERE id = $5 RETURNING *`;
+    const result = await pool.query(sql, [name, hourly_rate || 0, is_active === true, notes, id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Nie znaleziono pracownika.' });
+    }
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(`Błąd w PUT /api/employees/${req.params.id}:`, err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
+
+/**
+ * @route DELETE /api/employees/:id
+ * @description Usuwa pracownika (i jego rozliczenia dzięki ON DELETE CASCADE).
+ * @access Private (Admin)
+ */
+app.delete('/api/employees/:id', authenticateToken, isAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query('DELETE FROM employees WHERE id = $1', [id]);
+    if (result.rowCount === 0) {
+      return res.status(404).json({ message: 'Nie znaleziono pracownika' });
+    }
+    res.status(204).send();
+  } catch (err) {
+    console.error(`Błąd w DELETE /api/employees/${req.params.id}:`, err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
+
+// =================================================================================================
+// 🆕 API ROUTES: Rozliczenia Tygodniowe (Weekly Settlements)
+// =================================================================================================
+
+/**
+ * Funkcja pomocnicza do obliczania zarobków i sald dla wpisu rozliczeniowego.
+ * @param {object} settlement - Wpis rozliczeniowy z bazy.
+ * @param {number} hourlyRate - Stawka godzinowa pracownika.
+ * @param {number} prevBalance - Saldo z poprzedniego tygodnia.
+ * @returns {object} Zaktualizowany obiekt settlement z obliczonymi polami.
+ */
+function calculateSettlement(settlement, hourlyRate, prevBalance) {
+  const hours = parseFloat(settlement.hours_worked) || 0;
+  const metersPayment = parseFloat(settlement.job_payments) || 0;
+  const connectionsPayment = parseFloat(settlement.connections_payment) || 0; // Nowe pole
+  const amountPaid = parseFloat(settlement.amount_paid_this_week) || 0;
+
+  const hourlyEarnings = hours * (parseFloat(hourlyRate) || 0);
+  const totalEarnings = hourlyEarnings + metersPayment + connectionsPayment;
+  const previousWeekBalance = prevBalance;
+  const totalDueThisWeek = totalEarnings + previousWeekBalance;
+  const currentWeekBalance = totalDueThisWeek - amountPaid;
+
+  return {
+    ...settlement,
+    hourly_earnings: hourlyEarnings.toFixed(2),
+    total_earnings: totalEarnings.toFixed(2),
+    previous_week_balance: previousWeekBalance.toFixed(2),
+    total_due_this_week: totalDueThisWeek.toFixed(2),
+    current_week_balance: currentWeekBalance.toFixed(2),
+    connections_payment: connectionsPayment.toFixed(2),
+  };
+}
+
+/**
+ * @route GET /api/settlements
+ * @description Zwraca listę rozliczeń tygodniowych dla pracownika lub wszystkich.
+ * @access Private
+ */
+app.get('/api/settlements', authenticateToken, async (req, res) => {
+  try {
+    const { employeeId, startDate, endDate } = req.query;
+    let queryParams = [];
+    let whereClauses = [];
+    let paramIndex = 1;
+
+    if (employeeId) {
+      whereClauses.push(`ws.employee_id = $${paramIndex++}`);
+      queryParams.push(employeeId);
+    }
+    if (startDate) {
+      whereClauses.push(`ws.week_start_date >= $${paramIndex++}`);
+      queryParams.push(startDate);
+    }
+    if (endDate) {
+      whereClauses.push(`ws.week_start_date <= $${paramIndex++}`);
+      queryParams.push(endDate);
+    }
+
+    const whereString = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
+    const sql = `
+      SELECT ws.*, e.name as employee_name, e.hourly_rate
+      FROM weekly_settlements ws
+      JOIN employees e ON ws.employee_id = e.id
+      ${whereString}
+      ORDER BY ws.week_start_date DESC, e.name ASC
+    `; // Sortujemy od najnowszego tygodnia
+
+    const result = await pool.query(sql, queryParams);
+    res.json(result.rows); // Na razie bez paginacji dla prostoty
+  } catch (err) {
+    console.error('Błąd w GET /api/settlements:', err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
+
+/**
+ * @route POST /api/settlements
+ * @description Dodaje nowy wpis rozliczenia tygodniowego i oblicza wartości.
+ * @access Private (Editor, Admin)
+ */
+app.post('/api/settlements', authenticateToken, canEdit, async (req, res) => {
+  // ZMIANA 1: Pobieramy teraz również 'amount_paid_this_week' i 'paid_date' z formularza
+  const { employee_id, week_start_date, hours_worked, notes, job_payments, connections_payment, amount_paid_this_week, paid_date } = req.body;
+
+  if (!employee_id || !week_start_date) {
+    return res.status(400).json({ error: 'Pracownik i data rozpoczęcia tygodnia są wymagane.' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Pobierz stawkę pracownika
+    const employeeRes = await client.query('SELECT hourly_rate FROM employees WHERE id = $1', [employee_id]);
+    if (employeeRes.rows.length === 0) throw new Error('Nie znaleziono pracownika.');
+    const hourlyRate = employeeRes.rows[0].hourly_rate;
+
+    // Pobierz saldo z poprzedniego tygodnia
+    const prevWeekSql = `
+      SELECT current_week_balance
+      FROM weekly_settlements
+      WHERE employee_id = $1 AND week_start_date < $2
+      ORDER BY week_start_date DESC
+      LIMIT 1`;
+    const prevWeekRes = await client.query(prevWeekSql, [employee_id, week_start_date]);
+    const prevBalance = prevWeekRes.rows.length > 0 ? parseFloat(prevWeekRes.rows[0].current_week_balance) : 0;
+
+    // ZMIANA 2: Przekazujemy prawdziwą kwotę 'amount_paid_this_week' do funkcji obliczającej
+    const settlementInput = { hours_worked, job_payments, connections_payment, amount_paid_this_week: amount_paid_this_week || 0 };
+    const calculated = calculateSettlement(settlementInput, hourlyRate, prevBalance);
+
+    // Zapytanie INSERT (jest już poprawne z 13 kolumnami)
+    const insertSql = `
+      INSERT INTO weekly_settlements (
+        employee_id, week_start_date, hours_worked, notes, job_payments, connections_payment,
+        hourly_earnings, total_earnings, previous_week_balance, total_due_this_week,
+        amount_paid_this_week, current_week_balance, paid_date
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+      RETURNING *`;
+
+    // ZMIANA 3: Przekazujemy wartości z formularza do parametrów, a nie hardkodowane 0 i null
+    const params = [
+      employee_id,
+      week_start_date,
+      hours_worked || 0,
+      notes,
+      job_payments || 0,
+      connections_payment || 0,
+      calculated.hourly_earnings,
+      calculated.total_earnings,
+      calculated.previous_week_balance,
+      calculated.total_due_this_week,
+      amount_paid_this_week || 0, // Używamy wartości z req.body
+      calculated.current_week_balance,
+      paid_date || null, // Używamy wartości z req.body
+    ];
+
+    const result = await client.query(insertSql, params);
+    await client.query('COMMIT');
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    if (err.code === '23505') {
+      // Unique violation
+      return res.status(400).json({ error: 'Wpis dla tego pracownika i tygodnia już istnieje.' });
+    }
+    console.error('Błąd w POST /api/settlements:', err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  } finally {
+    client.release();
+  }
+});
+
+/**
+ * @route PUT /api/settlements/:id
+ * @description Aktualizuje wpis rozliczenia (głównie kwotę wypłaconą i datę).
+ * @access Private (Editor, Admin)
+ */
+app.put('/api/settlements/:id', authenticateToken, canEdit, async (req, res) => {
+  const { id } = req.params;
+  const { hours_worked, notes, job_payments, connections_payment, amount_paid_this_week, paid_date } = req.body;
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Pobierz obecny wpis, ID pracownika i jego stawkę
+    const currentRes = await client.query(
+      `
+      SELECT ws.*, e.hourly_rate
+      FROM weekly_settlements ws
+      JOIN employees e ON ws.employee_id = e.id
+      WHERE ws.id = $1`,
+      [id]
+    );
+    if (currentRes.rows.length === 0) throw new Error('Nie znaleziono wpisu rozliczeniowego.');
+    const currentSettlement = currentRes.rows[0];
+    const hourlyRate = currentSettlement.hourly_rate;
+    const employeeId = currentSettlement.employee_id;
+    const weekStartDate = currentSettlement.week_start_date;
+
+    // Pobierz saldo z poprzedniego tygodnia (niezależne od obecnego wpisu)
+    const prevWeekSql = `
+      SELECT current_week_balance
+      FROM weekly_settlements
+      WHERE employee_id = $1 AND week_start_date < $2
+      ORDER BY week_start_date DESC
+      LIMIT 1`;
+    const prevWeekRes = await client.query(prevWeekSql, [employeeId, weekStartDate]);
+    const prevBalance = prevWeekRes.rows.length > 0 ? parseFloat(prevWeekRes.rows[0].current_week_balance) : 0;
+
+    // Przygotuj zaktualizowane dane wejściowe
+    const updatedInput = {
+      hours_worked: hours_worked !== undefined ? hours_worked : currentSettlement.hours_worked,
+      job_payments: job_payments !== undefined ? job_payments : currentSettlement.job_payments,
+      connections_payment: connections_payment !== undefined ? connections_payment : currentSettlement.connections_payment,
+      amount_paid_this_week: amount_paid_this_week !== undefined ? amount_paid_this_week : currentSettlement.amount_paid_this_week,
+    };
+
+    // Przelicz wartości
+    const calculated = calculateSettlement(updatedInput, hourlyRate, prevBalance);
+
+    const updateSql = `
+      UPDATE weekly_settlements SET
+        hours_worked = $1, notes = $2, job_payments = $3, connections_payment = $4, amount_paid_this_week = $5, paid_date = $6,
+        hourly_earnings = $7, total_earnings = $8, previous_week_balance = $9,
+        total_due_this_week = $10, current_week_balance = $11
+      WHERE id = $12
+      RETURNING *`;
+    const params = [
+      updatedInput.hours_worked || 0,
+      notes !== undefined ? notes : currentSettlement.notes,
+      updatedInput.job_payments || 0,
+      updatedInput.connections_payment || 0, // Nowe pole
+      updatedInput.amount_paid_this_week || 0,
+      paid_date || null,
+      calculated.hourly_earnings,
+      calculated.total_earnings,
+      calculated.previous_week_balance,
+      calculated.total_due_this_week,
+      calculated.current_week_balance,
+      id,
+    ];
+
+    const result = await client.query(updateSql, params);
+
+    // UWAGA: Potencjalna potrzeba aktualizacji sald w kolejnych tygodniach, jeśli saldo się zmieniło.
+    // Na razie upraszczamy - zakładamy, że edytujemy tylko ostatni tydzień lub zmiany nie wpływają na saldo.
+    // Pełna implementacja wymagałaby pętli aktualizującej kolejne wpisy.
+
+    await client.query('COMMIT');
+    res.json(result.rows[0]);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error(`Błąd w PUT /api/settlements/${id}:`, err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  } finally {
+    client.release();
+  }
+});
+
+/**
+ * @route DELETE /api/settlements/:id
+ * @description Usuwa wpis rozliczenia tygodniowego.
+ * @access Private (Admin) - Tylko admin może usuwać rozliczenia
+ */
+app.delete('/api/settlements/:id', authenticateToken, isAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    // UWAGA: Usunięcie wpisu może zaburzyć salda w kolejnych tygodniach.
+    // W bardziej zaawansowanym systemie należałoby przeliczyć salda.
+    const result = await pool.query('DELETE FROM weekly_settlements WHERE id = $1', [id]);
+    if (result.rowCount === 0) {
+      return res.status(404).json({ message: 'Nie znaleziono wpisu rozliczeniowego' });
+    }
+    res.status(204).send();
+  } catch (err) {
+    console.error(`Błąd w DELETE /api/settlements/${req.params.id}:`, err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
+
+// =================================================================================================
+// 🆕 API ROUTES: Podsumowanie Rozliczeń
+// =================================================================================================
+
+/**
+ * @route GET /api/settlements/summary
+ * @description Zwraca podsumowanie rozliczeń dla danego pracownika i miesiąca.
+ * @access Private
+ */
+app.get('/api/settlements/summary', authenticateToken, async (req, res) => {
+  try {
+    const { employeeId, month } = req.query; // month w formacie 'YYYY-MM'
+
+    if (!employeeId || !month) {
+      return res.status(400).json({ error: 'ID pracownika i miesiąc są wymagane.' });
+    }
+
+    // date_trunc('month', ...) zwraca pierwszy dzień miesiąca
+    const targetMonth = `${month}-01`;
+
+    const summarySql = `
+      SELECT
+        COALESCE(SUM(total_earnings), 0) as sum_earnings,
+        COALESCE(SUM(amount_paid_this_week), 0) as sum_paid
+      FROM weekly_settlements
+      WHERE employee_id = $1 AND date_trunc('month', week_start_date) = date_trunc('month', $2::date);
+    `;
+
+    // Pobranie ostatniego salda z wybranego miesiąca
+    const balanceSql = `
+      SELECT current_week_balance
+      FROM weekly_settlements
+      WHERE employee_id = $1 AND date_trunc('month', week_start_date) = date_trunc('month', $2::date)
+      ORDER BY week_start_date DESC
+      LIMIT 1;
+    `;
+
+    const [summaryResult, balanceResult] = await Promise.all([pool.query(summarySql, [employeeId, targetMonth]), pool.query(balanceSql, [employeeId, targetMonth])]);
+
+    const summaryData = {
+      sum_earnings: parseFloat(summaryResult.rows[0].sum_earnings || 0).toFixed(2),
+      sum_paid: parseFloat(summaryResult.rows[0].sum_paid || 0).toFixed(2),
+      final_balance: balanceResult.rows.length > 0 ? parseFloat(balanceResult.rows[0].current_week_balance).toFixed(2) : '0.00',
+    };
+
+    res.json(summaryData);
+  } catch (err) {
+    console.error('Błąd w GET /api/settlements/summary:', err);
     res.status(500).json({ error: 'Wystąpił błąd serwera' });
   }
 });
@@ -1018,67 +1476,67 @@ app.get('/api/stats/monthly-summary', authenticateToken, async (req, res) => {
     const year = parseInt(req.query.year) || new Date().getFullYear();
     const month = parseInt(req.query.month) || new Date().getMonth() + 1;
 
-    const firstDayOfMonth = new Date(Date.UTC(year, month - 1, 1));
-    const firstDayOfNextMonth = new Date(Date.UTC(year, month, 1));
+    // Używamy UTC aby uniknąć problemów ze strefami czasowymi
+    const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+    const nextMonthDate = new Date(Date.UTC(year, month, 1)); // Pierwszy dzień następnego miesiąca
+    const endDate = new Date(nextMonthDate.getTime() - 1).toISOString().split('T')[0]; // Ostatni dzień bieżącego miesiąca
 
-    // 1. Zliczanie typów zleceń
-    const jobsCountSql = `
-      SELECT job_type, COUNT(id) as count
-      FROM jobs
-      WHERE job_date >= $1 AND job_date < $2
-      GROUP BY job_type;
-    `;
-    const jobsCountResult = await pool.query(jobsCountSql, [firstDayOfMonth, firstDayOfNextMonth]);
+    // 1. Zliczanie typów zleceń (bez zmian)
+    const jobsCountSql = `SELECT job_type, COUNT(id) as count FROM jobs WHERE job_date >= $1 AND job_date <= $2 GROUP BY job_type;`;
+    const jobsCountResult = await pool.query(jobsCountSql, [startDate, endDate]);
     const jobCounts = { well_drilling: 0, connection: 0, treatment_station: 0, service: 0 };
     jobsCountResult.rows.forEach((row) => {
-      if (jobCounts.hasOwnProperty(row.job_type)) {
-        jobCounts[row.job_type] = parseInt(row.count);
-      }
+      if (jobCounts.hasOwnProperty(row.job_type)) jobCounts[row.job_type] = parseInt(row.count);
     });
 
-    // 2. Sumowanie metrów
-    const metersSql = `
-      SELECT SUM(wd.ilosc_metrow) as total_meters
-      FROM jobs j
-      JOIN well_details wd ON j.details_id = wd.id
-      WHERE j.job_type = 'well_drilling' AND j.job_date >= $1 AND j.job_date < $2;
-    `;
-    const metersResult = await pool.query(metersSql, [firstDayOfMonth, firstDayOfNextMonth]);
+    // 2. Sumowanie metrów (bez zmian)
+    const metersSql = `SELECT SUM(wd.ilosc_metrow) as total_meters FROM jobs j JOIN well_details wd ON j.details_id = wd.id WHERE j.job_type = 'well_drilling' AND j.job_date >= $1 AND j.job_date <= $2;`;
+    const metersResult = await pool.query(metersSql, [startDate, endDate]);
     const totalMeters = parseFloat(metersResult.rows[0].total_meters) || 0;
 
-    // 3. Sumowanie finansów
-    const financeSql = `
-      SELECT 
-        COALESCE(SUM(revenue), 0) as total_revenue, 
-        COALESCE(SUM(total_cost), 0) as total_costs
+    // 3. Sumowanie finansów ze ZLECEŃ
+    const jobFinanceSql = `
+      SELECT
+        COALESCE(SUM(revenue), 0) as total_revenue,
+        COALESCE(SUM(total_cost), 0) as total_job_costs
       FROM (
-        -- Podłączenia
-        SELECT cd.revenue, (COALESCE(cd.casing_cost,0) + COALESCE(cd.equipment_cost,0) + COALESCE(cd.labor_cost,0) + COALESCE(cd.wholesale_materials_cost,0)) as total_cost
-        FROM jobs j JOIN connection_details cd ON j.details_id = cd.id
-        WHERE j.job_type = 'connection' AND j.job_date >= $1 AND j.job_date < $2
-      UNION ALL
-        -- Stacje uzdatniania
-        SELECT tsd.revenue, (COALESCE(tsd.equipment_cost,0) + COALESCE(tsd.labor_cost,0) + COALESCE(tsd.wholesale_materials_cost,0)) as total_cost
-        FROM jobs j JOIN treatment_station_details tsd ON j.details_id = tsd.id
-        WHERE j.job_type = 'treatment_station' AND j.job_date >= $1 AND j.job_date < $2
-      UNION ALL
-        -- Odwierty
-        SELECT (COALESCE(wd.ilosc_metrow, 0) * COALESCE(wd.cena_za_metr, 0)) as revenue, (COALESCE(wd.wyplaty, 0) + COALESCE(wd.rury, 0) + COALESCE(wd.inne_koszta, 0)) as total_cost
-        FROM jobs j JOIN well_details wd ON j.details_id = wd.id
-        WHERE j.job_type = 'well_drilling' AND j.job_date >= $1 AND j.job_date < $2
-      UNION ALL
-        -- Płatne serwisy
-        SELECT sd.revenue, COALESCE(sd.labor_cost, 0) as total_cost 
-        FROM jobs j JOIN service_details sd ON j.details_id = sd.id 
-        WHERE j.job_type = 'service' AND j.job_date >= $1 AND j.job_date < $2 AND sd.is_warranty = false
-      ) as monthly_finances;
+        SELECT cd.revenue, (COALESCE(cd.casing_cost,0) + COALESCE(cd.equipment_cost,0) + COALESCE(cd.labor_cost,0) + COALESCE(cd.wholesale_materials_cost,0)) as total_cost FROM jobs j JOIN connection_details cd ON j.details_id = cd.id WHERE j.job_type = 'connection' AND j.job_date >= $1 AND j.job_date <= $2
+        UNION ALL
+        SELECT tsd.revenue, (COALESCE(tsd.equipment_cost,0) + COALESCE(tsd.labor_cost,0) + COALESCE(tsd.wholesale_materials_cost,0)) as total_cost FROM jobs j JOIN treatment_station_details tsd ON j.details_id = tsd.id WHERE j.job_type = 'treatment_station' AND j.job_date >= $1 AND j.job_date <= $2
+        UNION ALL
+        SELECT (COALESCE(wd.ilosc_metrow, 0) * COALESCE(wd.cena_za_metr, 0)) as revenue, (COALESCE(wd.wyplaty, 0) + COALESCE(wd.rury, 0) + COALESCE(wd.inne_koszta, 0)) as total_cost FROM jobs j JOIN well_details wd ON j.details_id = wd.id WHERE j.job_type = 'well_drilling' AND j.job_date >= $1 AND j.job_date <= $2
+        UNION ALL
+        SELECT sd.revenue, COALESCE(sd.labor_cost, 0) as total_cost FROM jobs j JOIN service_details sd ON j.details_id = sd.id WHERE j.job_type = 'service' AND j.job_date >= $1 AND j.job_date <= $2 AND sd.is_warranty = false
+      ) as job_finances;
     `;
-    const financeResult = await pool.query(financeSql, [firstDayOfMonth, firstDayOfNextMonth]);
-    const totalRevenue = parseFloat(financeResult.rows[0].total_revenue) || 0;
-    const totalCosts = parseFloat(financeResult.rows[0].total_costs) || 0;
+    const jobFinanceResult = await pool.query(jobFinanceSql, [startDate, endDate]);
+    const totalJobRevenue = parseFloat(jobFinanceResult.rows[0].total_revenue) || 0;
+    const totalJobCosts = parseFloat(jobFinanceResult.rows[0].total_job_costs) || 0;
+
+    // 4. Sumowanie KOSZTÓW PRACY GODZINOWEJ z rozliczeń
+    const hourlyCostsSql = `
+      SELECT COALESCE(SUM(amount_paid_this_week), 0) as total_hourly_paid
+      FROM weekly_settlements
+      WHERE week_start_date >= date_trunc('month', $1::date) AND week_start_date < date_trunc('month', $1::date) + interval '1 month';
+    `;
+    // Używamy startDate do określenia miesiąca
+    const hourlyCostsResult = await pool.query(hourlyCostsSql, [startDate]);
+    const totalHourlyCostsPaid = parseFloat(hourlyCostsResult.rows[0].total_hourly_paid) || 0;
+
+    // 5. Obliczenie całości
+    const totalRevenue = totalJobRevenue; // Przychód tylko ze zleceń
+    const totalCosts = totalJobCosts + totalHourlyCostsPaid; // Suma kosztów ze zleceń i wypłat godzinowych
     const totalProfit = totalRevenue - totalCosts;
 
-    res.json({ jobCounts, totalMeters, totalProfit, totalRevenue, totalCosts });
+    res.json({
+      jobCounts,
+      totalMeters,
+      totalProfit: totalProfit,
+      totalRevenue: totalRevenue,
+      totalCosts: totalCosts,
+      totalJobCosts: totalJobCosts, // Koszty tylko ze zleceń
+      totalHourlyCostsPaid: totalHourlyCostsPaid, // Wypłaty godzinowe
+    });
   } catch (err) {
     console.error('Błąd w GET /api/stats/monthly-summary:', err);
     res.status(500).json({ error: 'Wystąpił błąd serwera' });

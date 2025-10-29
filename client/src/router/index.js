@@ -5,7 +5,7 @@
 
 import { createRouter, createWebHistory } from 'vue-router';
 // Zmieniamy import - potrzebujemy tylko funkcji getToken
-import { getToken } from '../auth/auth.js';
+import { getToken, getUserRole } from '../auth/auth.js'; // Dodano getUserRole
 
 const routes = [
   {
@@ -39,6 +39,18 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/pracownicy',
+    name: 'employees',
+    component: () => import('../views/EmployeesView.vue'), // Nowy widok
+    meta: { requiresAuth: true, requiresAdmin: true }, // Tylko admin
+  },
+  {
+    path: '/rozliczenia',
+    name: 'settlements',
+    component: () => import('../views/WeeklySettlementsView.vue'), // Nowy widok
+    meta: { requiresAuth: true, requiresAdminOrEditor: true }, // Admin lub Editor
+  },
+  {
     path: '/login',
     name: 'login',
     component: () => import('../views/LoginView.vue'),
@@ -51,17 +63,25 @@ const router = createRouter({
 });
 
 router.beforeEach((to, from, next) => {
-  // === KLUCZOWA POPRAWKA ===
-  // Zamiast używać reaktywnego 'isAuthenticated.value',
-  // bezpośrednio sprawdzamy, czy token istnieje w momencie nawigacji.
-  // To rozwiązuje problem z "mignięciem", ponieważ jest to natychmiastowe.
   const loggedIn = !!getToken();
+  const userRole = getUserRole(); // Pobieramy rolę
 
   if (to.meta.requiresAuth && !loggedIn) {
+    // Jeśli trasa wymaga logowania, a użytkownik nie jest zalogowany
     next({ name: 'login' });
   } else if (to.name === 'login' && loggedIn) {
+    // Jeśli użytkownik jest zalogowany i próbuje wejść na stronę logowania
     next({ name: 'dashboard' });
+  } else if (to.meta.requiresAdmin && userRole !== 'admin') {
+    // Jeśli trasa wymaga admina, a użytkownik nim nie jest
+    alert('Brak uprawnień administratora.');
+    next(from.path === '/login' ? { name: 'dashboard' } : false); // Wróć lub zostań
+  } else if (to.meta.requiresAdminOrEditor && !(userRole === 'admin' || userRole === 'editor')) {
+    // Jeśli trasa wymaga admina lub edytora, a użytkownik nim nie jest
+    alert('Brak uprawnień do edycji.');
+    next(from.path === '/login' ? { name: 'dashboard' } : false); // Wróć lub zostań
   } else {
+    // W pozostałych przypadkach, pozwól na nawigację
     next();
   }
 });

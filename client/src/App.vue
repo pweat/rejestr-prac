@@ -10,9 +10,10 @@
 // 📜 IMPORTS
 // ===================================================================================
 import { RouterView, RouterLink, useRouter } from 'vue-router';
-import { ref } from 'vue';
-import { isAuthenticated, removeToken } from './auth/auth.js';
+import { ref, computed } from 'vue';
+import { isAuthenticated, removeToken, getUserRole } from './auth/auth.js';
 
+const userRole = computed(() => getUserRole());
 // ===================================================================================
 // ⚙️ INICJALIZACJA
 // ===================================================================================
@@ -68,6 +69,8 @@ const handleLogout = () => {
         <RouterLink to="/zlecenia" @click="closeMobileMenu">Zlecenia</RouterLink>
         <RouterLink to="/magazyn" @click="closeMobileMenu">Magazyn</RouterLink>
         <RouterLink to="/oferty" @click="closeMobileMenu">Oferty</RouterLink>
+        <RouterLink v-if="userRole === 'admin' || userRole === 'editor'" to="/rozliczenia" @click="closeMobileMenu">Rozliczenia</RouterLink>
+        <RouterLink v-if="userRole === 'admin'" to="/pracownicy" @click="closeMobileMenu">Pracownicy</RouterLink>
         <button @click="handleLogout" class="logout-btn mobile-logout">Wyloguj</button>
       </template>
     </nav>
