@@ -677,12 +677,12 @@ app.get('/api/employees', authenticateToken, async (req, res) => {
  */
 app.post('/api/employees', authenticateToken, isAdmin, async (req, res) => {
   try {
-    const { name, hourly_rate, notes } = req.body;
+    const { name, hourly_rate, meter_rate, notes } = req.body;
     if (!name) {
       return res.status(400).json({ error: 'Imię i nazwisko pracownika jest wymagane.' });
     }
-    const sql = `INSERT INTO employees (name, hourly_rate, is_active, notes) VALUES ($1, $2, true, $3) RETURNING *`;
-    const result = await pool.query(sql, [name, hourly_rate || 0, notes]);
+    const sql = `INSERT INTO employees (name, hourly_rate, meter_rate, is_active, notes) VALUES ($1, $2, $3, true, $4) RETURNING *`;
+    const result = await pool.query(sql, [name, hourly_rate || 0, meter_rate || 0, notes]);
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error('Błąd w POST /api/employees:', err);
@@ -698,12 +698,12 @@ app.post('/api/employees', authenticateToken, isAdmin, async (req, res) => {
 app.put('/api/employees/:id', authenticateToken, isAdmin, async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, hourly_rate, is_active, notes } = req.body;
+    const { name, hourly_rate, meter_rate, is_active, notes } = req.body;
     if (!name) {
       return res.status(400).json({ error: 'Imię i nazwisko pracownika jest wymagane.' });
     }
-    const sql = `UPDATE employees SET name = $1, hourly_rate = $2, is_active = $3, notes = $4 WHERE id = $5 RETURNING *`;
-    const result = await pool.query(sql, [name, hourly_rate || 0, is_active === true, notes, id]);
+    const sql = `UPDATE employees SET name = $1, hourly_rate = $2, meter_rate = $3, is_active = $4, notes = $5 WHERE id = $6 RETURNING *`;
+    const result = await pool.query(sql, [name, hourly_rate || 0, meter_rate || 0, is_active === true, notes, id]);
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Nie znaleziono pracownika.' });
     }
@@ -734,38 +734,176 @@ app.delete('/api/employees/:id', authenticateToken, isAdmin, async (req, res) =>
 });
 
 // =================================================================================================
-// 🆕 API ROUTES: Rozliczenia Tygodniowe (Weekly Settlements)
+// 🆕 API ROUTES: Nowe Rozliczenia (Naprawione i Ulepszone)
 // =================================================================================================
 
-/**
- * Funkcja pomocnicza do obliczania zarobków i sald dla wpisu rozliczeniowego.
- * @param {object} settlement - Wpis rozliczeniowy z bazy.
- * @param {number} hourlyRate - Stawka godzinowa pracownika.
- * @param {number} prevBalance - Saldo z poprzedniego tygodnia.
- * @returns {object} Zaktualizowany obiekt settlement z obliczonymi polami.
- */
-function calculateSettlement(settlement, hourlyRate, prevBalance) {
-  const hours = parseFloat(settlement.hours_worked) || 0;
-  const metersPayment = parseFloat(settlement.job_payments) || 0;
-  const connectionsPayment = parseFloat(settlement.connections_payment) || 0; // Nowe pole
-  const amountPaid = parseFloat(settlement.amount_paid_this_week) || 0;
+// 1. Dodawanie Złożonego Wpisu Pracy (Zaktualizowane)
+app.post('/api/work-entries', authenticateToken, canEdit, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    // ZMIANA: Odbieramy też hourly_rate i meter_rate bezpośrednio z formularza
+    const { employee_id, date, hours, meters, connections_amount, bonus_amount, notes, hourly_rate, meter_rate } = req.body;
 
-  const hourlyEarnings = hours * (parseFloat(hourlyRate) || 0);
-  const totalEarnings = hourlyEarnings + metersPayment + connectionsPayment;
-  const previousWeekBalance = prevBalance;
-  const totalDueThisWeek = totalEarnings + previousWeekBalance;
-  const currentWeekBalance = totalDueThisWeek - amountPaid;
+    // Pobieramy dane pracownika jako "fallback" (opcja zapasowa)
+    const empRes = await client.query('SELECT hourly_rate, meter_rate FROM employees WHERE id = $1', [employee_id]);
+    if (empRes.rows.length === 0) return res.status(404).json({ error: 'Pracownik nie istnieje' });
+    const empDefaults = empRes.rows[0];
 
-  return {
-    ...settlement,
-    hourly_earnings: hourlyEarnings.toFixed(2),
-    total_earnings: totalEarnings.toFixed(2),
-    previous_week_balance: previousWeekBalance.toFixed(2),
-    total_due_this_week: totalDueThisWeek.toFixed(2),
-    current_week_balance: currentWeekBalance.toFixed(2),
-    connections_payment: connectionsPayment.toFixed(2),
-  };
-}
+    // ZMIANA: Używamy stawek z formularza, a jeśli ich brak (0 lub null) - bierzemy domyślne pracownika
+    const finalHourlyRate = parseFloat(hourly_rate) || parseFloat(empDefaults.hourly_rate) || 0;
+    const finalMeterRate = parseFloat(meter_rate) || parseFloat(empDefaults.meter_rate) || 0;
+
+    // Oblicz kwotę końcową używając stawek z formularza
+    const val_hours = parseFloat(hours) || 0;
+    const val_meters = parseFloat(meters) || 0;
+    const val_conn = parseFloat(connections_amount) || 0;
+    const val_bonus = parseFloat(bonus_amount) || 0;
+
+    const final_amount = val_hours * finalHourlyRate + val_meters * finalMeterRate + val_conn + val_bonus;
+
+    const sql = `
+      INSERT INTO work_entries 
+      (employee_id, date, hours, meters, connections_amount, bonus_amount, hourly_rate_snapshot, meter_rate_snapshot, final_amount, notes) 
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) 
+      RETURNING *`;
+
+    const result = await client.query(sql, [employee_id, date, val_hours, val_meters, val_conn, val_bonus, finalHourlyRate, finalMeterRate, final_amount, notes]);
+
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('Błąd POST /api/work-entries:', err);
+    res.status(500).json({ error: 'Błąd zapisu pracy: ' + err.message });
+  } finally {
+    client.release();
+  }
+});
+
+// 2. Dodawanie Wypłaty (Bez zmian, ale z lepszą obsługą błędów)
+app.post('/api/employee-payments', authenticateToken, canEdit, async (req, res) => {
+  try {
+    const { employee_id, date, amount, notes } = req.body;
+    const sql = `INSERT INTO employee_payments (employee_id, date, amount, notes) VALUES ($1, $2, $3, $4) RETURNING *`;
+    const result = await pool.query(sql, [employee_id, date, amount, notes]);
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('Błąd POST /api/employee-payments:', err);
+    res.status(500).json({ error: 'Błąd zapisu wypłaty' });
+  }
+});
+
+// 3. Usuwanie
+app.delete('/api/work-entries/:id', authenticateToken, isAdmin, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM work_entries WHERE id = $1', [req.params.id]);
+    res.status(204).send();
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+app.delete('/api/employee-payments/:id', authenticateToken, isAdmin, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM employee_payments WHERE id = $1', [req.params.id]);
+    res.status(204).send();
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 4. GŁÓWNY ENDPOINT: Dashboard (Naprawiony błąd 500)
+app.get('/api/settlements/dashboard/:employeeId', authenticateToken, async (req, res) => {
+  const { employeeId } = req.params;
+
+  try {
+    // Pobieramy dane
+    const earningsRes = await pool.query(`SELECT * FROM work_entries WHERE employee_id = $1 ORDER BY date ASC`, [employeeId]);
+    const paymentsRes = await pool.query(`SELECT * FROM employee_payments WHERE employee_id = $1 ORDER BY date ASC`, [employeeId]);
+
+    const earnings = earningsRes.rows;
+    const payments = paymentsRes.rows;
+
+    // --- LOGIKA WODOSPADU ---
+    const monthsMap = new Map();
+
+    // Helper do klucza miesiąca
+    const getMonthKey = (dateStr) => {
+      // dateStr może być obiektem Date lub stringiem z PostgreSQL
+      const d = new Date(dateStr);
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      return `${year}-${month}`;
+    };
+
+    // Agregacja zarobków
+    earnings.forEach((entry) => {
+      const monthKey = getMonthKey(entry.date);
+      if (!monthsMap.has(monthKey)) {
+        monthsMap.set(monthKey, { month: monthKey, totalEarnings: 0, allocatedPayment: 0, entries: [], payments: [] });
+      }
+      const monthData = monthsMap.get(monthKey);
+      monthData.totalEarnings += parseFloat(entry.final_amount);
+      monthData.entries.push(entry);
+    });
+
+    // Agregacja wypłat (tylko do wyświetlania w liście)
+    payments.forEach((payment) => {
+      const monthKey = getMonthKey(payment.date);
+      if (!monthsMap.has(monthKey)) {
+        // Jeśli wypłata jest w miesiącu, w którym nie było pracy, tworzymy pusty miesiąc
+        monthsMap.set(monthKey, { month: monthKey, totalEarnings: 0, allocatedPayment: 0, entries: [], payments: [] });
+      }
+      monthsMap.get(monthKey).payments.push(payment);
+    });
+
+    // Sortowanie miesięcy
+    const sortedMonths = Array.from(monthsMap.values()).sort((a, b) => b.month.localeCompare(a.month)); // Od najnowszego
+
+    // Obliczanie sald (Wodospad)
+    // Sumujemy całą kasę jaką pracownik kiedykolwiek dostał
+    let totalPool = payments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+    const totalPaidGlobal = totalPool;
+
+    // Idziemy od NAJSTARSZEGO miesiąca, żeby spłacać długi chronologicznie
+    // Ale sortedMonths jest od najnowszego, więc odwracamy do obliczeń
+    const chronologicalMonths = [...sortedMonths].reverse();
+
+    chronologicalMonths.forEach((monthData) => {
+      const due = monthData.totalEarnings;
+
+      if (totalPool >= due) {
+        monthData.allocatedPayment = due; // Opłacono całość
+        monthData.status = 'paid';
+        monthData.remaining = 0;
+        totalPool -= due;
+      } else if (totalPool > 0) {
+        monthData.allocatedPayment = totalPool; // Opłacono część
+        monthData.status = 'partial';
+        monthData.remaining = due - totalPool;
+        totalPool = 0;
+      } else {
+        monthData.allocatedPayment = 0; // Nic nie zostało
+        monthData.status = 'unpaid';
+        monthData.remaining = due;
+      }
+    });
+
+    // Saldo globalne
+    const totalEarningsGlobal = earnings.reduce((sum, e) => sum + parseFloat(e.final_amount), 0);
+    const currentBalance = totalEarningsGlobal - totalPaidGlobal;
+
+    res.json({
+      employeeId,
+      months: sortedMonths, // Zwracamy posortowane od najnowszego do wyświetlania
+      summary: {
+        totalEarnings: totalEarningsGlobal,
+        totalPaid: totalPaidGlobal,
+        balance: currentBalance,
+      },
+    });
+  } catch (err) {
+    console.error('Błąd GET /dashboard:', err);
+    res.status(500).json({ error: 'Błąd obliczania rozliczeń: ' + err.message });
+  }
+});
 
 /**
  * @route GET /api/settlements

@@ -589,4 +589,33 @@ button.anuluj {
     padding-top: 75px;
   }
 }
+
+/* ==========================================================================
+   GLOBALNE STYLE DRUKOWANIA (Nowość)
+   ========================================================================== */
+@media print {
+  /* Ukrywamy główne menu nawigacyjne */
+  .main-header {
+    display: none !important;
+  }
+
+  /* Usuwamy padding-top z main, który normalnie robi miejsce na menu */
+  main {
+    padding-top: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Ukrywamy przyciski wylogowania i hamburger */
+  .actions-container,
+  .hamburger-btn {
+    display: none !important;
+  }
+
+  /* Resetujemy tło na białe */
+  body,
+  #app {
+    background-color: white !important;
+    color: black !important;
+  }
+}
 </style>
