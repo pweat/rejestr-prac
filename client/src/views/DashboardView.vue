@@ -160,15 +160,18 @@ onMounted(() => {
 
     <div class="dashboard-grid">
       <div class="dashboard-widget">
-        <h2 class="widget-title"><span class="icon">🔔</span> Powiadomienia Serwisowe</h2>
-        <div v-if="isLoading" class="loading-container">
+        <h2 class="widget-title"><span class="icon" aria-hidden="true">🔔</span> Powiadomienia Serwisowe</h2>
+        <div v-if="isLoading" class="loading-container" role="status" aria-label="Ładowanie powiadomień...">
           <div class="spinner"></div>
         </div>
         <div v-else-if="serviceReminders.length > 0" class="reminders-list">
           <div v-for="reminder in serviceReminders" :key="reminder.client_id" class="reminder-item">
-            <div class="reminder-icon">⚠️</div>
+            <div class="reminder-icon" aria-hidden="true">⚠️</div>
             <div class="reminder-details">
-              <strong>{{ reminder.client_name || 'Klient' }} ({{ reminder.client_phone }})</strong>
+              <strong>
+                {{ reminder.client_name || 'Klient' }} (<a :href="`tel:${reminder.client_phone?.replace(/[^0-9+]/g, '')}`" class="phone-link">{{ reminder.client_phone }}</a
+                >)
+              </strong>
               <span>Wymaga serwisu! Ostatnia usługa: {{ formatDate(reminder.last_event_date) }}</span>
               <small>Następny serwis do: {{ formatDate(reminder.next_service_due) }}</small>
             </div>
@@ -180,8 +183,8 @@ onMounted(() => {
       </div>
 
       <div class="dashboard-widget">
-        <h2 class="widget-title"><span class="icon">📊</span> Statystyki</h2>
-        <div v-if="isLoading" class="loading-container">
+        <h2 class="widget-title"><span class="icon" aria-hidden="true">📊</span> Statystyki</h2>
+        <div v-if="isLoading" class="loading-container" role="status" aria-label="Ładowanie statystyk...">
           <div class="spinner"></div>
         </div>
         <div v-else-if="monthlyStats" class="stats-list">
@@ -216,13 +219,13 @@ onMounted(() => {
       </div>
 
       <div class="dashboard-widget">
-        <h2 class="widget-title"><span class="icon">📦</span> Niski Stan Magazynowy</h2>
-        <div v-if="isLoading" class="loading-container">
+        <h2 class="widget-title"><span class="icon" aria-hidden="true">📦</span> Niski Stan Magazynowy</h2>
+        <div v-if="isLoading" class="loading-container" role="status" aria-label="Ładowanie stanu magazynowego...">
           <div class="spinner"></div>
         </div>
         <div v-else-if="lowStockItems.length > 0" class="reminders-list">
           <div v-for="item in lowStockItems" :key="item.id" class="reminder-item low-stock">
-            <div class="reminder-icon">❗</div>
+            <div class="reminder-icon" aria-hidden="true">❗</div>
             <div class="reminder-details">
               <strong>{{ item.name }}</strong>
               <span>Stan: {{ item.quantity }} {{ item.unit }} (Minimum: {{ item.min_stock_level }})</span>
@@ -387,5 +390,18 @@ onMounted(() => {
   border-radius: 6px;
   background-color: var(--background-light);
   color: var(--text-color);
+}
+
+.phone-link {
+  color: var(--text-color);
+  text-decoration: none;
+  border-bottom: 1px dashed var(--grey);
+  transition: all 0.2s;
+}
+
+.phone-link:hover {
+  color: var(--blue);
+  border-bottom-style: solid;
+  border-bottom-color: var(--blue);
 }
 </style>
