@@ -77,7 +77,7 @@ const handleLogout = () => {
 
     <div class="actions-container">
       <button v-if="isAuthenticated" @click="handleLogout" class="logout-btn desktop-logout">Wyloguj</button>
-      <button v-if="isAuthenticated" class="hamburger-btn" @click="toggleMobileMenu" :class="{ 'is-active': isMobileMenuOpen }" aria-label="Otwórz menu">
+      <button v-if="isAuthenticated" class="hamburger-btn" @click="toggleMobileMenu" :class="{ 'is-active': isMobileMenuOpen }" aria-label="Otwórz menu" :aria-expanded="isMobileMenuOpen">
         <span class="hamburger-box">
           <span class="hamburger-inner"></span>
         </span>
