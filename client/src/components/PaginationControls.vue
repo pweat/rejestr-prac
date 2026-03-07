@@ -48,11 +48,11 @@ function changePage(page) {
 
 <template>
   <div v-if="totalPages > 1" class="pagination-controls">
-    <button @click="changePage(currentPage - 1)" :disabled="currentPage === 1">&laquo;</button>
+    <button aria-label="Poprzednia strona" @click="changePage(currentPage - 1)" :disabled="currentPage === 1">&laquo;</button>
     <button v-for="(page, index) in pageNumbers" :key="index" :class="{ active: page === currentPage, dots: page === '...' }" :disabled="page === '...'" @click="changePage(page)">
       {{ page }}
     </button>
-    <button @click="changePage(currentPage + 1)" :disabled="currentPage === totalPages">&raquo;</button>
+    <button aria-label="Następna strona" @click="changePage(currentPage + 1)" :disabled="currentPage === totalPages">&raquo;</button>
   </div>
 </template>
 
