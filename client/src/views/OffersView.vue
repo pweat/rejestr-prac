@@ -449,7 +449,7 @@ onMounted(() => {
       <div class="modal-content">
         <div class="modal-header">
           <h3>Nowa Oferta</h3>
-          <button class="close-button" @click="showAddOfferModal = false">&times;</button>
+          <button class="close-button" @click="showAddOfferModal = false" aria-label="Zamknij">&times;</button>
         </div>
         <form @submit.prevent="handleSaveOffer">
           <div class="form-grid-single-col">
@@ -554,7 +554,7 @@ onMounted(() => {
       <div class="modal-content">
         <div class="modal-header">
           <h3>Edytuj Ofertę nr {{ editedOfferData?.offer_number }}</h3>
-          <button class="close-button" @click="showEditOfferModal = false">&times;</button>
+          <button class="close-button" @click="showEditOfferModal = false" aria-label="Zamknij">&times;</button>
         </div>
         <div v-if="!editedOfferData" class="loading-modal-content">
           <div class="spinner"></div>
