@@ -1,0 +1,3 @@
+## 2024-04-12 - Accessible Pagination Controls
+**Learning:** Pagination controls in the app (like `PaginationControls.vue`) lack semantic `nav` tags, ARIA labels for navigation directions, and an `aria-current="page"` attribute to denote the current active page for screen readers. Given the app is in Polish, ARIA attributes should use Polish terms (e.g., 'Nawigacja po stronach', 'Poprzednia strona').
+**Action:** When working on pagination or navigation, wrap it in a `<nav>` with a descriptive `aria-label`, ensure forward/backward buttons have `aria-label`, and the active item uses `aria-current="page"`.
