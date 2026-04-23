@@ -1,0 +1,3 @@
+## 2024-04-23 - Accessible Pagination with ARIA
+**Learning:** Generic wrapper elements like `<div>` for pagination controls lack semantic meaning for screen readers. In addition, icon-only buttons (like `&laquo;` or `&raquo;`) and dynamic page numbers need explicit ARIA labels. Conditionally rendering `aria-label` is crucial to prevent screen readers from announcing non-interactive elements like the ellipsis ('...') as pages.
+**Action:** Always replace `<div>` wrappers for pagination with semantic `<nav aria-label="...">` elements, provide descriptive `aria-label` attributes for icon-only navigation buttons, and ensure omission indicators like ellipses are excluded from receiving standard page labels.
