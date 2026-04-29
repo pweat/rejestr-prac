@@ -47,13 +47,21 @@ function changePage(page) {
 </script>
 
 <template>
-  <div v-if="totalPages > 1" class="pagination-controls">
-    <button @click="changePage(currentPage - 1)" :disabled="currentPage === 1">&laquo;</button>
-    <button v-for="(page, index) in pageNumbers" :key="index" :class="{ active: page === currentPage, dots: page === '...' }" :disabled="page === '...'" @click="changePage(page)">
+  <nav v-if="totalPages > 1" class="pagination-controls" aria-label="Nawigacja po stronach">
+    <button aria-label="Poprzednia strona" @click="changePage(currentPage - 1)" :disabled="currentPage === 1">&laquo;</button>
+    <button
+      v-for="(page, index) in pageNumbers"
+      :key="index"
+      :class="{ active: page === currentPage, dots: page === '...' }"
+      :disabled="page === '...'"
+      :aria-current="page === currentPage ? 'page' : null"
+      :aria-label="page === '...' ? null : `Strona ${page}`"
+      @click="changePage(page)"
+    >
       {{ page }}
     </button>
-    <button @click="changePage(currentPage + 1)" :disabled="currentPage === totalPages">&raquo;</button>
-  </div>
+    <button aria-label="Następna strona" @click="changePage(currentPage + 1)" :disabled="currentPage === totalPages">&raquo;</button>
+  </nav>
 </template>
 
 <style scoped>
