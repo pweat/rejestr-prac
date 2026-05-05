@@ -1,0 +1,3 @@
+## 2026-05-05 - Pagination Accessibility Pattern
+**Learning:** Pagination controls in Vue applications often use generic `<div>` wrappers and lack localized screen reader context (e.g., 'Poprzednia strona', 'Następna strona'). The ellipsis ('...') element in pagination requires special handling to prevent confusing screen reader announcements.
+**Action:** Always wrap pagination components in semantic `<nav aria-label="...">` elements, provide translated `aria-label` attributes for icon-only navigation buttons, conditionally omit labels for ellipsis placeholders, and use `aria-current="page"` for the active page.
