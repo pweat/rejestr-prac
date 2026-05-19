@@ -3,7 +3,7 @@
 // 📜 IMPORTS
 // ================================================================================================
 import { ref, onMounted, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { RouterLink, useRouter } from 'vue-router';
 import { getAuthHeaders, removeToken } from '../auth/auth.js';
 import { formatDate } from '../utils/formatters.js';
 import { authenticatedFetch } from '../api/api.js';
@@ -30,6 +30,9 @@ const serviceReminders = ref([]);
 
 /** Lista produktów z niskim stanem magazynowym. */
 const lowStockItems = ref([]);
+
+/** Lista pojazdów z wygasłym lub zbliżającym się przeglądem / OC. */
+const vehicleReminders = ref([]);
 
 /** Obiekt przechowujący statystyki dla wybranego miesiąca. */
 const monthlyStats = ref(null);
@@ -75,6 +78,29 @@ async function fetchLowStockItems() {
 }
 
 /**
+ * Pobiera przypomnienia o terminach przeglądu i OC pojazdów.
+ */
+async function fetchVehicleReminders() {
+  try {
+    const response = await authenticatedFetch(`${API_URL}/api/vehicle-reminders`);
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Błąd pobierania przypomnień pojazdów');
+    vehicleReminders.value = result;
+  } catch (error) {
+    console.error('Błąd podczas pobierania przypomnień pojazdów:', error);
+    if (!handleAuthError(error)) {
+      // alert('Nie udało się pobrać przypomnień pojazdów.');
+    }
+  }
+}
+
+function vehicleReminderLabel(status) {
+  if (status === 'expired') return 'Wygasło';
+  if (status === 'warning') return 'Wkrótce';
+  return '';
+}
+
+/**
  * Pobiera statystyki dla wybranego miesiąca (`selectedMonth`).
  */
 async function getStatsForMonth() {
@@ -104,7 +130,7 @@ async function getStatsForMonth() {
 async function loadDashboardData() {
   isLoading.value = true;
   try {
-    await Promise.all([fetchServiceReminders(), fetchLowStockItems(), getStatsForMonth()]);
+    await Promise.all([fetchServiceReminders(), fetchLowStockItems(), fetchVehicleReminders(), getStatsForMonth()]);
   } catch (error) {
     // Błędy są już obsługiwane w poszczególnych funkcjach fetch,
     // więc tutaj logujemy tylko ogólny błąd.
@@ -176,6 +202,33 @@ onMounted(() => {
         </div>
         <div v-else class="empty-message">
           <p>Brak pilnych powiadomień serwisowych.</p>
+        </div>
+      </div>
+
+      <div class="dashboard-widget">
+        <h2 class="widget-title"><span class="icon">🚗</span> Pojazdy — przegląd / OC</h2>
+        <div v-if="isLoading" class="loading-container">
+          <div class="spinner"></div>
+        </div>
+        <div v-else-if="vehicleReminders.length > 0" class="reminders-list">
+          <div v-for="vehicle in vehicleReminders" :key="vehicle.id" class="reminder-item vehicle-reminder">
+            <div class="reminder-icon">🚗</div>
+            <div class="reminder-details">
+              <strong>{{ vehicle.registration_number }} — {{ [vehicle.make, vehicle.model].filter(Boolean).join(' ') || 'Pojazd' }}</strong>
+              <span v-if="vehicle.inspection_status === 'expired' || vehicle.inspection_status === 'warning'">
+                Przegląd: {{ formatDate(vehicle.inspection_valid_until) }}
+                <em :class="vehicle.inspection_status">({{ vehicleReminderLabel(vehicle.inspection_status) }})</em>
+              </span>
+              <span v-if="vehicle.insurance_status === 'expired' || vehicle.insurance_status === 'warning'">
+                OC: {{ formatDate(vehicle.insurance_valid_until) }}
+                <em :class="vehicle.insurance_status">({{ vehicleReminderLabel(vehicle.insurance_status) }})</em>
+              </span>
+              <RouterLink to="/pojazdy" class="reminder-link">Przejdź do pojazdów →</RouterLink>
+            </div>
+          </div>
+        </div>
+        <div v-else class="empty-message">
+          <p>Brak pilnych terminów przeglądu lub OC.</p>
         </div>
       </div>
 
@@ -305,6 +358,26 @@ onMounted(() => {
   background-color: #fff3f3;
   border-color: #fdb8b8;
   border-left-color: #dc3545;
+}
+.reminder-item.vehicle-reminder {
+  background-color: #eef6ff;
+  border-color: #b3d4fc;
+  border-left-color: #0d6efd;
+}
+.reminder-link {
+  font-size: 13px;
+  color: var(--blue);
+  margin-top: 4px;
+}
+.reminder-details em.expired {
+  color: #c0392b;
+  font-style: normal;
+  font-weight: 600;
+}
+.reminder-details em.warning {
+  color: #b8860b;
+  font-style: normal;
+  font-weight: 600;
 }
 .reminder-icon {
   font-size: 24px;

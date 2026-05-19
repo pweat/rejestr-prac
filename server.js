@@ -2,6 +2,22 @@
 // 📜 IMPORTS
 // =================================================================================================
 
+const fs = require('fs');
+const path = require('path');
+
+// Lokalna konfiguracja (nie commituj .local.env — patrz .local.env.example)
+const localEnvPath = path.join(__dirname, '.local.env');
+if (fs.existsSync(localEnvPath)) {
+  fs.readFileSync(localEnvPath, 'utf8')
+    .split('\n')
+    .forEach((line) => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) return;
+      const idx = trimmed.indexOf('=');
+      if (idx > 0) process.env[trimmed.slice(0, idx).trim()] = trimmed.slice(idx + 1).trim();
+    });
+}
+
 const express = require('express');
 const cors = require('cors');
 const { Pool, types } = require('pg');
@@ -72,9 +88,13 @@ app.use(express.json());
 
 // Konfiguracja połączenia z bazą danych PostgreSQL
 
+const useSsl =
+  process.env.DATABASE_URL &&
+  !/localhost|127\.0\.0\.1/.test(process.env.DATABASE_URL);
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false,
+  ssl: useSsl ? { rejectUnauthorized: false } : false,
   // Poniższe dane są używane tylko lokalnie, jeśli DATABASE_URL nie jest ustawione
   user: 'postgres',
   host: 'localhost',
@@ -263,6 +283,24 @@ const initializeDatabase = async () => {
         hourly_rate REAL DEFAULT 0,
         is_active BOOLEAN DEFAULT true,
         notes TEXT
+      )`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS vehicles (
+        id SERIAL PRIMARY KEY,
+        registration_number TEXT NOT NULL UNIQUE,
+        make TEXT,
+        model TEXT,
+        production_year INTEGER,
+        vin TEXT,
+        fuel_type TEXT,
+        engine_capacity TEXT,
+        mileage INTEGER,
+        inspection_valid_until DATE,
+        insurance_valid_until DATE,
+        notes TEXT,
+        is_active BOOLEAN DEFAULT true,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )`);
 
     await client.query(`
@@ -646,6 +684,261 @@ app.get('/api/clients-for-select', authenticateToken, async (req, res) => {
     res.json(result.rows);
   } catch (err) {
     console.error('Błąd w GET /api/clients-for-select:', err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
+
+// =================================================================================================
+// API ROUTES: Pojazdy (Vehicles)
+// =================================================================================================
+
+const VEHICLE_SELECT_FIELDS = `
+  id, registration_number, make, model, production_year, vin, fuel_type,
+  engine_capacity, mileage,
+  TO_CHAR(inspection_valid_until, 'YYYY-MM-DD') as inspection_valid_until,
+  TO_CHAR(insurance_valid_until, 'YYYY-MM-DD') as insurance_valid_until,
+  notes, is_active, TO_CHAR(created_at, 'YYYY-MM-DD') as created_at
+`;
+
+/**
+ * @route GET /api/vehicles
+ * @description Zwraca spaginowaną listę pojazdów z opcją wyszukiwania i sortowania.
+ * @access Private
+ */
+app.get('/api/vehicles', authenticateToken, async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 15;
+    const offset = (page - 1) * limit;
+    const search = req.query.search || '';
+    const sortBy = req.query.sortBy || 'registration_number';
+    const sortOrder = req.query.sortOrder === 'desc' ? 'DESC' : 'ASC';
+
+    const allowedSortBy = ['registration_number', 'make', 'inspection_valid_until', 'insurance_valid_until', 'created_at'];
+    if (!allowedSortBy.includes(sortBy)) {
+      return res.status(400).json({ error: 'Niedozwolona kolumna sortowania.' });
+    }
+
+    let whereClause = '';
+    let queryParams = [];
+    if (search) {
+      whereClause = `WHERE registration_number ILIKE $1 OR make ILIKE $1 OR model ILIKE $1 OR vin ILIKE $1`;
+      queryParams.push(`%${search}%`);
+    }
+
+    const countSql = `SELECT COUNT(*) FROM vehicles ${whereClause}`;
+    const countResult = await pool.query(countSql, queryParams);
+    const totalItems = parseInt(countResult.rows[0].count);
+    const totalPages = Math.ceil(totalItems / limit);
+
+    const dataSql = `
+      SELECT ${VEHICLE_SELECT_FIELDS}
+      FROM vehicles
+      ${whereClause}
+      ORDER BY ${sortBy} ${sortOrder} NULLS LAST
+      LIMIT $${queryParams.length + 1} OFFSET $${queryParams.length + 2}
+    `;
+    const dataResult = await pool.query(dataSql, [...queryParams, limit, offset]);
+
+    res.json({
+      data: dataResult.rows,
+      pagination: { totalItems, totalPages, currentPage: page },
+    });
+  } catch (err) {
+    console.error('Błąd w GET /api/vehicles:', err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
+
+/**
+ * @route POST /api/vehicles
+ * @description Tworzy nowy pojazd.
+ * @access Private (Editor, Admin)
+ */
+app.post('/api/vehicles', authenticateToken, canEdit, async (req, res) => {
+  try {
+    const {
+      registration_number,
+      make,
+      model,
+      production_year,
+      vin,
+      fuel_type,
+      engine_capacity,
+      mileage,
+      inspection_valid_until,
+      insurance_valid_until,
+      notes,
+      is_active,
+    } = req.body;
+
+    if (!registration_number?.trim()) {
+      return res.status(400).json({ error: 'Numer rejestracyjny jest wymagany.' });
+    }
+
+    const sql = `
+      INSERT INTO vehicles (
+        registration_number, make, model, production_year, vin, fuel_type,
+        engine_capacity, mileage, inspection_valid_until, insurance_valid_until, notes, is_active
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      RETURNING id
+    `;
+    const insertResult = await pool.query(sql, [
+      registration_number.trim().toUpperCase(),
+      make || null,
+      model || null,
+      production_year || null,
+      vin || null,
+      fuel_type || null,
+      engine_capacity || null,
+      mileage || null,
+      inspection_valid_until || null,
+      insurance_valid_until || null,
+      notes || null,
+      is_active !== false,
+    ]);
+
+    const fullResult = await pool.query(`SELECT ${VEHICLE_SELECT_FIELDS} FROM vehicles WHERE id = $1`, [insertResult.rows[0].id]);
+    res.status(201).json(fullResult.rows[0]);
+  } catch (err) {
+    if (err.code === '23505') {
+      return res.status(400).json({ error: 'Pojazd z tym numerem rejestracyjnym już istnieje.' });
+    }
+    console.error('Błąd w POST /api/vehicles:', err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
+
+/**
+ * @route PUT /api/vehicles/:id
+ * @description Aktualizuje dane pojazdu.
+ * @access Private (Editor, Admin)
+ */
+app.put('/api/vehicles/:id', authenticateToken, canEdit, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      registration_number,
+      make,
+      model,
+      production_year,
+      vin,
+      fuel_type,
+      engine_capacity,
+      mileage,
+      inspection_valid_until,
+      insurance_valid_until,
+      notes,
+      is_active,
+    } = req.body;
+
+    if (!registration_number?.trim()) {
+      return res.status(400).json({ error: 'Numer rejestracyjny jest wymagany.' });
+    }
+
+    const sql = `
+      UPDATE vehicles SET
+        registration_number = $1, make = $2, model = $3, production_year = $4, vin = $5,
+        fuel_type = $6, engine_capacity = $7, mileage = $8,
+        inspection_valid_until = $9, insurance_valid_until = $10, notes = $11, is_active = $12
+      WHERE id = $13
+      RETURNING id
+    `;
+    const updateResult = await pool.query(sql, [
+      registration_number.trim().toUpperCase(),
+      make || null,
+      model || null,
+      production_year || null,
+      vin || null,
+      fuel_type || null,
+      engine_capacity || null,
+      mileage || null,
+      inspection_valid_until || null,
+      insurance_valid_until || null,
+      notes || null,
+      is_active !== false,
+      id,
+    ]);
+
+    if (updateResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Nie znaleziono pojazdu o podanym ID.' });
+    }
+
+    const fullResult = await pool.query(`SELECT ${VEHICLE_SELECT_FIELDS} FROM vehicles WHERE id = $1`, [id]);
+    res.status(200).json(fullResult.rows[0]);
+  } catch (err) {
+    if (err.code === '23505') {
+      return res.status(400).json({ error: 'Pojazd z tym numerem rejestracyjnym już istnieje.' });
+    }
+    console.error(`Błąd w PUT /api/vehicles/${req.params.id}:`, err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
+
+/**
+ * @route DELETE /api/vehicles/:id
+ * @description Usuwa pojazd.
+ * @access Private (Admin)
+ */
+app.delete('/api/vehicles/:id', authenticateToken, isAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query('DELETE FROM vehicles WHERE id = $1', [id]);
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ message: 'Nie znaleziono pojazdu' });
+    }
+    res.status(204).send();
+  } catch (err) {
+    console.error(`Błąd w DELETE /api/vehicles/${req.params.id}:`, err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
+
+/**
+ * @route GET /api/vehicle-reminders
+ * @description Zwraca pojazdy z wygasłym lub zbliżającym się terminem przeglądu lub OC (30 dni).
+ * @access Private
+ */
+app.get('/api/vehicle-reminders', authenticateToken, async (req, res) => {
+  try {
+    const sql = `
+      SELECT
+        id,
+        registration_number,
+        make,
+        model,
+        TO_CHAR(inspection_valid_until, 'YYYY-MM-DD') as inspection_valid_until,
+        TO_CHAR(insurance_valid_until, 'YYYY-MM-DD') as insurance_valid_until,
+        CASE
+          WHEN inspection_valid_until IS NULL THEN NULL
+          WHEN inspection_valid_until < CURRENT_DATE THEN 'expired'
+          WHEN inspection_valid_until <= CURRENT_DATE + INTERVAL '30 days' THEN 'warning'
+          ELSE 'ok'
+        END as inspection_status,
+        CASE
+          WHEN insurance_valid_until IS NULL THEN NULL
+          WHEN insurance_valid_until < CURRENT_DATE THEN 'expired'
+          WHEN insurance_valid_until <= CURRENT_DATE + INTERVAL '30 days' THEN 'warning'
+          ELSE 'ok'
+        END as insurance_status
+      FROM vehicles
+      WHERE is_active = true
+        AND (
+          (inspection_valid_until IS NOT NULL AND inspection_valid_until <= CURRENT_DATE + INTERVAL '30 days')
+          OR (insurance_valid_until IS NOT NULL AND insurance_valid_until <= CURRENT_DATE + INTERVAL '30 days')
+        )
+      ORDER BY
+        LEAST(
+          COALESCE(inspection_valid_until, '9999-12-31'::date),
+          COALESCE(insurance_valid_until, '9999-12-31'::date)
+        ) ASC
+    `;
+    const result = await pool.query(sql);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Błąd w GET /api/vehicle-reminders:', err);
     res.status(500).json({ error: 'Wystąpił błąd serwera' });
   }
 });

@@ -5,6 +5,8 @@ npm-debug.log*
 
 # Baza danych
 *.db
+.local-pgdata/
+.local.env
 
 # Pliki systemowe
 .DS_Store

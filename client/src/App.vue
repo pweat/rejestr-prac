@@ -68,6 +68,7 @@ const handleLogout = () => {
         <RouterLink to="/klienci" @click="closeMobileMenu">Klienci</RouterLink>
         <RouterLink to="/zlecenia" @click="closeMobileMenu">Zlecenia</RouterLink>
         <RouterLink to="/magazyn" @click="closeMobileMenu">Magazyn</RouterLink>
+        <RouterLink to="/pojazdy" @click="closeMobileMenu">Pojazdy</RouterLink>
         <RouterLink to="/oferty" @click="closeMobileMenu">Oferty</RouterLink>
         <RouterLink v-if="userRole === 'admin' || userRole === 'editor'" to="/rozliczenia" @click="closeMobileMenu">Rozliczenia</RouterLink>
         <RouterLink v-if="userRole === 'admin'" to="/pracownicy" @click="closeMobileMenu">Pracownicy</RouterLink>

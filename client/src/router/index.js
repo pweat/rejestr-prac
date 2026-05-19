@@ -33,6 +33,12 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/pojazdy',
+    name: 'vehicles',
+    component: () => import('../views/VehiclesView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/oferty',
     name: 'offers',
     component: () => import('../views/OffersView.vue'),
