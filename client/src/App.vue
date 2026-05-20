@@ -12,6 +12,7 @@
 import { RouterView, RouterLink, useRouter } from 'vue-router';
 import { ref, computed } from 'vue';
 import { isAuthenticated, removeToken, getUserRole } from './auth/auth.js';
+import ToastContainer from './components/ToastContainer.vue';
 
 const userRole = computed(() => getUserRole());
 // ===================================================================================
@@ -89,6 +90,8 @@ const handleLogout = () => {
   <main>
     <RouterView />
   </main>
+
+  <ToastContainer />
 </template>
 
 <style>

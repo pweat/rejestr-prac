@@ -222,6 +222,9 @@ onMounted(() => {
                 <td data-label="Email">{{ client.email || '-' }}</td>
                 <td data-label="Notatki" class="col-informacje">{{ client.notes || '-' }}</td>
                 <td data-label="Akcje" class="actions-cell">
+                  <RouterLink :to="`/klienci/${client.id}`">
+                    <button class="karta">Karta</button>
+                  </RouterLink>
                   <RouterLink :to="`/zlecenia?clientId=${client.id}`">
                     <button class="pokaż">Zlecenia</button>
                   </RouterLink>
@@ -324,6 +327,9 @@ onMounted(() => {
 .actions-cell button,
 .actions-cell a > button {
   margin: 0;
+}
+button.karta {
+  background-color: #8a2be2;
 }
 
 .form-grid-single-col {

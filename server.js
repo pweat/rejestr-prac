@@ -255,6 +255,7 @@ const initializeDatabase = async () => {
         vat_rate REAL DEFAULT 23,
         company_profile_key TEXT,
         notes TEXT,
+        status TEXT NOT NULL DEFAULT 'draft',
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )`);
 
@@ -406,6 +407,11 @@ const initializeDatabase = async () => {
         table: 'offers',
         column: 'company_profile_key',
         query: 'ALTER TABLE offers ADD COLUMN company_profile_key TEXT',
+      },
+      {
+        table: 'offers',
+        column: 'status',
+        query: "ALTER TABLE offers ADD COLUMN status TEXT NOT NULL DEFAULT 'draft'",
       },
     ];
 
@@ -670,6 +676,84 @@ app.delete('/api/clients/:id', authenticateToken, isAdmin, async (req, res) => {
   } catch (err) {
     console.error(`Błąd w DELETE /api/clients/${req.params.id}:`, err);
     res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
+
+/**
+ * @route GET /api/clients/:id
+ * @description Zwraca pełny obraz klienta: dane + agregaty (liczba zleceń, oferty per status, suma netto)
+ *              oraz listę zleceń i ofert klienta.
+ * @access Private
+ */
+app.get('/api/clients/:id', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const clientRes = await pool.query('SELECT id, name, phone_number, address, email, notes FROM clients WHERE id = $1', [id]);
+    if (clientRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Nie znaleziono klienta.' });
+    }
+    const client = clientRes.rows[0];
+
+    const jobsCountRes = await pool.query('SELECT COUNT(*)::int AS count FROM jobs WHERE client_id = $1', [id]);
+    const jobsCount = jobsCountRes.rows[0].count;
+
+    const jobsListRes = await pool.query(
+      `SELECT j.id, j.job_type, TO_CHAR(j.job_date, 'YYYY-MM-DD') AS job_date, j.miejscowosc
+       FROM jobs j WHERE j.client_id = $1
+       ORDER BY j.job_date DESC, j.id DESC
+       LIMIT 50`,
+      [id]
+    );
+
+    const offersAggRes = await pool.query(
+      `SELECT o.status, COUNT(*)::int AS count,
+              COALESCE(SUM((SELECT COALESCE(SUM(oi.quantity * oi.net_price), 0) FROM offer_items oi WHERE oi.offer_id = o.id)), 0) AS total_net
+       FROM offers o
+       WHERE o.client_id = $1
+       GROUP BY o.status`,
+      [id]
+    );
+
+    const offersByStatus = { draft: 0, sent: 0, accepted: 0, rejected: 0 };
+    const offersNetByStatus = { draft: 0, sent: 0, accepted: 0, rejected: 0 };
+    let offersTotal = 0;
+    let offersNetTotal = 0;
+    for (const row of offersAggRes.rows) {
+      const status = row.status || 'draft';
+      if (Object.prototype.hasOwnProperty.call(offersByStatus, status)) {
+        offersByStatus[status] = parseInt(row.count, 10) || 0;
+        offersNetByStatus[status] = parseFloat(row.total_net) || 0;
+      }
+      offersTotal += parseInt(row.count, 10) || 0;
+      offersNetTotal += parseFloat(row.total_net) || 0;
+    }
+
+    const offersListRes = await pool.query(
+      `SELECT o.id, o.offer_number, TO_CHAR(o.issue_date, 'YYYY-MM-DD') AS issue_date,
+              o.offer_type, o.status,
+              (SELECT COALESCE(SUM(oi.quantity * oi.net_price), 0) FROM offer_items oi WHERE oi.offer_id = o.id) AS total_net_value
+       FROM offers o
+       WHERE o.client_id = $1
+       ORDER BY o.issue_date DESC, o.id DESC
+       LIMIT 50`,
+      [id]
+    );
+
+    res.json({
+      client,
+      summary: {
+        jobs_count: jobsCount,
+        offers_total: offersTotal,
+        offers_net_total: offersNetTotal,
+        offers_by_status: offersByStatus,
+        offers_net_by_status: offersNetByStatus,
+      },
+      jobs: jobsListRes.rows,
+      offers: offersListRes.rows,
+    });
+  } catch (err) {
+    console.error(`Błąd w GET /api/clients/${id}:`, err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera.' });
   }
 });
 
@@ -1597,7 +1681,18 @@ app.get('/api/jobs', authenticateToken, async (req, res) => {
     const sortBy = req.query.sortBy || 'job_date';
     const sortOrder = req.query.sortOrder === 'asc' ? 'ASC' : 'DESC';
 
-    const allowedSortBy = ['job_date', 'client_name', 'miejscowosc'];
+    // Nowe filtry: typ zlecenia (comma-separated lista) i zakres dat
+    const jobTypesRaw = (req.query.jobTypes || '').toString().trim();
+    const jobTypesList = jobTypesRaw
+      ? jobTypesRaw
+          .split(',')
+          .map((t) => t.trim())
+          .filter((t) => ['well_drilling', 'connection', 'treatment_station', 'service'].includes(t))
+      : [];
+    const dateFrom = req.query.dateFrom || null;
+    const dateTo = req.query.dateTo || null;
+
+    const allowedSortBy = ['job_date', 'client_name', 'miejscowosc', 'job_type'];
     if (!allowedSortBy.includes(sortBy)) {
       return res.status(400).json({ error: 'Niedozwolona kolumna sortowania.' });
     }
@@ -1615,6 +1710,22 @@ app.get('/api/jobs', authenticateToken, async (req, res) => {
       const searchTerm = `%${search}%`;
       whereClauses.push(`(c.name ILIKE $${paramIndex} OR c.phone_number ILIKE $${paramIndex} OR j.miejscowosc ILIKE $${paramIndex})`);
       queryParams.push(searchTerm);
+      paramIndex += 1;
+    }
+
+    if (jobTypesList.length) {
+      whereClauses.push(`j.job_type = ANY($${paramIndex++}::text[])`);
+      queryParams.push(jobTypesList);
+    }
+
+    if (dateFrom) {
+      whereClauses.push(`j.job_date >= $${paramIndex++}`);
+      queryParams.push(dateFrom);
+    }
+
+    if (dateTo) {
+      whereClauses.push(`j.job_date <= $${paramIndex++}`);
+      queryParams.push(dateTo);
     }
 
     const whereString = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
@@ -1627,7 +1738,7 @@ app.get('/api/jobs', authenticateToken, async (req, res) => {
     const dataSql = `
       SELECT 
         j.id, j.job_type, TO_CHAR(j.job_date, 'YYYY-MM-DD') as job_date, 
-        c.name as client_name, c.phone_number as client_phone, j.miejscowosc
+        c.name as client_name, c.phone_number as client_phone, c.id as client_id, j.miejscowosc
       FROM jobs j
       JOIN clients c ON j.client_id = c.id
       ${whereString}
@@ -2247,11 +2358,21 @@ app.get('/api/inventory/:id/history', authenticateToken, async (req, res) => {
 // API ROUTES: Oferty (Offers)
 // =================================================================================================
 
+// Whitelist statusów ofert i pomocnik walidacji
+const OFFER_STATUSES = ['draft', 'sent', 'accepted', 'rejected'];
+const normalizeOfferStatus = (value) => {
+  if (typeof value !== 'string') return null;
+  const lower = value.toLowerCase();
+  return OFFER_STATUSES.includes(lower) ? lower : null;
+};
+
 app.post('/api/offers', authenticateToken, canEdit, async (req, res) => {
-  const { clientId, issue_date, offer_type, vat_rate, notes, items, company_profile_key } = req.body;
+  const { clientId, issue_date, offer_type, vat_rate, notes, items, company_profile_key, status } = req.body;
   if (!clientId || !issue_date || !offer_type || !items || !items.length) {
     return res.status(400).json({ error: 'Brak wszystkich wymaganych danych oferty.' });
   }
+
+  const offerStatus = normalizeOfferStatus(status) || 'draft';
 
   const client = await pool.connect();
   try {
@@ -2266,10 +2387,10 @@ app.post('/api/offers', authenticateToken, canEdit, async (req, res) => {
     const offerNumber = `OF/${String(nextOfferNumberInMonth).padStart(2, '0')}/${month}/${year}`;
 
     const offerSql = `
-      INSERT INTO offers (offer_number, client_id, issue_date, offer_type, vat_rate, notes, company_profile_key)
-      VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id;
+      INSERT INTO offers (offer_number, client_id, issue_date, offer_type, vat_rate, notes, company_profile_key, status)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id;
     `;
-    const offerResult = await client.query(offerSql, [offerNumber, clientId, issue_date, offer_type, vat_rate, notes, company_profile_key]);
+    const offerResult = await client.query(offerSql, [offerNumber, clientId, issue_date, offer_type, vat_rate, notes, company_profile_key, offerStatus]);
     const newOfferId = offerResult.rows[0].id;
 
     const itemSql = `
@@ -2298,23 +2419,49 @@ app.get('/api/offers', authenticateToken, async (req, res) => {
   const limit = 15;
   const offset = (page - 1) * limit;
 
+  // Opcjonalne filtry: klient, status (lista po przecinku)
+  const clientId = req.query.clientId ? parseInt(req.query.clientId, 10) : null;
+  const statusesRaw = (req.query.status || '').toString().trim();
+  const statusesList = statusesRaw
+    ? statusesRaw
+        .split(',')
+        .map((s) => normalizeOfferStatus(s))
+        .filter((s) => s !== null)
+    : [];
+
   try {
-    const totalResult = await pool.query('SELECT COUNT(*) FROM offers');
+    const whereClauses = [];
+    const params = [];
+    let paramIndex = 1;
+
+    if (clientId && !Number.isNaN(clientId)) {
+      whereClauses.push(`o.client_id = $${paramIndex++}`);
+      params.push(clientId);
+    }
+    if (statusesList.length) {
+      whereClauses.push(`o.status = ANY($${paramIndex++}::text[])`);
+      params.push(statusesList);
+    }
+    const whereString = whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
+    const countSql = `SELECT COUNT(*) FROM offers o ${whereString}`;
+    const totalResult = await pool.query(countSql, params);
     const totalItems = parseInt(totalResult.rows[0].count);
     const totalPages = Math.ceil(totalItems / limit);
 
     const offersSql = `
       SELECT 
         o.id, o.offer_number, TO_CHAR(o.issue_date, 'YYYY-MM-DD') as issue_date, 
-        o.offer_type, c.name as client_name, c.phone_number as client_phone,
+        o.offer_type, o.status, c.id as client_id, c.name as client_name, c.phone_number as client_phone,
         c.address as client_address,
         (SELECT COALESCE(SUM(oi.quantity * oi.net_price), 0) FROM offer_items oi WHERE oi.offer_id = o.id) as total_net_value
       FROM offers o
       LEFT JOIN clients c ON o.client_id = c.id
+      ${whereString}
       ORDER BY o.issue_date DESC, o.id DESC
-      LIMIT $1 OFFSET $2;
+      LIMIT $${paramIndex++} OFFSET $${paramIndex++};
     `;
-    const offersResult = await pool.query(offersSql, [limit, offset]);
+    const offersResult = await pool.query(offersSql, [...params, limit, offset]);
 
     res.json({
       data: offersResult.rows,
@@ -2332,7 +2479,8 @@ app.get('/api/offers/:id', authenticateToken, async (req, res) => {
     const offerSql = `
       SELECT 
         o.id, o.offer_number, TO_CHAR(o.issue_date, 'YYYY-MM-DD') as issue_date,
-        o.offer_type, o.vat_rate, o.notes, c.id as client_id, c.name as client_name, 
+        o.offer_type, o.vat_rate, o.notes, o.status, o.company_profile_key,
+        c.id as client_id, c.name as client_name, 
         c.address as client_address, c.phone_number as client_phone, c.email as client_email 
       FROM offers o
       JOIN clients c ON o.client_id = c.id
@@ -2372,10 +2520,12 @@ app.delete('/api/offers/:id', authenticateToken, isAdmin, async (req, res) => {
 
 app.put('/api/offers/:id', authenticateToken, canEdit, async (req, res) => {
   const { id } = req.params;
-  const { clientId, issue_date, offer_type, vat_rate, notes, items } = req.body;
+  const { clientId, issue_date, offer_type, vat_rate, notes, items, company_profile_key, status } = req.body;
   if (!clientId || !issue_date || !offer_type || !items) {
     return res.status(400).json({ error: 'Brak wszystkich wymaganych danych oferty.' });
   }
+
+  const offerStatus = normalizeOfferStatus(status);
 
   const client = await pool.connect();
   try {
@@ -2383,10 +2533,12 @@ app.put('/api/offers/:id', authenticateToken, canEdit, async (req, res) => {
 
     const offerSql = `
       UPDATE offers 
-      SET client_id = $1, issue_date = $2, offer_type = $3, vat_rate = $4, notes = $5
-      WHERE id = $6;
+      SET client_id = $1, issue_date = $2, offer_type = $3, vat_rate = $4, notes = $5,
+          company_profile_key = COALESCE($6, company_profile_key),
+          status = COALESCE($7, status)
+      WHERE id = $8;
     `;
-    await client.query(offerSql, [clientId, issue_date, offer_type, vat_rate, notes, id]);
+    await client.query(offerSql, [clientId, issue_date, offer_type, vat_rate, notes, company_profile_key ?? null, offerStatus, id]);
 
     await client.query('DELETE FROM offer_items WHERE offer_id = $1', [id]);
 
@@ -2411,9 +2563,34 @@ app.put('/api/offers/:id', authenticateToken, canEdit, async (req, res) => {
   }
 });
 
+/**
+ * @route PATCH /api/offers/:id/status
+ * @description Aktualizuje wyłącznie status oferty (lekkie, optymistyczne aktualizacje z UI).
+ * @access Private (Editor, Admin)
+ */
+app.patch('/api/offers/:id/status', authenticateToken, canEdit, async (req, res) => {
+  const { id } = req.params;
+  const newStatus = normalizeOfferStatus(req.body?.status);
+  if (!newStatus) {
+    return res.status(400).json({ error: 'Nieprawidłowy status. Dozwolone: draft, sent, accepted, rejected.' });
+  }
+  try {
+    const result = await pool.query('UPDATE offers SET status = $1 WHERE id = $2 RETURNING id, status', [newStatus, id]);
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Nie znaleziono oferty o podanym ID.' });
+    }
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error(`Błąd w PATCH /api/offers/${id}/status:`, error);
+    res.status(500).json({ error: 'Wystąpił błąd serwera podczas zmiany statusu oferty.' });
+  }
+});
+
 app.get('/api/offers/:id/download', authenticateToken, async (req, res) => {
   const { id } = req.params;
-  const logoWidth = 220; // Szerokość logo w nagłówku
+  const PAGE = { left: 40, right: 40, top: 36, bottom: 44 };
+  const TABLE_PADDING_X = 6;
+  const TABLE_PADDING_Y = 6;
 
   try {
     // 1. Pobieranie pełnych danych oferty, włącznie z kluczem profilu firmy
@@ -2436,7 +2613,11 @@ app.get('/api/offers/:id/download', authenticateToken, async (req, res) => {
     const companyProfile = COMPANY_PROFILES[offerData.company_profile_key] || COMPANY_PROFILES.firma_a;
 
     // 3. Inicjalizacja dokumentu PDF
-    const doc = new PDFDocument({ margin: 40, size: 'A4' });
+    const doc = new PDFDocument({
+      margin: PAGE.left,
+      size: 'A4',
+      bufferPages: true,
+    });
     const fileName = `Oferta nr ${offerData.offer_number.replace(/\//g, '-')}.pdf`;
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
@@ -2447,139 +2628,272 @@ app.get('/api/offers/:id/download', authenticateToken, async (req, res) => {
     doc.registerFont('Lato-Bold', 'fonts/Lato-Bold.ttf');
 
     // --- POCZĄTEK RYSOWANIA PDF ---
+    const pageWidth = doc.page.width - PAGE.left - PAGE.right;
+    const pageBottom = doc.page.height - PAGE.bottom;
+    const leftColWidth = Math.floor(pageWidth * 0.52);
+    const rightColWidth = pageWidth - leftColWidth - 14;
 
-    // Nagłówek: Logo i dane wybranej firmy
-    if (companyProfile.logo && companyProfile.logo.startsWith('data:image')) {
-      doc.image(companyProfile.logo, 40, 40, { width: 220 });
-    } else {
-      // Zastępczy tekst, jeśli logo to null
-      doc.font('Lato-Bold').fontSize(12).text(companyProfile.name, 40, 45, { width: 200 });
-    }
+    const formatDate = (value) => new Date(value).toLocaleDateString('pl-PL');
+    const formatNumber = (value) =>
+      new Intl.NumberFormat('pl-PL', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(Number(value) || 0);
+    const formatCurrency = (value) => `${formatNumber(value)} zł`;
+    const safeText = (value) => (value == null ? '' : String(value));
 
-    const startXRight = 280;
-    const widthRight = 280;
+    const totalNetValue = offerData.items.reduce((sum, item) => {
+      const qty = Number(item.quantity) || 0;
+      const price = Number(item.net_price) || 0;
+      return sum + qty * price;
+    }, 0);
+    const vatRate = Number(offerData.vat_rate) || 0;
+    const vatValue = totalNetValue * (vatRate / 100);
+    const totalGrossValue = totalNetValue + vatValue;
 
-    doc.font('Lato-Bold').fontSize(14).text(`Oferta nr ${offerData.offer_number}`, startXRight, 40, { align: 'right', width: widthRight });
-    doc.font('Lato').fontSize(10);
-    doc.text(`z dnia: ${new Date(offerData.issue_date).toLocaleDateString('pl-PL')}`, { align: 'right', width: widthRight });
-    doc.text(`przygotowana przez: Dawid Nikolajski`, { align: 'right', width: widthRight });
-    doc.moveDown(0.5);
-    doc.font('Lato-Bold').text(companyProfile.name, { align: 'right', width: widthRight });
-    doc.font('Lato').text(companyProfile.address, { align: 'right', width: widthRight });
-    doc.text(companyProfile.nip, { align: 'right', width: widthRight });
-    doc.text(`Tel: ${companyProfile.phone}, E-mail: ${companyProfile.email}`, { align: 'right', width: widthRight });
-
-    // Dane klienta pod logo
-    const startYClient = 120;
-    doc.font('Lato-Bold').fontSize(12).text('Oferta dla', 40, startYClient);
-    doc
-      .moveTo(40, doc.y + 2)
-      .lineTo(40 + logoWidth, doc.y + 2)
-      .stroke(); // Używa zmiennej logoWidth
-    doc.moveDown(0.5);
-    doc.font('Lato').fontSize(10);
-    doc.text(offerData.client_name || '', { width: 200 });
-    doc.text(offerData.client_address || '', { width: 200 });
-    doc.text(offerData.client_email || '', { width: 200 });
-
-    // Tabela z pozycjami
-    const tableTop = 190;
-    const minRowHeight = 25;
-    const tableMargin = 40;
-    const textPadding = 5;
-
-    const columns = [
-      { header: 'Lp.', width: 30, align: 'left' },
-      { header: 'Nazwa towaru / usługi', width: 270, align: 'left' },
-      { header: 'Ilość', width: 40, align: 'center' },
-      { header: 'J.m.', width: 40, align: 'center' },
-      { header: 'Cena netto', width: 70, align: 'right' },
-      { header: 'Wartość netto', width: 70, align: 'right' },
-    ];
-    const tableWidth = columns.reduce((sum, col) => sum + col.width, 0);
-
-    let currentY = tableTop;
-
-    function drawRow(y, rowData, rowHeight, isHeader = false) {
-      doc.font(isHeader ? 'Lato-Bold' : 'Lato').fontSize(isHeader ? 9 : 8);
-
-      let currentX = tableMargin;
-      const textY = y + 5; // Tekst zawsze zaczyna się od góry komórki
-
-      rowData.forEach((text, i) => {
-        doc.rect(currentX, y, columns[i].width, rowHeight).strokeColor('#cccccc').stroke();
-        doc.text(text.toString(), currentX + textPadding, textY, {
-          width: columns[i].width - textPadding * 2,
-          align: columns[i].align,
-        });
-        currentX += columns[i].width;
-      });
-    }
-
-    drawRow(
-      currentY,
-      columns.map((c) => c.header),
-      minRowHeight,
-      true
-    );
-    currentY += minRowHeight;
-
-    let totalNetValue = 0;
-
-    offerData.items.forEach((item, index) => {
-      const netValue = item.quantity * item.net_price;
-      totalNetValue += netValue;
-
-      const nameText = item.name;
-      const nameHeight = doc
+    let pageNumber = 1;
+    const drawFooter = () => {
+      const footerY = doc.page.height - 28;
+      doc
+        .strokeColor('#d5dbe1')
+        .lineWidth(1)
+        .moveTo(PAGE.left, footerY - 6)
+        .lineTo(PAGE.left + pageWidth, footerY - 6)
+        .stroke();
+      doc
         .font('Lato')
         .fontSize(8)
-        .heightOfString(nameText, { width: columns[1].width - textPadding * 2 });
-      const dynamicRowHeight = Math.max(minRowHeight, nameHeight + textPadding * 2);
+        .fillColor('#607080')
+        .text(`Wygenerowano ${formatDate(new Date())}`, PAGE.left, footerY, {
+          width: 240,
+          align: 'left',
+        })
+        .text(`Strona ${pageNumber}`, PAGE.left, footerY, {
+          width: pageWidth,
+          align: 'right',
+        });
+      doc.fillColor('#111111');
+    };
 
-      if (currentY + dynamicRowHeight > 750) {
-        doc.addPage();
-        currentY = 40;
-        drawRow(
-          currentY,
-          columns.map((c) => c.header),
-          minRowHeight,
-          true
-        );
-        currentY += minRowHeight;
-      }
+    // Naglowek (logo + metadane oferty)
+    const logoX = PAGE.left;
+    const logoY = PAGE.top;
+    const metaX = PAGE.left + leftColWidth + 14;
+    if (companyProfile.logo && companyProfile.logo.startsWith('data:image')) {
+      doc.image(companyProfile.logo, logoX, logoY, { width: 170 });
+    } else {
+      doc.font('Lato-Bold').fontSize(14).text(companyProfile.name, logoX, logoY + 8, { width: leftColWidth });
+    }
 
-      const row = [index + 1, nameText, item.quantity, item.unit, item.net_price.toFixed(2), netValue.toFixed(2)];
-      drawRow(currentY, row, dynamicRowHeight);
-      currentY += dynamicRowHeight;
-    });
+    doc
+      .font('Lato-Bold')
+      .fontSize(17)
+      .fillColor('#10263f')
+      .text(`OFERTA ${safeText(offerData.offer_number)}`, metaX, logoY, {
+        width: rightColWidth,
+        align: 'right',
+      });
+    doc
+      .font('Lato')
+      .fontSize(10)
+      .fillColor('#3d5167')
+      .text(`Data wystawienia: ${formatDate(offerData.issue_date)}`, { width: rightColWidth, align: 'right' })
+      .text(`Wazna przez: 14 dni`, { width: rightColWidth, align: 'right' });
 
-    // Podsumowanie bez obramowania
-    const summaryY = currentY + 10;
-    doc.font('Lato-Bold').fontSize(10);
+    const headerBottomY = 114;
+    doc
+      .strokeColor('#d5dbe1')
+      .lineWidth(1)
+      .moveTo(PAGE.left, headerBottomY)
+      .lineTo(PAGE.left + pageWidth, headerBottomY)
+      .stroke();
 
-    const summaryLabelX = tableMargin + columns.slice(0, 4).reduce((sum, col) => sum + col.width, 0);
-    doc.text('Razem:', summaryLabelX, summaryY, {
-      width: columns[4].width - textPadding,
-      align: 'right',
-    });
+    // Sekcje: dane sprzedawcy i klienta
+    const cardTopY = 126;
+    const cardHeight = 102;
+    const cardGap = 14;
+    const cardWidth = (pageWidth - cardGap) / 2;
 
-    const valueSumX = tableMargin + columns.slice(0, 5).reduce((sum, col) => sum + col.width, 0);
-    doc.text(`${totalNetValue.toFixed(2)} zł`, valueSumX, summaryY, {
-      width: columns[5].width - textPadding,
-      align: 'right',
-    });
-
-    currentY = summaryY;
-
-    // Notatki
-    if (offerData.notes) {
+    const drawCard = (x, title, lines) => {
+      doc.roundedRect(x, cardTopY, cardWidth, cardHeight, 6).fillAndStroke('#f6f9fc', '#dce4ec');
       doc
         .font('Lato-Bold')
         .fontSize(10)
-        .text('Uwagi:', 40, currentY + 25);
-      doc.font('Lato').fontSize(9).text(offerData.notes, { width: 520, align: 'left' });
+        .fillColor('#10263f')
+        .text(title, x + 10, cardTopY + 10, { width: cardWidth - 20 });
+      doc.font('Lato').fontSize(9).fillColor('#2f3f50');
+      let y = cardTopY + 28;
+      lines.forEach((line) => {
+        doc.text(safeText(line), x + 10, y, { width: cardWidth - 20 });
+        y = doc.y + 2;
+      });
+      doc.fillColor('#111111');
+    };
+
+    drawCard(PAGE.left, 'Sprzedawca', [
+      companyProfile.name,
+      companyProfile.address,
+      companyProfile.nip,
+      `Tel: ${companyProfile.phone}`,
+      `E-mail: ${companyProfile.email}`,
+    ]);
+    drawCard(PAGE.left + cardWidth + cardGap, 'Klient', [
+      offerData.client_name || '-',
+      offerData.client_address || '-',
+      offerData.client_phone ? `Tel: ${offerData.client_phone}` : '',
+      offerData.client_email ? `E-mail: ${offerData.client_email}` : '',
+    ]);
+
+    // Tabela pozycji
+    const tableTop = cardTopY + cardHeight + 20;
+    const columns = [
+      { header: 'Lp.', width: 28, align: 'center' },
+      { header: 'Nazwa towaru / uslugi', width: 205, align: 'left' },
+      { header: 'Ilosc', width: 45, align: 'right' },
+      { header: 'J.m.', width: 40, align: 'center' },
+      { header: 'Cena netto', width: 95, align: 'right' },
+      { header: 'Wartosc netto', width: 102, align: 'right' },
+    ];
+    let currentY = tableTop;
+
+    const drawTableHeader = (y) => {
+      let x = PAGE.left;
+      doc.font('Lato-Bold').fontSize(9).fillColor('#ffffff');
+      columns.forEach((col) => {
+        doc.rect(x, y, col.width, 24).fillAndStroke('#234a72', '#234a72');
+        doc.text(col.header, x + TABLE_PADDING_X, y + 8, {
+          width: col.width - TABLE_PADDING_X * 2,
+          align: col.align,
+        });
+        x += col.width;
+      });
+      doc.fillColor('#111111');
+    };
+
+    const drawTableRow = (y, row, rowHeight, isEven) => {
+      let x = PAGE.left;
+      doc.font('Lato').fontSize(9).fillColor('#1d2a36');
+      columns.forEach((col, idx) => {
+        const cellColor = isEven ? '#ffffff' : '#f8fbfe';
+        doc.rect(x, y, col.width, rowHeight).fillAndStroke(cellColor, '#d8e1ea');
+        doc.text(safeText(row[idx]), x + TABLE_PADDING_X, y + TABLE_PADDING_Y, {
+          width: col.width - TABLE_PADDING_X * 2,
+          align: col.align,
+        });
+        x += col.width;
+      });
+      doc.fillColor('#111111');
+    };
+
+    drawTableHeader(currentY);
+    currentY += 24;
+
+    if (!offerData.items.length) {
+      drawTableRow(currentY, ['', 'Brak pozycji w ofercie', '', '', '', ''], 28, true);
+      currentY += 28;
+    } else {
+      offerData.items.forEach((item, index) => {
+        const qty = Number(item.quantity) || 0;
+        const price = Number(item.net_price) || 0;
+        const lineNet = qty * price;
+        const nameText = safeText(item.name);
+
+        const textHeight = doc.heightOfString(nameText, {
+          width: columns[1].width - TABLE_PADDING_X * 2,
+          align: 'left',
+        });
+        const rowHeight = Math.max(24, textHeight + TABLE_PADDING_Y * 2);
+
+        if (currentY + rowHeight + 80 > pageBottom) {
+          drawFooter();
+          doc.addPage();
+          pageNumber += 1;
+          currentY = PAGE.top;
+          drawTableHeader(currentY);
+          currentY += 24;
+        }
+
+        drawTableRow(
+          currentY,
+          [
+            index + 1,
+            nameText,
+            formatNumber(qty),
+            safeText(item.unit),
+            formatCurrency(price),
+            formatCurrency(lineNet),
+          ],
+          rowHeight,
+          index % 2 === 0
+        );
+        currentY += rowHeight;
+      });
     }
+
+    // Podsumowanie netto / VAT / brutto
+    const summaryWidth = 210;
+    const summaryX = PAGE.left + pageWidth - summaryWidth;
+    const summaryY = currentY + 12;
+    const summaryLineHeight = 19;
+    const summaryRows = [
+      ['Razem netto', formatCurrency(totalNetValue)],
+      [`VAT (${formatNumber(vatRate)}%)`, formatCurrency(vatValue)],
+      ['Razem brutto', formatCurrency(totalGrossValue)],
+    ];
+    const summaryHeight = summaryRows.length * summaryLineHeight + 14;
+
+    if (summaryY + summaryHeight + 40 > pageBottom) {
+      drawFooter();
+      doc.addPage();
+      pageNumber += 1;
+      currentY = PAGE.top + 12;
+    } else {
+      currentY = summaryY;
+    }
+
+    doc.roundedRect(summaryX, currentY, summaryWidth, summaryHeight, 6).fillAndStroke('#f4f8fc', '#d6e1ec');
+    let rowY = currentY + 8;
+    summaryRows.forEach((entry, idx) => {
+      const isTotalRow = idx === summaryRows.length - 1;
+      doc
+        .font(isTotalRow ? 'Lato-Bold' : 'Lato')
+        .fontSize(isTotalRow ? 11 : 9)
+        .fillColor('#1f3245')
+        .text(entry[0], summaryX + 10, rowY, { width: 92, align: 'left' })
+        .text(entry[1], summaryX + 80, rowY, { width: 120, align: 'right' });
+      rowY += summaryLineHeight;
+    });
+    doc.fillColor('#111111');
+    currentY += summaryHeight + 14;
+
+    // Notatki
+    if (offerData.notes) {
+      const notesHeight = doc.heightOfString(safeText(offerData.notes), { width: pageWidth - 20 });
+      const notesBlockHeight = notesHeight + 30;
+      if (currentY + notesBlockHeight + 20 > pageBottom) {
+        drawFooter();
+        doc.addPage();
+        pageNumber += 1;
+        currentY = PAGE.top + 8;
+      }
+
+      doc
+        .font('Lato-Bold')
+        .fontSize(10)
+        .fillColor('#10263f')
+        .text('Uwagi i warunki dodatkowe', PAGE.left, currentY, { width: pageWidth });
+      currentY = doc.y + 6;
+
+      doc.roundedRect(PAGE.left, currentY, pageWidth, notesHeight + 16, 6).fillAndStroke('#ffffff', '#d6e1ec');
+      doc
+        .font('Lato')
+        .fontSize(9)
+        .fillColor('#2f3f50')
+        .text(safeText(offerData.notes), PAGE.left + 10, currentY + 8, { width: pageWidth - 20, align: 'left' });
+      doc.fillColor('#111111');
+    }
+
+    drawFooter();
 
     doc.end();
   } catch (error) {
