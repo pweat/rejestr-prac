@@ -288,6 +288,29 @@ const initializeDatabase = async () => {
         net_price REAL NOT NULL
       )`);
 
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS offer_type_templates (
+        id SERIAL PRIMARY KEY,
+        slug TEXT NOT NULL UNIQUE,
+        label TEXT NOT NULL,
+        default_vat_rate REAL DEFAULT 23,
+        default_notes TEXT,
+        is_builtin BOOLEAN NOT NULL DEFAULT false,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS offer_template_items (
+        id SERIAL PRIMARY KEY,
+        template_id INTEGER NOT NULL REFERENCES offer_type_templates(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        quantity REAL NOT NULL DEFAULT 1,
+        unit TEXT NOT NULL DEFAULT 'szt.',
+        net_price REAL NOT NULL DEFAULT 0,
+        sort_order INTEGER NOT NULL DEFAULT 0
+      )`);
+
     // --- NOWY FRAGMENT: Dodano tworzenie tabeli inventory_categories ---
     await client.query(`
       CREATE TABLE IF NOT EXISTS inventory_categories (
@@ -510,6 +533,8 @@ const initializeDatabase = async () => {
       SET alert_on_dashboard = (min_stock_level > 0)
       WHERE alert_on_dashboard IS DISTINCT FROM (min_stock_level > 0)
     `);
+
+    await seedOfferTypeTemplates(client);
   } catch (err) {
     console.error('❌ Błąd podczas inicjalizacji bazy danych:', err);
     process.exit(1); // Zakończ proces, jeśli baza danych nie jest gotowa
@@ -517,6 +542,86 @@ const initializeDatabase = async () => {
     if (client) client.release();
   }
 };
+
+const DEFAULT_OFFER_TYPE_TEMPLATES = [
+  {
+    slug: 'connection',
+    label: 'Podłączenie Studni',
+    sort_order: 1,
+    is_builtin: true,
+    default_notes: 'Termin ważności oferty: 14 dni. \nGwarancja na wykonane usługi: 24 miesiące.',
+    items: [
+      { name: 'Pompa głębinowa 4" 4N23 230V IBO', quantity: 1, unit: 'szt.', net_price: 1056.91 },
+      { name: 'Głowica studzienna 125mm', quantity: 1, unit: 'szt.', net_price: 113.82 },
+      { name: 'Zbiornik GWS 80L', quantity: 1, unit: 'szt.', net_price: 365.85 },
+      { name: 'Wyłącznik ciśnieniowy', quantity: 1, unit: 'szt.', net_price: 48.78 },
+      { name: 'Złączka PE 32x1" GZ', quantity: 1, unit: 'szt.', net_price: 13.82 },
+      { name: 'Zawór kulowy 1"', quantity: 1, unit: 'szt.', net_price: 26.83 },
+      { name: 'Filtr antypiaskowy', quantity: 1, unit: 'szt.', net_price: 30.08 },
+      { name: 'Rura PE 32mm', quantity: 10, unit: 'm', net_price: 6.0 },
+      { name: 'Robocizna - montaż i podłączenie', quantity: 1, unit: 'usł.', net_price: 1200.0 },
+    ],
+  },
+  {
+    slug: 'drilling',
+    label: 'Wykonanie Studni',
+    sort_order: 2,
+    is_builtin: true,
+    default_notes: 'Termin ważności oferty: 14 dni. \nGwarancja na wykonane usługi: 24 miesiące.',
+    items: [
+      { name: 'Wykonanie odwiertu studni głębinowej', quantity: 30, unit: 'm', net_price: 250.0 },
+      { name: 'Rury studzienne atestowane', quantity: 30, unit: 'm', net_price: 50.0 },
+      { name: 'Obsypka żwirowa', quantity: 1, unit: 't', net_price: 300.0 },
+      { name: 'Pompowanie oczyszczające', quantity: 1, unit: 'usł.', net_price: 500.0 },
+    ],
+  },
+  {
+    slug: 'station',
+    label: 'Stacja Uzdatniania',
+    sort_order: 3,
+    is_builtin: true,
+    default_notes: 'Termin ważności oferty: 14 dni. \nGwarancja na wykonane usługi: 24 miesiące.',
+    items: [
+      { name: 'Zmiękczacz do wody', quantity: 1, unit: 'szt.', net_price: 2500.0 },
+      { name: 'Lampa UV', quantity: 1, unit: 'szt.', net_price: 900.0 },
+      { name: 'Worek soli tabletkowanej 25kg', quantity: 2, unit: 'szt.', net_price: 50.0 },
+      { name: 'Montaż i uruchomienie stacji', quantity: 1, unit: 'usł.', net_price: 800.0 },
+    ],
+  },
+];
+
+function slugifyOfferTemplateLabel(label) {
+  return String(label || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 80) || 'szablon';
+}
+
+async function seedOfferTypeTemplates(client) {
+  const countRes = await client.query('SELECT COUNT(*)::int AS cnt FROM offer_type_templates');
+  if (countRes.rows[0].cnt > 0) return;
+
+  for (const tpl of DEFAULT_OFFER_TYPE_TEMPLATES) {
+    const ins = await client.query(
+      `INSERT INTO offer_type_templates (slug, label, default_vat_rate, default_notes, is_builtin, sort_order)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+      [tpl.slug, tpl.label, 23, tpl.default_notes || null, tpl.is_builtin, tpl.sort_order]
+    );
+    const templateId = ins.rows[0].id;
+    let order = 0;
+    for (const item of tpl.items) {
+      await client.query(
+        `INSERT INTO offer_template_items (template_id, name, quantity, unit, net_price, sort_order)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [templateId, item.name, item.quantity, item.unit, item.net_price, order++]
+      );
+    }
+  }
+  console.log('🔧 Seed offer_type_templates: utworzono domyślne szablony ofert.');
+}
 
 // Uruchomienie inicjalizacji
 initializeDatabase();
@@ -2949,6 +3054,118 @@ app.get('/api/inventory/:id/history', authenticateToken, async (req, res) => {
 // API ROUTES: Oferty (Offers)
 // =================================================================================================
 
+// --- PDF: czcionki i prosty rich text (b, i, br) ---
+const PDF_FONT_REGULAR = 'OfferFont';
+const PDF_FONT_BOLD = 'OfferFont-Bold';
+
+function registerPdfFonts(doc) {
+  const regularPath = path.join(__dirname, 'fonts', 'Lato-Regular.ttf');
+  const boldPath = path.join(__dirname, 'fonts', 'Lato-Bold.ttf');
+  doc._offerPdfBuiltIn = !(fs.existsSync(regularPath) && fs.existsSync(boldPath));
+  if (!doc._offerPdfBuiltIn) {
+    doc.registerFont(PDF_FONT_REGULAR, regularPath);
+    doc.registerFont(PDF_FONT_BOLD, boldPath);
+  }
+}
+
+function pdfFont(doc, bold) {
+  if (doc._offerPdfBuiltIn) return doc.font(bold ? 'Helvetica-Bold' : 'Helvetica');
+  return doc.font(bold ? PDF_FONT_BOLD : PDF_FONT_REGULAR);
+}
+
+function stripHtmlToPlain(html) {
+  return String(html || '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .trim();
+}
+
+/** Tokenizuje mini-HTML na segmenty { text, bold, italic } */
+function tokenizeMiniHtml(html) {
+  const normalized = String(html || '')
+    .replace(/<strong>/gi, '<b>')
+    .replace(/<\/strong>/gi, '</b>')
+    .replace(/<em>/gi, '<i>')
+    .replace(/<\/em>/gi, '</i>')
+    .replace(/<br\s*\/?>/gi, '\n');
+  const lines = normalized.split('\n');
+  const result = [];
+  for (const line of lines) {
+    const segments = [];
+    const re = /<(b|i)>(.*?)<\/\1>|([^<]+)/gis;
+    let m;
+    while ((m = re.exec(line)) !== null) {
+      if (m[1]) {
+        segments.push({ text: m[2], bold: m[1] === 'b', italic: m[1] === 'i' });
+      } else if (m[3]) {
+        segments.push({ text: m[3], bold: false, italic: false });
+      }
+    }
+    if (!segments.length) segments.push({ text: '', bold: false, italic: false });
+    result.push(segments);
+  }
+  return result;
+}
+
+function measureMiniHtmlHeight(doc, html, width, fontSize = 9) {
+  const lineSegments = tokenizeMiniHtml(html);
+  let total = 0;
+  const lineGap = 2;
+  for (const segments of lineSegments) {
+    let lineWidth = 0;
+    let maxAscent = fontSize;
+    for (const seg of segments) {
+      pdfFont(doc, seg.bold, seg.italic);
+      doc.fontSize(fontSize);
+      lineWidth += doc.widthOfString(seg.text || '');
+    }
+    const wraps = Math.max(1, Math.ceil(lineWidth / Math.max(width, 1)));
+    total += wraps * (fontSize + lineGap);
+  }
+  return total;
+}
+
+function drawMiniHtmlInBox(doc, html, x, y, width, fontSize = 9, color = '#1d2a36') {
+  const savedY = doc.y;
+  const lineSegments = tokenizeMiniHtml(html);
+  let cursorY = y;
+  const lineGap = 2;
+  doc.fillColor(color);
+
+  for (const segments of lineSegments) {
+    // Uproszczony rendering: zachowujemy treść, a styl (B/I) traktujemy jako "best effort"
+    // żeby nie destabilizować paginacji PDF.
+    const plain = segments.map((s) => s.text || '').join('');
+    pdfFont(doc, false);
+    doc.fontSize(fontSize);
+    doc.text(plain, x, cursorY, { width, align: 'left' });
+    cursorY = doc.y + lineGap;
+  }
+  doc.y = savedY;
+  return cursorY - y;
+}
+
+function drawPdfCellText(doc, text, x, y, width, rowHeight, options = {}) {
+  const { align = 'left', isRich = false, fontSize = 9 } = options;
+  const paddingY = 6;
+  const savedY = doc.y;
+  if (isRich && /<[bi]|br/i.test(String(text))) {
+    drawMiniHtmlInBox(doc, text, x + 6, y + paddingY, width - 12, fontSize);
+  } else {
+    pdfFont(doc, false);
+    doc.fontSize(fontSize).fillColor('#1d2a36');
+    doc.text(stripHtmlToPlain(text), x + 6, y + paddingY, {
+      width: width - 12,
+      align,
+    });
+  }
+  // Krytyczne: reset kursora, żeby kolejne komórki/wiersze nie "pchały" się w dół i nie tworzyły pustych stron.
+  doc.y = savedY;
+  doc.fillColor('#111111');
+}
+
 // Whitelist statusów ofert i pomocnik walidacji
 const OFFER_STATUSES = ['draft', 'sent', 'accepted', 'rejected'];
 const normalizeOfferStatus = (value) => {
@@ -2956,6 +3173,170 @@ const normalizeOfferStatus = (value) => {
   const lower = value.toLowerCase();
   return OFFER_STATUSES.includes(lower) ? lower : null;
 };
+
+async function fetchOfferTemplateById(id) {
+  const tplRes = await pool.query('SELECT * FROM offer_type_templates WHERE id = $1', [id]);
+  if (!tplRes.rows.length) return null;
+  const itemsRes = await pool.query(
+    `SELECT id, name, quantity, unit, net_price, sort_order
+     FROM offer_template_items WHERE template_id = $1 ORDER BY sort_order ASC, id ASC`,
+    [id]
+  );
+  return { ...tplRes.rows[0], items: itemsRes.rows };
+}
+
+app.get('/api/offer-templates', authenticateToken, async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT t.id, t.slug, t.label, t.default_vat_rate, t.default_notes, t.is_builtin, t.sort_order,
+        (SELECT COUNT(*)::int FROM offer_template_items i WHERE i.template_id = t.id) AS item_count
+      FROM offer_type_templates t
+      ORDER BY t.sort_order ASC, t.label ASC
+    `);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Błąd GET /api/offer-templates:', err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
+
+app.get('/api/offer-templates/labels', authenticateToken, async (req, res) => {
+  try {
+    const result = await pool.query('SELECT slug, label FROM offer_type_templates ORDER BY sort_order ASC');
+    const labels = {};
+    result.rows.forEach((r) => {
+      labels[r.slug] = r.label;
+    });
+    res.json(labels);
+  } catch (err) {
+    console.error('Błąd GET /api/offer-templates/labels:', err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
+
+app.get('/api/offer-templates/by-slug/:slug', authenticateToken, async (req, res) => {
+  try {
+    const tplRes = await pool.query('SELECT id FROM offer_type_templates WHERE slug = $1', [req.params.slug]);
+    if (!tplRes.rows.length) return res.status(404).json({ error: 'Nie znaleziono szablonu.' });
+    const full = await fetchOfferTemplateById(tplRes.rows[0].id);
+    res.json(full);
+  } catch (err) {
+    console.error('Błąd GET /api/offer-templates/by-slug:', err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
+
+app.get('/api/offer-templates/:id', authenticateToken, async (req, res) => {
+  try {
+    const full = await fetchOfferTemplateById(req.params.id);
+    if (!full) return res.status(404).json({ error: 'Nie znaleziono szablonu.' });
+    res.json(full);
+  } catch (err) {
+    console.error('Błąd GET /api/offer-templates/:id:', err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
+
+app.post('/api/offer-templates', authenticateToken, canEdit, async (req, res) => {
+  const { label, slug: slugInput, default_vat_rate, default_notes, items } = req.body;
+  if (!label || !String(label).trim()) {
+    return res.status(400).json({ error: 'Nazwa typu oferty jest wymagana.' });
+  }
+  const slug = (slugInput && String(slugInput).trim()) || slugifyOfferTemplateLabel(label);
+  const dbClient = await pool.connect();
+  try {
+    await dbClient.query('BEGIN');
+    const maxSort = await dbClient.query('SELECT COALESCE(MAX(sort_order), 0) + 1 AS next FROM offer_type_templates');
+    const ins = await dbClient.query(
+      `INSERT INTO offer_type_templates (slug, label, default_vat_rate, default_notes, is_builtin, sort_order)
+       VALUES ($1, $2, $3, $4, false, $5) RETURNING id`,
+      [slug, label.trim(), default_vat_rate ?? 23, default_notes || null, maxSort.rows[0].next]
+    );
+    const templateId = ins.rows[0].id;
+    const list = Array.isArray(items) ? items : [];
+    let order = 0;
+    for (const item of list) {
+      if (!item?.name) continue;
+      await dbClient.query(
+        `INSERT INTO offer_template_items (template_id, name, quantity, unit, net_price, sort_order)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [templateId, item.name, item.quantity ?? 1, item.unit || 'szt.', item.net_price ?? 0, order++]
+      );
+    }
+    await dbClient.query('COMMIT');
+    const full = await fetchOfferTemplateById(templateId);
+    res.status(201).json(full);
+  } catch (err) {
+    await dbClient.query('ROLLBACK');
+    if (err.code === '23505') {
+      return res.status(409).json({ error: 'Szablon o takim identyfikatorze (slug) już istnieje.' });
+    }
+    console.error('Błąd POST /api/offer-templates:', err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  } finally {
+    dbClient.release();
+  }
+});
+
+app.put('/api/offer-templates/:id', authenticateToken, canEdit, async (req, res) => {
+  const { id } = req.params;
+  const { label, default_vat_rate, default_notes, items } = req.body;
+  const dbClient = await pool.connect();
+  try {
+    await dbClient.query('BEGIN');
+    const existing = await dbClient.query('SELECT * FROM offer_type_templates WHERE id = $1', [id]);
+    if (!existing.rows.length) {
+      await dbClient.query('ROLLBACK');
+      return res.status(404).json({ error: 'Nie znaleziono szablonu.' });
+    }
+    if (label) {
+      await dbClient.query(
+        `UPDATE offer_type_templates SET label = $1, default_vat_rate = $2, default_notes = $3 WHERE id = $4`,
+        [label.trim(), default_vat_rate ?? existing.rows[0].default_vat_rate, default_notes ?? existing.rows[0].default_notes, id]
+      );
+    }
+    if (Array.isArray(items)) {
+      await dbClient.query('DELETE FROM offer_template_items WHERE template_id = $1', [id]);
+      let order = 0;
+      for (const item of items) {
+        if (!item?.name) continue;
+        await dbClient.query(
+          `INSERT INTO offer_template_items (template_id, name, quantity, unit, net_price, sort_order)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [id, item.name, item.quantity ?? 1, item.unit || 'szt.', item.net_price ?? 0, order++]
+        );
+      }
+    }
+    await dbClient.query('COMMIT');
+    res.json(await fetchOfferTemplateById(id));
+  } catch (err) {
+    await dbClient.query('ROLLBACK');
+    console.error('Błąd PUT /api/offer-templates:', err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  } finally {
+    dbClient.release();
+  }
+});
+
+app.delete('/api/offer-templates/:id', authenticateToken, canEdit, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const existing = await pool.query('SELECT slug, is_builtin FROM offer_type_templates WHERE id = $1', [id]);
+    if (!existing.rows.length) return res.status(404).json({ error: 'Nie znaleziono szablonu.' });
+    if (existing.rows[0].is_builtin) {
+      return res.status(400).json({ error: 'Nie można usunąć wbudowanego szablonu systemowego.' });
+    }
+    const used = await pool.query('SELECT COUNT(*)::int AS cnt FROM offers WHERE offer_type = $1', [existing.rows[0].slug]);
+    if (used.rows[0].cnt > 0) {
+      return res.status(400).json({ error: 'Nie można usunąć — istnieją oferty z tym typem.' });
+    }
+    await pool.query('DELETE FROM offer_type_templates WHERE id = $1', [id]);
+    res.status(204).send();
+  } catch (err) {
+    console.error('Błąd DELETE /api/offer-templates:', err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
 
 app.post('/api/offers', authenticateToken, canEdit, async (req, res) => {
   const { clientId, issue_date, offer_type, vat_rate, notes, items, company_profile_key, status } = req.body;
@@ -3207,16 +3588,17 @@ app.get('/api/offers/:id/download', authenticateToken, async (req, res) => {
     const doc = new PDFDocument({
       margin: PAGE.left,
       size: 'A4',
-      bufferPages: true,
     });
     const fileName = `Oferta nr ${offerData.offer_number.replace(/\//g, '-')}.pdf`;
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.setHeader('Surrogate-Control', 'no-store');
     doc.pipe(res);
 
-    // 4. Rejestracja czcionek
-    doc.registerFont('Lato', 'fonts/Lato-Regular.ttf');
-    doc.registerFont('Lato-Bold', 'fonts/Lato-Bold.ttf');
+    registerPdfFonts(doc);
 
     // --- POCZĄTEK RYSOWANIA PDF ---
     const pageWidth = doc.page.width - PAGE.left - PAGE.right;
@@ -3244,25 +3626,30 @@ app.get('/api/offers/:id/download', authenticateToken, async (req, res) => {
 
     let pageNumber = 1;
     const drawFooter = () => {
-      const footerY = doc.page.height - 28;
+      // Musi być wewnątrz obszaru roboczego (nad dolnym marginesem),
+      // inaczej PDFKit potrafi dodać pustą stronę przy overflow.
+      const footerY = doc.page.height - PAGE.bottom - 10;
       doc
         .strokeColor('#d5dbe1')
         .lineWidth(1)
         .moveTo(PAGE.left, footerY - 6)
         .lineTo(PAGE.left + pageWidth, footerY - 6)
         .stroke();
+      const savedFooterY = doc.y;
+      pdfFont(doc, false);
       doc
-        .font('Lato')
         .fontSize(8)
         .fillColor('#607080')
         .text(`Wygenerowano ${formatDate(new Date())}`, PAGE.left, footerY, {
           width: 240,
           align: 'left',
-        })
-        .text(`Strona ${pageNumber}`, PAGE.left, footerY, {
-          width: pageWidth,
-          align: 'right',
         });
+      pdfFont(doc, false);
+      doc.text(`Strona ${pageNumber}`, PAGE.left, footerY, {
+        width: pageWidth,
+        align: 'right',
+      });
+      doc.y = savedFooterY;
       doc.fillColor('#111111');
     };
 
@@ -3271,27 +3658,32 @@ app.get('/api/offers/:id/download', authenticateToken, async (req, res) => {
     const logoY = PAGE.top;
     const metaX = PAGE.left + leftColWidth + 14;
     if (companyProfile.logo && companyProfile.logo.startsWith('data:image')) {
-      doc.image(companyProfile.logo, logoX, logoY, { width: 170 });
+      doc.image(companyProfile.logo, logoX, logoY, { fit: [170, 60], align: 'left', valign: 'top' });
     } else {
-      doc.font('Lato-Bold').fontSize(14).text(companyProfile.name, logoX, logoY + 8, { width: leftColWidth });
+      pdfFont(doc, true);
+      doc.fontSize(14).text(companyProfile.name, logoX, logoY + 8, { width: leftColWidth });
     }
 
+    pdfFont(doc, true);
     doc
-      .font('Lato-Bold')
       .fontSize(17)
       .fillColor('#10263f')
       .text(`OFERTA ${safeText(offerData.offer_number)}`, metaX, logoY, {
         width: rightColWidth,
         align: 'right',
       });
+    pdfFont(doc, false);
     doc
-      .font('Lato')
       .fontSize(10)
       .fillColor('#3d5167')
-      .text(`Data wystawienia: ${formatDate(offerData.issue_date)}`, { width: rightColWidth, align: 'right' })
-      .text(`Wazna przez: 14 dni`, { width: rightColWidth, align: 'right' });
+      .text(`Data wystawienia: ${formatDate(offerData.issue_date)}`, metaX, logoY + 22, {
+        width: rightColWidth,
+        align: 'right',
+      });
+    doc.text(`Wazna przez: 14 dni`, metaX, logoY + 36, { width: rightColWidth, align: 'right' });
 
     const headerBottomY = 114;
+    doc.y = headerBottomY;
     doc
       .strokeColor('#d5dbe1')
       .lineWidth(1)
@@ -3301,22 +3693,25 @@ app.get('/api/offers/:id/download', authenticateToken, async (req, res) => {
 
     // Sekcje: dane sprzedawcy i klienta
     const cardTopY = 126;
-    const cardHeight = 102;
+    const cardHeight = 110;
     const cardGap = 14;
     const cardWidth = (pageWidth - cardGap) / 2;
 
     const drawCard = (x, title, lines) => {
       doc.roundedRect(x, cardTopY, cardWidth, cardHeight, 6).fillAndStroke('#f6f9fc', '#dce4ec');
+      pdfFont(doc, true);
       doc
-        .font('Lato-Bold')
         .fontSize(10)
         .fillColor('#10263f')
         .text(title, x + 10, cardTopY + 10, { width: cardWidth - 20 });
-      doc.font('Lato').fontSize(9).fillColor('#2f3f50');
-      let y = cardTopY + 28;
+      pdfFont(doc, false);
+      doc.fontSize(9).fillColor('#2f3f50');
+      let lineY = cardTopY + 28;
       lines.forEach((line) => {
-        doc.text(safeText(line), x + 10, y, { width: cardWidth - 20 });
-        y = doc.y + 2;
+        if (!line) return;
+        const h = doc.heightOfString(safeText(line), { width: cardWidth - 20 });
+        doc.text(safeText(line), x + 10, lineY, { width: cardWidth - 20 });
+        lineY += h + 2;
       });
       doc.fillColor('#111111');
     };
@@ -3349,30 +3744,34 @@ app.get('/api/offers/:id/download', authenticateToken, async (req, res) => {
 
     const drawTableHeader = (y) => {
       let x = PAGE.left;
-      doc.font('Lato-Bold').fontSize(9).fillColor('#ffffff');
+      pdfFont(doc, true);
+      doc.fontSize(9);
       columns.forEach((col) => {
-        doc.rect(x, y, col.width, 24).fillAndStroke('#234a72', '#234a72');
+        doc.rect(x, y, col.width, 24).fillAndStroke('#e8f0fa', '#c8d7e8');
+        // fillAndStroke zmienia aktywny kolor wypełnienia, więc przed tekstem ustawiamy go ponownie.
+        doc.fillColor('#163252');
         doc.text(col.header, x + TABLE_PADDING_X, y + 8, {
           width: col.width - TABLE_PADDING_X * 2,
           align: col.align,
         });
         x += col.width;
       });
+      doc.y = y + 24;
       doc.fillColor('#111111');
     };
 
-    const drawTableRow = (y, row, rowHeight, isEven) => {
+    const drawTableRow = (y, row, rowHeight, isEven, nameIsRich = false) => {
       let x = PAGE.left;
-      doc.font('Lato').fontSize(9).fillColor('#1d2a36');
       columns.forEach((col, idx) => {
         const cellColor = isEven ? '#ffffff' : '#f8fbfe';
         doc.rect(x, y, col.width, rowHeight).fillAndStroke(cellColor, '#d8e1ea');
-        doc.text(safeText(row[idx]), x + TABLE_PADDING_X, y + TABLE_PADDING_Y, {
-          width: col.width - TABLE_PADDING_X * 2,
+        drawPdfCellText(doc, row[idx], x, y, col.width, rowHeight, {
           align: col.align,
+          isRich: idx === 1 && nameIsRich,
         });
         x += col.width;
       });
+      doc.y = y + rowHeight;
       doc.fillColor('#111111');
     };
 
@@ -3388,11 +3787,11 @@ app.get('/api/offers/:id/download', authenticateToken, async (req, res) => {
         const price = Number(item.net_price) || 0;
         const lineNet = qty * price;
         const nameText = safeText(item.name);
-
-        const textHeight = doc.heightOfString(nameText, {
-          width: columns[1].width - TABLE_PADDING_X * 2,
-          align: 'left',
-        });
+        const nameIsRich = /<[bi]|br/i.test(nameText);
+        const nameColWidth = columns[1].width - TABLE_PADDING_X * 2;
+        const textHeight = nameIsRich
+          ? measureMiniHtmlHeight(doc, nameText, nameColWidth, 9)
+          : doc.heightOfString(stripHtmlToPlain(nameText), { width: nameColWidth });
         const rowHeight = Math.max(24, textHeight + TABLE_PADDING_Y * 2);
 
         if (currentY + rowHeight + 80 > pageBottom) {
@@ -3407,7 +3806,7 @@ app.get('/api/offers/:id/download', authenticateToken, async (req, res) => {
         drawTableRow(
           currentY,
           [
-            index + 1,
+            String(index + 1),
             nameText,
             formatNumber(qty),
             safeText(item.unit),
@@ -3415,7 +3814,8 @@ app.get('/api/offers/:id/download', authenticateToken, async (req, res) => {
             formatCurrency(lineNet),
           ],
           rowHeight,
-          index % 2 === 0
+          index % 2 === 0,
+          nameIsRich
         );
         currentY += rowHeight;
       });
@@ -3446,8 +3846,8 @@ app.get('/api/offers/:id/download', authenticateToken, async (req, res) => {
     let rowY = currentY + 8;
     summaryRows.forEach((entry, idx) => {
       const isTotalRow = idx === summaryRows.length - 1;
+      pdfFont(doc, isTotalRow);
       doc
-        .font(isTotalRow ? 'Lato-Bold' : 'Lato')
         .fontSize(isTotalRow ? 11 : 9)
         .fillColor('#1f3245')
         .text(entry[0], summaryX + 10, rowY, { width: 92, align: 'left' })
@@ -3468,19 +3868,23 @@ app.get('/api/offers/:id/download', authenticateToken, async (req, res) => {
         currentY = PAGE.top + 8;
       }
 
+      pdfFont(doc, true);
       doc
-        .font('Lato-Bold')
         .fontSize(10)
         .fillColor('#10263f')
         .text('Uwagi i warunki dodatkowe', PAGE.left, currentY, { width: pageWidth });
-      currentY = doc.y + 6;
+      currentY += 16;
 
       doc.roundedRect(PAGE.left, currentY, pageWidth, notesHeight + 16, 6).fillAndStroke('#ffffff', '#d6e1ec');
+      pdfFont(doc, false);
       doc
-        .font('Lato')
         .fontSize(9)
         .fillColor('#2f3f50')
-        .text(safeText(offerData.notes), PAGE.left + 10, currentY + 8, { width: pageWidth - 20, align: 'left' });
+        .text(safeText(offerData.notes), PAGE.left + 10, currentY + 8, {
+          width: pageWidth - 20,
+          align: 'left',
+          lineBreak: true,
+        });
       doc.fillColor('#111111');
     }
 

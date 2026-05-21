@@ -7,6 +7,7 @@ import { useRoute, useRouter, RouterLink } from 'vue-router';
 import { getUserRole } from '../auth/auth.js';
 import vSelect from 'vue-select';
 import PaginationControls from '../components/PaginationControls.vue';
+import OfferItemNameEditor from '../components/OfferItemNameEditor.vue';
 import { authenticatedFetch } from '../api/api.js';
 import { useToast } from '../composables/useToast.js';
 
@@ -32,36 +33,6 @@ const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
 /** @const {string|null} Rola zalogowanego użytkownika (np. 'admin', 'editor', 'viewer'). */
 const userRole = getUserRole();
 
-/**
- * @const {Object} Szablony predefiniowanych pozycji dla różnych typów ofert.
- * Używane do automatycznego wypełniania formularza nowej oferty.
- */
-const OFFER_TEMPLATES = {
-  connection: [
-    { name: 'Pompa głębinowa 4" 4N23 230V IBO', quantity: 1, unit: 'szt.', net_price: 1056.91 },
-    { name: 'Głowica studzienna 125mm', quantity: 1, unit: 'szt.', net_price: 113.82 },
-    { name: 'Zbiornik GWS 80L', quantity: 1, unit: 'szt.', net_price: 365.85 },
-    { name: 'Wyłącznik ciśnieniowy', quantity: 1, unit: 'szt.', net_price: 48.78 },
-    { name: 'Złączka PE 32x1" GZ', quantity: 1, unit: 'szt.', net_price: 13.82 },
-    { name: 'Zawór kulowy 1"', quantity: 1, unit: 'szt.', net_price: 26.83 },
-    { name: 'Filtr antypiaskowy', quantity: 1, unit: 'szt.', net_price: 30.08 },
-    { name: 'Rura PE 32mm', quantity: 10, unit: 'm', net_price: 6.0 },
-    { name: 'Robocizna - montaż i podłączenie', quantity: 1, unit: 'usł.', net_price: 1200.0 },
-  ],
-  drilling: [
-    { name: 'Wykonanie odwiertu studni głębinowej', quantity: 30, unit: 'm', net_price: 250.0 },
-    { name: 'Rury studzienne atestowane', quantity: 30, unit: 'm', net_price: 50.0 },
-    { name: 'Obsypka żwirowa', quantity: 1, unit: 't', net_price: 300.0 },
-    { name: 'Pompowanie oczyszczające', quantity: 1, unit: 'usł.', net_price: 500.0 },
-  ],
-  station: [
-    { name: 'Zmiękczacz do wody', quantity: 1, unit: 'szt.', net_price: 2500.0 },
-    { name: 'Lampa UV', quantity: 1, unit: 'szt.', net_price: 900.0 },
-    { name: 'Worek soli tabletkowanej 25kg', quantity: 2, unit: 'szt.', net_price: 50.0 },
-    { name: 'Montaż i uruchomienie stacji', quantity: 1, unit: 'usł.', net_price: 800.0 },
-  ],
-};
-
 // ================================================================================================
 // STAN KOMPONENTU (REFS)
 // ================================================================================================
@@ -85,7 +56,16 @@ const selectedStatuses = ref([]);
 const selectedClientFilter = ref(null);
 const showFilters = ref(false);
 
-const isAnyModalOpen = computed(() => showAddOfferModal.value || showEditOfferModal.value);
+const offerTemplates = ref([]);
+const offerTypeLabels = ref({});
+const showTemplateManagerModal = ref(false);
+const editingTemplate = ref(null);
+const newTemplateLabel = ref('');
+const templateSaveLoading = ref(false);
+
+const isAnyModalOpen = computed(
+  () => showAddOfferModal.value || showEditOfferModal.value || showTemplateManagerModal.value
+);
 const activeFilterCount = computed(() =>
   (selectedStatuses.value.length ? 1 : 0) + (selectedClientFilter.value ? 1 : 0)
 );
@@ -98,18 +78,25 @@ const activeFilterCount = computed(() =>
  * Inicjalizuje obiekt nowej oferty z domyślnymi wartościami.
  * @returns {object} Obiekt nowej oferty gotowy do użycia w formularzu.
  */
-const initializeNewOffer = () => {
-  const defaultOfferType = 'connection';
+const mapTemplateItemsToOffer = (items) =>
+  (items || []).map((i) => ({
+    name: i.name,
+    quantity: Number(i.quantity) || 1,
+    unit: i.unit || 'szt.',
+    net_price: Number(i.net_price) || 0,
+  }));
+
+const initializeNewOffer = (template = null) => {
+  const slug = template?.slug || offerTemplates.value[0]?.slug || 'connection';
   return {
     clientId: null,
     issue_date: new Date().toISOString().slice(0, 10),
-    offer_type: defaultOfferType,
+    offer_type: slug,
     company_profile_key: 'firma_a',
     status: 'draft',
-    vat_rate: 23,
-    notes: 'Termin ważności oferty: 14 dni. \nGwarancja na wykonane usługi: 24 miesiące.',
-    // Głęboka kopia pozycji z szablonu, aby uniknąć referencji
-    items: JSON.parse(JSON.stringify(OFFER_TEMPLATES[defaultOfferType])),
+    vat_rate: template?.default_vat_rate ?? 23,
+    notes: template?.default_notes || 'Termin ważności oferty: 14 dni. \nGwarancja na wykonane usługi: 24 miesiące.',
+    items: mapTemplateItemsToOffer(template?.items || [{ name: '', quantity: 1, unit: 'szt.', net_price: 0 }]),
   };
 };
 
@@ -145,14 +132,133 @@ const formatCurrency = (value) => {
  * @param {string} type - Typ techniczny oferty.
  * @returns {string}
  */
-const getOfferTypeLabel = (type) => {
-  const labels = {
-    connection: 'Podłączenie',
-    drilling: 'Wykonanie studni',
-    station: 'Stacja uzdatniania',
+const getOfferTypeLabel = (type) => offerTypeLabels.value[type] || type || 'Inna';
+
+async function fetchOfferTemplates() {
+  try {
+    const [listRes, labelsRes] = await Promise.all([
+      authenticatedFetch(`${API_URL}/api/offer-templates`),
+      authenticatedFetch(`${API_URL}/api/offer-templates/labels`),
+    ]);
+    if (listRes.ok) offerTemplates.value = await listRes.json();
+    if (labelsRes.ok) offerTypeLabels.value = await labelsRes.json();
+  } catch (e) {
+    console.error('Błąd pobierania szablonów ofert:', e);
+  }
+}
+
+async function applyTemplateBySlug(slug, targetRef, resetNotes = true) {
+  if (!slug) return;
+  try {
+    const res = await authenticatedFetch(`${API_URL}/api/offer-templates/by-slug/${encodeURIComponent(slug)}`);
+    if (!res.ok) return;
+    const tpl = await res.json();
+    targetRef.value.items = mapTemplateItemsToOffer(tpl.items);
+    if (resetNotes && tpl.default_notes) targetRef.value.notes = tpl.default_notes;
+    if (tpl.default_vat_rate != null) targetRef.value.vat_rate = tpl.default_vat_rate;
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+function openTemplateManager() {
+  showTemplateManagerModal.value = true;
+  editingTemplate.value = null;
+  newTemplateLabel.value = '';
+}
+
+async function loadTemplateForEdit(tpl) {
+  try {
+    const res = await authenticatedFetch(`${API_URL}/api/offer-templates/${tpl.id}`);
+    if (!res.ok) throw new Error('Nie udało się wczytać szablonu.');
+    const full = await res.json();
+    editingTemplate.value = {
+      ...full,
+      items: mapTemplateItemsToOffer(full.items?.length ? full.items : [{ name: '', quantity: 1, unit: 'szt.', net_price: 0 }]),
+    };
+  } catch (e) {
+    toast.error(e.message);
+  }
+}
+
+function startNewTemplateDraft() {
+  editingTemplate.value = {
+    id: null,
+    label: newTemplateLabel.value.trim() || 'Nowy typ oferty',
+    slug: '',
+    is_builtin: false,
+    default_vat_rate: 23,
+    default_notes: 'Termin ważności oferty: 14 dni. \nGwarancja na wykonane usługi: 24 miesiące.',
+    items: [{ name: '', quantity: 1, unit: 'szt.', net_price: 0 }],
   };
-  return labels[type] || 'Inna';
-};
+  newTemplateLabel.value = '';
+}
+
+async function saveEditingTemplate() {
+  if (!editingTemplate.value?.label?.trim()) {
+    toast.error('Podaj nazwę typu oferty.');
+    return;
+  }
+  templateSaveLoading.value = true;
+  try {
+    const body = {
+      label: editingTemplate.value.label.trim(),
+      default_vat_rate: editingTemplate.value.default_vat_rate,
+      default_notes: editingTemplate.value.default_notes,
+      items: editingTemplate.value.items,
+    };
+    const isNew = !editingTemplate.value.id;
+    const url = isNew
+      ? `${API_URL}/api/offer-templates`
+      : `${API_URL}/api/offer-templates/${editingTemplate.value.id}`;
+    const res = await authenticatedFetch(url, {
+      method: isNew ? 'POST' : 'PUT',
+      body: JSON.stringify(body),
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'Błąd zapisu szablonu.');
+    toast.success('Szablon zapisany.');
+    await fetchOfferTemplates();
+    editingTemplate.value = {
+      ...result,
+      items: mapTemplateItemsToOffer(result.items),
+    };
+  } catch (e) {
+    toast.error(e.message);
+  } finally {
+    templateSaveLoading.value = false;
+  }
+}
+
+async function deleteTemplate(tpl) {
+  if (tpl.is_builtin) {
+    toast.error('Nie można usunąć szablonu systemowego.');
+    return;
+  }
+  if (!confirm(`Usunąć szablon „${tpl.label}”?`)) return;
+  try {
+    const res = await authenticatedFetch(`${API_URL}/api/offer-templates/${tpl.id}`, { method: 'DELETE' });
+    if (!res.ok && res.status !== 204) {
+      const err = await res.json();
+      throw new Error(err.error || 'Błąd usuwania.');
+    }
+    toast.success('Szablon usunięty.');
+    if (editingTemplate.value?.id === tpl.id) editingTemplate.value = null;
+    await fetchOfferTemplates();
+  } catch (e) {
+    toast.error(e.message);
+  }
+}
+
+function addTemplateItem() {
+  if (!editingTemplate.value) return;
+  editingTemplate.value.items.push({ name: '', quantity: 1, unit: 'szt.', net_price: 0 });
+}
+
+function removeTemplateItem(index) {
+  if (!editingTemplate.value) return;
+  editingTemplate.value.items.splice(index, 1);
+}
 
 /**
  * Liczy podsumowanie kwot dla listy pozycji.
@@ -355,7 +461,7 @@ async function changeOfferStatus(offer, newStatus) {
 async function handleGeneratePdf(offerId) {
   try {
     // 1. Wykonaj zapytanie do serwera
-    const response = await authenticatedFetch(`${API_URL}/api/offers/${offerId}/download`);
+    const response = await authenticatedFetch(`${API_URL}/api/offers/${offerId}/download?t=${Date.now()}`);
 
     if (!response.ok) {
       try {
@@ -411,9 +517,19 @@ function handlePageChange(newPage) {
 /**
  * Otwiera modal dodawania nowej oferty i inicjalizuje jego dane.
  */
-function handleShowAddOfferModal() {
-  newOfferData.value = initializeNewOffer();
-  // Jeśli wchodzimy z ?clientId=, ustawiamy go domyślnie
+async function handleShowAddOfferModal() {
+  await fetchOfferTemplates();
+  const first = offerTemplates.value[0];
+  if (first?.slug) {
+    try {
+      const res = await authenticatedFetch(`${API_URL}/api/offer-templates/by-slug/${encodeURIComponent(first.slug)}`);
+      newOfferData.value = res.ok ? initializeNewOffer(await res.json()) : initializeNewOffer();
+    } catch {
+      newOfferData.value = initializeNewOffer();
+    }
+  } else {
+    newOfferData.value = initializeNewOffer();
+  }
   const cid = route.query.clientId;
   if (cid) {
     const id = Number(cid);
@@ -499,15 +615,11 @@ function removeOfferItem(index, isEditing = false) {
  * wczytując odpowiedni szablon.
  */
 watch(
-  () => newOfferData.value.offer_type,
-  (newType) => {
-    if (newType && OFFER_TEMPLATES[newType]) {
-      newOfferData.value.items = JSON.parse(JSON.stringify(OFFER_TEMPLATES[newType]));
-    } else {
-      newOfferData.value.items = [{ name: '', quantity: 1, unit: 'szt.', net_price: 0 }];
-    }
-  },
-  { deep: true }
+  () => newOfferData.value?.offer_type,
+  (newType, oldType) => {
+    if (!showAddOfferModal.value || !newType || newType === oldType) return;
+    applyTemplateBySlug(newType, newOfferData, true);
+  }
 );
 
 watch(
@@ -529,6 +641,7 @@ function handleOffersKeydown(e) {
     e.preventDefault();
     showAddOfferModal.value = false;
     showEditOfferModal.value = false;
+    showTemplateManagerModal.value = false;
   } else if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
     e.preventDefault();
     if (showAddOfferModal.value) handleSaveOffer();
@@ -546,6 +659,7 @@ function handleOffersKeydown(e) {
  */
 onMounted(() => {
   fetchClientsForSelect();
+  fetchOfferTemplates();
   fetchOffers();
   window.addEventListener('keydown', handleOffersKeydown);
 });
@@ -562,7 +676,10 @@ onBeforeUnmount(() => {
         <h1>Generator Ofert</h1>
         <p class="header-subtitle">Wystawionych ofert: <strong>{{ totalItems }}</strong></p>
       </div>
-      <button v-if="userRole !== 'viewer'" class="add-new-btn" @click="handleShowAddOfferModal">&#43; Stwórz nową ofertę</button>
+      <div v-if="userRole !== 'viewer'" class="header-actions">
+        <button type="button" class="btn-secondary" @click="openTemplateManager">Zarządzaj szablonami</button>
+        <button class="add-new-btn" @click="handleShowAddOfferModal">&#43; Stwórz nową ofertę</button>
+      </div>
     </div>
 
     <!-- Toolbar filtrów -->
@@ -772,9 +889,7 @@ onBeforeUnmount(() => {
                 <div class="form-group">
                   <label>Typ Oferty</label>
                   <select v-model="newOfferData.offer_type">
-                    <option value="connection">Podłączenie Studni</option>
-                    <option value="drilling">Wykonanie Studni</option>
-                    <option value="station">Stacja Uzdatniania</option>
+                    <option v-for="t in offerTemplates" :key="t.slug" :value="t.slug">{{ t.label }}</option>
                   </select>
                 </div>
                 <div class="form-group">
@@ -809,7 +924,7 @@ onBeforeUnmount(() => {
                   </div>
                   <div class="item-col item-col--name">
                     <span class="item-col-label">Nazwa towaru / usługi</span>
-                    <textarea v-model="item.name" rows="2" class="item-name-input" placeholder="np. Pompa głębinowa z osprzętem i montażem"></textarea>
+                    <OfferItemNameEditor v-model="item.name" />
                   </div>
                   <div class="item-col">
                     <span class="item-col-label">Ilość</span>
@@ -946,7 +1061,7 @@ onBeforeUnmount(() => {
                   </div>
                   <div class="item-col item-col--name">
                     <span class="item-col-label">Nazwa towaru / usługi</span>
-                    <textarea v-model="item.name" rows="2" class="item-name-input" placeholder="np. Pompa głębinowa z osprzętem i montażem"></textarea>
+                    <OfferItemNameEditor v-model="item.name" />
                   </div>
                   <div class="item-col">
                     <span class="item-col-label">Ilość</span>
@@ -1000,6 +1115,96 @@ onBeforeUnmount(() => {
         </form>
       </div>
     </div>
+
+    <div v-if="showTemplateManagerModal" class="modal-backdrop">
+      <div class="modal-content modal-content--wide">
+        <div class="modal-header">
+          <h3>Szablony typów ofert</h3>
+          <button class="close-button" @click="showTemplateManagerModal = false">&times;</button>
+        </div>
+        <div class="template-manager-layout">
+          <aside class="template-list-panel">
+            <div class="template-add-row">
+              <input v-model="newTemplateLabel" type="text" placeholder="Nazwa nowego typu..." />
+              <button type="button" class="btn-secondary" @click="startNewTemplateDraft">+ Nowy</button>
+            </div>
+            <ul class="template-list">
+              <li
+                v-for="t in offerTemplates"
+                :key="t.id"
+                :class="{ active: editingTemplate?.id === t.id }"
+                @click="loadTemplateForEdit(t)"
+              >
+                <span>{{ t.label }}</span>
+                <small>{{ t.item_count }} poz.</small>
+                <span v-if="t.is_builtin" class="builtin-tag">sys</span>
+              </li>
+            </ul>
+          </aside>
+          <section v-if="editingTemplate" class="template-editor-panel">
+            <div class="form-group">
+              <label>Nazwa typu (wyświetlana)</label>
+              <input v-model="editingTemplate.label" type="text" required />
+            </div>
+            <div class="form-grid">
+              <div class="form-group">
+                <label>Domyślny VAT (%)</label>
+                <input v-model.number="editingTemplate.default_vat_rate" type="number" />
+              </div>
+              <div class="form-group" v-if="editingTemplate.slug">
+                <label>Identyfikator</label>
+                <input :value="editingTemplate.slug" type="text" disabled />
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Domyślne notatki</label>
+              <textarea v-model="editingTemplate.default_notes" rows="3"></textarea>
+            </div>
+            <h4>Pozycje szablonu</h4>
+            <div class="offer-items-shell">
+              <div
+                v-for="(item, index) in editingTemplate.items"
+                :key="index"
+                class="offer-item-grid offer-item-grid--row template-item-row"
+              >
+                <div class="item-col item-col--name">
+                  <OfferItemNameEditor v-model="item.name" />
+                </div>
+                <div class="item-col">
+                  <input v-model.number="item.quantity" type="number" step="any" />
+                </div>
+                <div class="item-col">
+                  <input v-model="item.unit" type="text" />
+                </div>
+                <div class="item-col">
+                  <input v-model.number="item.net_price" type="number" step="any" />
+                </div>
+                <div class="item-col item-col--actions">
+                  <button type="button" class="usun" @click="removeTemplateItem(index)">Usuń</button>
+                </div>
+              </div>
+            </div>
+            <button type="button" class="btn-secondary add-item-btn" @click="addTemplateItem">+ Dodaj pozycję</button>
+            <div class="modal-actions template-editor-actions">
+              <button
+                v-if="!editingTemplate.is_builtin && editingTemplate.id"
+                type="button"
+                class="usun"
+                @click="deleteTemplate(editingTemplate)"
+              >
+                Usuń szablon
+              </button>
+              <button type="button" class="zapisz" :disabled="templateSaveLoading" @click="saveEditingTemplate">
+                Zapisz szablon
+              </button>
+            </div>
+          </section>
+          <section v-else class="template-editor-empty">
+            <p>Wybierz szablon z listy lub utwórz nowy typ oferty.</p>
+          </section>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -1009,6 +1214,89 @@ onBeforeUnmount(() => {
 }
 .header {
   margin-bottom: 18px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.header-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.modal-content--wide {
+  max-width: 1100px;
+  width: 95vw;
+}
+.template-manager-layout {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 20px;
+  min-height: 400px;
+}
+.template-list-panel {
+  border-right: 1px solid var(--border-color);
+  padding-right: 16px;
+}
+.template-add-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.template-add-row input {
+  flex: 1;
+  padding: 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+}
+.template-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.template-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+.template-list li:hover,
+.template-list li.active {
+  background: #eef6ff;
+  border-color: #b3d4fc;
+}
+.template-list li span:first-child {
+  flex: 1;
+  font-weight: 600;
+}
+.builtin-tag {
+  font-size: 10px;
+  background: #e8eef3;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.template-editor-panel {
+  overflow-y: auto;
+  max-height: 70vh;
+}
+.template-editor-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--grey);
+}
+.template-item-row {
+  grid-template-columns: 1fr 80px 70px 100px 70px !important;
+}
+.template-editor-actions {
+  margin-top: 16px;
+  justify-content: flex-end;
 }
 .header-title-group h1 {
   margin-bottom: 4px;

@@ -39,17 +39,20 @@ const OFFER_STATUS_LABELS = {
   accepted: 'Zaakceptowana',
   rejected: 'Odrzucona',
 };
-const OFFER_TYPE_LABELS = {
-  studnia: 'Studnia',
-  podlaczenie: 'Podłączenie',
-  stacja_uzdatniania: 'Stacja Uzdatniania',
-  serwis: 'Serwis',
-  inne: 'Inne',
-};
+const offerTypeLabels = ref({});
 
 const translateJobType = (t) => JOB_TYPE_LABELS[t] || t || '-';
 const translateOfferStatus = (s) => OFFER_STATUS_LABELS[s] || s || '-';
-const translateOfferType = (t) => OFFER_TYPE_LABELS[t] || t || '-';
+const translateOfferType = (t) => offerTypeLabels.value[t] || t || '-';
+
+async function fetchOfferTypeLabels() {
+  try {
+    const res = await authenticatedFetch(`${API_URL}/api/offer-templates/labels`);
+    if (res.ok) offerTypeLabels.value = await res.json();
+  } catch (e) {
+    console.error(e);
+  }
+}
 
 const formatCurrency = (value) => {
   const num = Number(value) || 0;
@@ -223,6 +226,7 @@ watch(clientId, () => {
   fetchServiceSchedules();
 });
 onMounted(() => {
+  fetchOfferTypeLabels();
   fetchData();
   fetchServiceSchedules();
 });
