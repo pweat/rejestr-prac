@@ -345,18 +345,46 @@ th.sortable:hover {
 td {
   color: var(--text-color-secondary);
 }
-.actions-cell {
-  /* Wyrównuje tekst i elementy wewnątrz do lewej */
+/* Akcje w tabeli: NIE używaj display:flex na <td> — psuje wyrównanie linii wiersza */
+.actions-cell,
+.schedule-actions {
+  display: table-cell;
+  vertical-align: middle;
   text-align: left;
+  white-space: nowrap;
 }
 
-/* Dodajemy odstęp między przyciskami */
-.actions-cell button + button {
-  margin-left: 8px;
+.actions-cell > button,
+.actions-cell > a,
+.actions-cell > .action-link {
+  display: inline-block;
+  vertical-align: middle;
+  margin: 2px 6px 2px 0;
 }
 
-.actions-cell::before {
-  /* Ta reguła pozostaje bez zmian */
+.actions-cell-inner {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  vertical-align: middle;
+}
+
+.actions-cell-inner > button,
+.actions-cell-inner > a,
+.actions-cell-inner > .action-link,
+.actions-cell-inner > .link-btn {
+  margin: 0;
+}
+
+.actions-cell button + button,
+.actions-cell .action-link + button,
+.actions-cell .action-link + .action-link {
+  margin-left: 0;
+}
+
+.actions-cell::before,
+.schedule-actions::before {
   display: none;
 }
 
@@ -574,9 +602,11 @@ button.anuluj {
     font-size: 11px;
     color: var(--grey);
   }
-  .actions-cell {
-    display: flex;
-    gap: 8px;
+  .actions-cell,
+  .schedule-actions {
+    display: block;
+    text-align: right;
+    white-space: normal;
     justify-content: flex-start;
   }
   .actions-cell::before {

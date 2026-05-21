@@ -131,8 +131,10 @@ onMounted(fetchEmployees);
                 </td>
                 <td data-label="Notatki" class="col-informacje">{{ employee.notes || '-' }}</td>
                 <td data-label="Akcje" class="actions-cell">
-                  <button class="edytuj" @click="handleShowEditModal(employee)">Edytuj</button>
-                  <button class="usun" @click="handleDeleteEmployee(employee.id)">Usuń</button>
+                  <div class="actions-cell-inner">
+                    <button class="edytuj" @click="handleShowEditModal(employee)">Edytuj</button>
+                    <button class="usun" @click="handleDeleteEmployee(employee.id)">Usuń</button>
+                  </div>
                 </td>
               </tr>
             </tbody>

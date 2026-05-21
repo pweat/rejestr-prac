@@ -177,6 +177,13 @@ async function handleAddJob() {
     toast.warn('Klient, data i typ zlecenia są wymagane.');
     return;
   }
+  if (
+    (newJobData.value.jobType === 'service' || newJobData.value.jobType === 'treatment_station') &&
+    !newJobData.value.miejscowosc?.trim()
+  ) {
+    toast.warn('Podaj miejscowość — harmonogram serwisowy jest przypisany do lokalizacji.');
+    return;
+  }
   try {
     const response = await authenticatedFetch(`${API_URL}/api/jobs`, {
       method: 'POST',
@@ -240,11 +247,22 @@ async function handleDeleteJob(jobId) {
 // ================================================================================================
 // ⚡ OBSŁUGA ZDARZEŃ UI
 // ================================================================================================
-function handleShowAddJobModal() {
+function applyAddJobQueryParams() {
   newJobData.value = initializeNewJob();
   if (route.query.clientId) {
     newJobData.value.clientId = Number(route.query.clientId) || route.query.clientId;
   }
+  if (route.query.jobType && JOB_TYPE_OPTIONS.some((o) => o.value === route.query.jobType)) {
+    newJobData.value.jobType = route.query.jobType;
+    newJobData.value.details = {};
+  }
+  if (route.query.miejscowosc) {
+    newJobData.value.miejscowosc = String(route.query.miejscowosc);
+  }
+}
+
+function handleShowAddJobModal() {
+  applyAddJobQueryParams();
   showAddJobModal.value = true;
 }
 
@@ -368,11 +386,22 @@ function handleKeydown(e) {
   }
 }
 
+watch(
+  () => [route.query.action, route.query.clientId, route.query.jobType, route.query.miejscowosc],
+  () => {
+    if (route.query.action === 'new') {
+      applyAddJobQueryParams();
+      showAddJobModal.value = true;
+    }
+  }
+);
+
 onMounted(() => {
   fetchJobs();
   fetchClientsForSelect();
   if (route.query.action === 'new') {
-    handleShowAddJobModal();
+    applyAddJobQueryParams();
+    showAddJobModal.value = true;
   }
   window.addEventListener('keydown', handleKeydown);
 });
@@ -499,12 +528,14 @@ onBeforeUnmount(() => {
                 </td>
                 <td data-label="Data">{{ formatDate(job.job_date) }}</td>
                 <td data-label="Akcje" class="actions-cell">
-                  <button v-if="userRole !== 'viewer'" class="pokaż" @click="handleShowDetails(job.id)">Szczegóły</button>
-                  <button v-if="userRole !== 'viewer'" class="edytuj" @click="handleShowEditModal(job)">Edytuj</button>
-                  <RouterLink v-if="job.client_id" :to="`/klienci/${job.client_id}`" class="action-link">
-                    <button class="karta">Karta klienta</button>
-                  </RouterLink>
-                  <button v-if="userRole === 'admin'" class="usun" @click="handleDeleteJob(job.id)">Usuń</button>
+                  <div class="actions-cell-inner">
+                    <button v-if="userRole !== 'viewer'" class="pokaż" @click="handleShowDetails(job.id)">Szczegóły</button>
+                    <button v-if="userRole !== 'viewer'" class="edytuj" @click="handleShowEditModal(job)">Edytuj</button>
+                    <RouterLink v-if="job.client_id" :to="`/klienci/${job.client_id}`" class="action-link">
+                      <button class="karta">Karta klienta</button>
+                    </RouterLink>
+                    <button v-if="userRole === 'admin'" class="usun" @click="handleDeleteJob(job.id)">Usuń</button>
+                  </div>
                 </td>
               </tr>
             </tbody>
@@ -1089,16 +1120,8 @@ onBeforeUnmount(() => {
 }
 
 /* ===== Akcje ===== */
-.actions-cell {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.actions-cell button + button {
-  margin-left: 0;
-}
 .action-link {
-  display: inline-flex;
+  display: inline-block;
 }
 button.karta {
   background-color: #8a2be2;

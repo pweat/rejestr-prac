@@ -686,30 +686,32 @@ onBeforeUnmount(() => {
                   <strong>{{ formatCurrency(offer.total_net_value) }}</strong>
                 </td>
                 <td data-label="Akcje" class="actions-cell">
-                  <button class="zapisz" @click="handleGeneratePdf(offer.id)">PDF</button>
-                  <button
-                    v-if="userRole !== 'viewer' && (offer.status === 'draft' || !offer.status)"
-                    class="btn-quick btn-quick-sent"
-                    @click="changeOfferStatus(offer, 'sent')"
-                    title="Oznacz jako wysłaną"
-                  >Wyślij</button>
-                  <button
-                    v-if="userRole !== 'viewer' && offer.status === 'sent'"
-                    class="btn-quick btn-quick-accept"
-                    @click="changeOfferStatus(offer, 'accepted')"
-                    title="Oznacz jako zaakceptowaną"
-                  >Akcept.</button>
-                  <button
-                    v-if="userRole !== 'viewer' && offer.status === 'sent'"
-                    class="btn-quick btn-quick-reject"
-                    @click="changeOfferStatus(offer, 'rejected')"
-                    title="Oznacz jako odrzuconą"
-                  >Odrzuć</button>
-                  <button v-if="userRole === 'admin' || userRole === 'editor'" class="edytuj" @click="handleShowEditModal(offer.id)">Edytuj</button>
-                  <RouterLink v-if="offer.client_id" :to="`/klienci/${offer.client_id}`" class="action-link">
-                    <button class="karta">Karta</button>
-                  </RouterLink>
-                  <button v-if="userRole === 'admin'" class="usun" @click="handleDeleteOffer(offer.id)">Usuń</button>
+                  <div class="actions-cell-inner">
+                    <button class="zapisz" @click="handleGeneratePdf(offer.id)">PDF</button>
+                    <button
+                      v-if="userRole !== 'viewer' && (offer.status === 'draft' || !offer.status)"
+                      class="btn-quick btn-quick-sent"
+                      @click="changeOfferStatus(offer, 'sent')"
+                      title="Oznacz jako wysłaną"
+                    >Wyślij</button>
+                    <button
+                      v-if="userRole !== 'viewer' && offer.status === 'sent'"
+                      class="btn-quick btn-quick-accept"
+                      @click="changeOfferStatus(offer, 'accepted')"
+                      title="Oznacz jako zaakceptowaną"
+                    >Akcept.</button>
+                    <button
+                      v-if="userRole !== 'viewer' && offer.status === 'sent'"
+                      class="btn-quick btn-quick-reject"
+                      @click="changeOfferStatus(offer, 'rejected')"
+                      title="Oznacz jako odrzuconą"
+                    >Odrzuć</button>
+                    <button v-if="userRole === 'admin' || userRole === 'editor'" class="edytuj" @click="handleShowEditModal(offer.id)">Edytuj</button>
+                    <RouterLink v-if="offer.client_id" :to="`/klienci/${offer.client_id}`" class="action-link">
+                      <button class="karta">Karta</button>
+                    </RouterLink>
+                    <button v-if="userRole === 'admin'" class="usun" @click="handleDeleteOffer(offer.id)">Usuń</button>
+                  </div>
                 </td>
               </tr>
             </tbody>
@@ -1439,13 +1441,8 @@ onBeforeUnmount(() => {
 }
 
 /* ===== Szybkie akcje w wierszu ===== */
-.actions-cell {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
 .action-link {
-  display: inline-flex;
+  display: inline-block;
 }
 .btn-quick {
   padding: 6px 10px;

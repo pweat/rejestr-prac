@@ -296,8 +296,10 @@ onMounted(() => {
                   <span v-else class="status-inactive">Nieaktywny</span>
                 </td>
                 <td data-label="Akcje" class="actions-cell">
-                  <button v-if="userRole === 'admin' || userRole === 'editor'" class="edytuj" @click="handleShowEditModal(vehicle)">Edytuj</button>
-                  <button v-if="userRole === 'admin'" class="usun" @click="handleDeleteVehicle(vehicle.id)">Usuń</button>
+                  <div class="actions-cell-inner">
+                    <button v-if="userRole === 'admin' || userRole === 'editor'" class="edytuj" @click="handleShowEditModal(vehicle)">Edytuj</button>
+                    <button v-if="userRole === 'admin'" class="usun" @click="handleDeleteVehicle(vehicle.id)">Usuń</button>
+                  </div>
                 </td>
               </tr>
             </tbody>
@@ -445,13 +447,6 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.actions-cell {
-  display: flex;
-  gap: 8px;
-}
-.actions-cell button {
-  margin: 0;
-}
 .main-content-wrapper {
   position: relative;
   min-height: 300px;

@@ -222,14 +222,16 @@ onMounted(() => {
                 <td data-label="Email">{{ client.email || '-' }}</td>
                 <td data-label="Notatki" class="col-informacje">{{ client.notes || '-' }}</td>
                 <td data-label="Akcje" class="actions-cell">
-                  <RouterLink :to="`/klienci/${client.id}`">
-                    <button class="karta">Karta</button>
-                  </RouterLink>
-                  <RouterLink :to="`/zlecenia?clientId=${client.id}`">
-                    <button class="pokaż">Zlecenia</button>
-                  </RouterLink>
-                  <button v-if="userRole === 'admin' || userRole === 'editor'" class="edytuj" @click="handleShowEditModal(client)">Edytuj</button>
-                  <button v-if="userRole === 'admin'" class="usun" @click="handleDeleteClient(client.id)">Usuń</button>
+                  <div class="actions-cell-inner">
+                    <RouterLink :to="`/klienci/${client.id}`">
+                      <button class="karta">Karta</button>
+                    </RouterLink>
+                    <RouterLink :to="`/zlecenia?clientId=${client.id}`">
+                      <button class="pokaż">Zlecenia</button>
+                    </RouterLink>
+                    <button v-if="userRole === 'admin' || userRole === 'editor'" class="edytuj" @click="handleShowEditModal(client)">Edytuj</button>
+                    <button v-if="userRole === 'admin'" class="usun" @click="handleDeleteClient(client.id)">Usuń</button>
+                  </div>
                 </td>
               </tr>
             </tbody>
@@ -317,17 +319,6 @@ onMounted(() => {
 </template>
 
 <style scoped>
-/* ZMIANA: Dodano styl dla .actions-cell */
-.actions-cell {
-  display: flex; /* Ustawia elementy w rzędzie */
-  gap: 8px; /* Dodaje odstęp między elementami */
-}
-
-/* ZMIANA: Zresetowano marginesy domyślne dla przycisków wewnątrz */
-.actions-cell button,
-.actions-cell a > button {
-  margin: 0;
-}
 button.karta {
   background-color: #8a2be2;
 }

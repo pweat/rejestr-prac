@@ -212,6 +212,23 @@ const initializeDatabase = async () => {
         labor_cost REAL DEFAULT 0
       )`);
 
+    // Harmonogramy serwisowe per klient + lokalizacja
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS service_schedules (
+        id SERIAL PRIMARY KEY,
+        client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+        miejscowosc TEXT NOT NULL DEFAULT '',
+        miejscowosc_key TEXT NOT NULL DEFAULT '',
+        service_interval_months INTEGER NOT NULL DEFAULT 12,
+        last_service_date DATE,
+        last_service_date_source TEXT NOT NULL DEFAULT 'job',
+        notes TEXT,
+        source_job_id INTEGER REFERENCES jobs(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (client_id, miejscowosc_key)
+      )`);
+
     // Tabela użytkowników
     await client.query(`
       CREATE TABLE IF NOT EXISTS users (
@@ -422,6 +439,65 @@ const initializeDatabase = async () => {
         console.log(`🔧 Zaktualizowano tabelę "${migration.table}", dodano kolumnę "${migration.column}".`);
       }
     }
+
+    // Backfill harmonogramów serwisowych z istniejących zleceń (jednorazowo gdy tabela pusta)
+    const scheduleCountRes = await client.query('SELECT COUNT(*)::int AS cnt FROM service_schedules');
+    if (scheduleCountRes.rows[0].cnt === 0) {
+      const stationJobsRes = await client.query(`
+        SELECT
+          j.id AS job_id,
+          j.client_id,
+          COALESCE(NULLIF(TRIM(j.miejscowosc), ''), '—') AS miejscowosc,
+          j.job_date,
+          tsd.service_interval_months,
+          tsd.station_model,
+          tsd.uv_lamp_model
+        FROM jobs j
+        JOIN treatment_station_details tsd ON j.details_id = tsd.id
+        WHERE j.job_type = 'treatment_station'
+        ORDER BY j.client_id, LOWER(TRIM(COALESCE(j.miejscowosc, ''))), j.job_date DESC
+      `);
+      const seenKeys = new Set();
+      for (const row of stationJobsRes.rows) {
+        const key = normalizeMiejscowosc(row.miejscowosc === '—' ? '' : row.miejscowosc);
+        const dedupeKey = `${row.client_id}:${key}`;
+        if (seenKeys.has(dedupeKey)) continue;
+        seenKeys.add(dedupeKey);
+
+        const lastDateRes = await client.query(
+          `
+          SELECT MAX(j.job_date)::date AS last_date
+          FROM jobs j
+          WHERE j.client_id = $1
+            AND j.job_type IN ('treatment_station', 'service')
+            AND LOWER(TRIM(COALESCE(j.miejscowosc, ''))) = $2
+          `,
+          [row.client_id, key]
+        );
+        const lastServiceDate = lastDateRes.rows[0]?.last_date || row.job_date;
+        const notes = [row.station_model, row.uv_lamp_model].filter(Boolean).join(' / ') || null;
+
+        await client.query(
+          `
+          INSERT INTO service_schedules (
+            client_id, miejscowosc, miejscowosc_key, service_interval_months,
+            last_service_date, last_service_date_source, notes, source_job_id
+          ) VALUES ($1, $2, $3, $4, $5, 'job', $6, $7)
+          ON CONFLICT (client_id, miejscowosc_key) DO NOTHING
+          `,
+          [
+            row.client_id,
+            row.miejscowosc,
+            key,
+            parseInt(row.service_interval_months) || 12,
+            lastServiceDate,
+            notes,
+            row.job_id,
+          ]
+        );
+      }
+      console.log(`🔧 Backfill service_schedules: utworzono wpisy dla ${seenKeys.size} lokalizacji.`);
+    }
   } catch (err) {
     console.error('❌ Błąd podczas inicjalizacji bazy danych:', err);
     process.exit(1); // Zakończ proces, jeśli baza danych nie jest gotowa
@@ -473,6 +549,176 @@ const canEdit = (req, res, next) => {
     res.status(403).json({ error: 'Brak uprawnień do edycji.' });
   }
 };
+
+// =================================================================================================
+// Harmonogramy serwisowe (per klient + lokalizacja)
+// =================================================================================================
+
+function normalizeMiejscowosc(miejscowosc) {
+  return (miejscowosc || '').trim().toLowerCase();
+}
+
+function formatScheduleMiejscowosc(miejscowosc) {
+  const trimmed = (miejscowosc || '').trim();
+  return trimmed || '—';
+}
+
+function scheduleReminderStatus(nextDueDate) {
+  if (!nextDueDate) return 'ok';
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const due = new Date(nextDueDate);
+  due.setHours(0, 0, 0, 0);
+  const diffDays = Math.ceil((due - today) / (1000 * 60 * 60 * 24));
+  if (diffDays < 0) return 'expired';
+  if (diffDays <= 30) return 'warning';
+  return 'ok';
+}
+
+function mapScheduleRow(row) {
+  const nextDue = row.next_service_due;
+  const status = scheduleReminderStatus(nextDue);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const due = nextDue ? new Date(nextDue) : null;
+  if (due) due.setHours(0, 0, 0, 0);
+  const daysUntilDue = due ? Math.ceil((due - today) / (1000 * 60 * 60 * 24)) : null;
+
+  return {
+    schedule_id: row.id,
+    client_id: row.client_id,
+    client_name: row.client_name,
+    client_phone: row.client_phone,
+    miejscowosc: row.miejscowosc,
+    service_interval_months: row.service_interval_months,
+    last_service_date: row.last_service_date,
+    next_service_due: row.next_service_due,
+    status,
+    days_until_due: daysUntilDue,
+    notes: row.notes,
+    last_service_date_source: row.last_service_date_source,
+  };
+}
+
+const SCHEDULE_SELECT_BASE = `
+  SELECT
+    ss.id,
+    ss.client_id,
+    c.name AS client_name,
+    c.phone_number AS client_phone,
+    ss.miejscowosc,
+    ss.service_interval_months,
+    TO_CHAR(ss.last_service_date, 'YYYY-MM-DD') AS last_service_date,
+    TO_CHAR((ss.last_service_date + (ss.service_interval_months * INTERVAL '1 month')), 'YYYY-MM-DD') AS next_service_due,
+    ss.notes,
+    ss.last_service_date_source,
+    ss.source_job_id,
+    ss.updated_at
+  FROM service_schedules ss
+  JOIN clients c ON c.id = ss.client_id
+`;
+
+async function recalcLastServiceDateFromJobs(dbClient, clientId, miejscowoscKey) {
+  const res = await dbClient.query(
+    `
+    SELECT MAX(j.job_date)::date AS last_date
+    FROM jobs j
+    WHERE j.client_id = $1
+      AND j.job_type IN ('treatment_station', 'service')
+      AND LOWER(TRIM(COALESCE(j.miejscowosc, ''))) = $2
+    `,
+    [clientId, miejscowoscKey]
+  );
+  return res.rows[0]?.last_date || null;
+}
+
+async function syncServiceScheduleFromJob(dbClient, jobRow) {
+  const { id: jobId, client_id: clientId, job_type: jobType, job_date: jobDate, miejscowosc } = jobRow;
+  if (!['treatment_station', 'service'].includes(jobType)) return;
+
+  const miejscowoscDisplay = formatScheduleMiejscowosc(miejscowosc);
+  const miejscowoscKey = normalizeMiejscowosc(miejscowosc);
+
+  if (jobType === 'treatment_station') {
+    const detailsRes = await dbClient.query(
+      `SELECT service_interval_months, station_model, uv_lamp_model FROM treatment_station_details tsd
+       JOIN jobs j ON j.details_id = tsd.id WHERE j.id = $1`,
+      [jobId]
+    );
+    const details = detailsRes.rows[0] || {};
+    const interval = parseInt(details.service_interval_months) || 12;
+    const notes = [details.station_model, details.uv_lamp_model].filter(Boolean).join(' / ') || null;
+    const lastFromJobs = await recalcLastServiceDateFromJobs(dbClient, clientId, miejscowoscKey);
+
+    await dbClient.query(
+      `
+      INSERT INTO service_schedules (
+        client_id, miejscowosc, miejscowosc_key, service_interval_months,
+        last_service_date, last_service_date_source, notes, source_job_id, updated_at
+      ) VALUES ($1, $2, $3, $4, COALESCE($5, $6::date), 'job', $7, $8, NOW())
+      ON CONFLICT (client_id, miejscowosc_key) DO UPDATE SET
+        miejscowosc = EXCLUDED.miejscowosc,
+        service_interval_months = EXCLUDED.service_interval_months,
+        last_service_date = CASE
+          WHEN service_schedules.last_service_date_source = 'manual' THEN service_schedules.last_service_date
+          ELSE COALESCE(EXCLUDED.last_service_date, service_schedules.last_service_date)
+        END,
+        notes = COALESCE(EXCLUDED.notes, service_schedules.notes),
+        source_job_id = EXCLUDED.source_job_id,
+        updated_at = NOW()
+      `,
+      [clientId, miejscowoscDisplay, miejscowoscKey, interval, lastFromJobs, jobDate, notes, jobId]
+    );
+    return;
+  }
+
+  if (jobType === 'service') {
+    const existing = await dbClient.query(
+      'SELECT id, last_service_date, last_service_date_source FROM service_schedules WHERE client_id = $1 AND miejscowosc_key = $2',
+      [clientId, miejscowoscKey]
+    );
+
+    if (existing.rows.length === 0) {
+      await dbClient.query(
+        `
+        INSERT INTO service_schedules (
+          client_id, miejscowosc, miejscowosc_key, service_interval_months,
+          last_service_date, last_service_date_source, source_job_id, updated_at
+        ) VALUES ($1, $2, $3, 12, $4::date, 'job', $5, NOW())
+        `,
+        [clientId, miejscowoscDisplay, miejscowoscKey, jobDate, jobId]
+      );
+      return;
+    }
+
+    const row = existing.rows[0];
+    const lastFromJobs = await recalcLastServiceDateFromJobs(dbClient, clientId, miejscowoscKey);
+    await dbClient.query(
+      `
+      UPDATE service_schedules
+      SET last_service_date = $1, last_service_date_source = 'job', updated_at = NOW()
+      WHERE id = $2
+      `,
+      [lastFromJobs || jobDate, row.id]
+    );
+  }
+}
+
+async function refreshScheduleAfterJobDelete(dbClient, clientId, miejscowoscKey) {
+  const schedRes = await dbClient.query(
+    'SELECT id, last_service_date_source FROM service_schedules WHERE client_id = $1 AND miejscowosc_key = $2',
+    [clientId, miejscowoscKey]
+  );
+  if (schedRes.rows.length === 0) return;
+  const schedule = schedRes.rows[0];
+  if (schedule.last_service_date_source === 'manual') return;
+
+  const lastFromJobs = await recalcLastServiceDateFromJobs(dbClient, clientId, miejscowoscKey);
+  await dbClient.query(
+    `UPDATE service_schedules SET last_service_date = $1, last_service_date_source = 'job', updated_at = NOW() WHERE id = $2`,
+    [lastFromJobs, schedule.id]
+  );
+}
 
 // =================================================================================================
 // API ROUTES: Uwierzytelnianie i status
@@ -1650,6 +1896,17 @@ app.post('/api/jobs', authenticateToken, canEdit, async (req, res) => {
     const jobId = jobResult.rows[0].id;
 
     await client.query(`UPDATE ${detailsTable} SET job_id = $1 WHERE id = $2`, [jobId, detailsId]);
+
+    if (jobType === 'treatment_station' || jobType === 'service') {
+      await syncServiceScheduleFromJob(client, {
+        id: jobId,
+        client_id: clientId,
+        job_type: jobType,
+        job_date: jobDate,
+        miejscowosc,
+      });
+    }
+
     await client.query('COMMIT');
 
     const finalDataResult = await pool.query(
@@ -1913,27 +2170,53 @@ app.put('/api/jobs/:id', authenticateToken, canEdit, async (req, res) => {
         'wholesale_materials_cost',
       ];
     }
-    // ... (tutaj dodaj logikę dla pozostałych typów zleceń, jeśli mają jakieś szczegóły)
-
-    // === POCZĄTEK NOWEGO BLOKU ===
     else if (job_type === 'service') {
       detailsTable = 'service_details';
       detailsColumns = ['description', 'is_warranty', 'revenue', 'labor_cost'];
+    } else if (job_type === 'treatment_station') {
+      detailsTable = 'treatment_station_details';
+      detailsColumns = [
+        'station_model',
+        'uv_lamp_model',
+        'carbon_filter',
+        'filter_types',
+        'service_interval_months',
+        'materials_invoice_url',
+        'client_offer_url',
+        'revenue',
+        'equipment_cost',
+        'labor_cost',
+        'wholesale_materials_cost',
+      ];
     }
 
     if (detailsTable) {
       let detailsValues;
       if (job_type === 'service') {
-        const isWarrantyEdit = details.is_warranty === true; // Poprawna logika
+        const isWarrantyEdit = details.is_warranty === true;
         detailsValues = [details.description || null, isWarrantyEdit, !isWarrantyEdit ? parseFloat(details.revenue) || 0 : 0, !isWarrantyEdit ? parseFloat(details.labor_cost) || 0 : 0];
+      } else if (job_type === 'treatment_station') {
+        detailsValues = detailsColumns.map((col) => {
+          if (col === 'service_interval_months') return parseInt(details.service_interval_months) || 12;
+          return details[col] ?? null;
+        });
       } else {
-        // Logika dla innych typów (pozostaje bez zmian)
         detailsValues = detailsColumns.map((col) => details[col] || null);
       }
 
       const setClauses = detailsColumns.map((col, i) => `${col} = $${i + 1}`).join(', ');
       const detailsSql = `UPDATE ${detailsTable} SET ${setClauses} WHERE id = $${detailsColumns.length + 1}`;
       await client.query(detailsSql, [...detailsValues, details_id]);
+    }
+
+    if (job_type === 'treatment_station' || job_type === 'service') {
+      await syncServiceScheduleFromJob(client, {
+        id: parseInt(id, 10),
+        client_id: clientId,
+        job_type,
+        job_date: jobDate,
+        miejscowosc,
+      });
     }
 
     await client.query('COMMIT');
@@ -1953,16 +2236,34 @@ app.put('/api/jobs/:id', authenticateToken, canEdit, async (req, res) => {
  * @access Private (Admin)
  */
 app.delete('/api/jobs/:id', authenticateToken, isAdmin, async (req, res) => {
+  const dbClient = await pool.connect();
   try {
     const { id } = req.params;
-    const result = await pool.query('DELETE FROM jobs WHERE id = $1', [id]);
-    if (result.rowCount === 0) {
+    const jobRes = await dbClient.query(
+      'SELECT client_id, job_type, miejscowosc FROM jobs WHERE id = $1',
+      [id]
+    );
+    if (jobRes.rows.length === 0) {
       return res.status(404).json({ message: 'Nie znaleziono zlecenia' });
     }
+    const deletedJob = jobRes.rows[0];
+    const miejscowoscKey = normalizeMiejscowosc(deletedJob.miejscowosc);
+
+    await dbClient.query('BEGIN');
+    await dbClient.query('DELETE FROM jobs WHERE id = $1', [id]);
+
+    if (['treatment_station', 'service'].includes(deletedJob.job_type)) {
+      await refreshScheduleAfterJobDelete(dbClient, deletedJob.client_id, miejscowoscKey);
+    }
+
+    await dbClient.query('COMMIT');
     res.status(204).send();
   } catch (err) {
+    await dbClient.query('ROLLBACK');
     console.error(`Błąd w DELETE /api/jobs/${req.params.id}:`, err);
     res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  } finally {
+    dbClient.release();
   }
 });
 
@@ -1971,37 +2272,236 @@ app.delete('/api/jobs/:id', authenticateToken, isAdmin, async (req, res) => {
 // =================================================================================================
 
 /**
+ * @route GET /api/service-schedules
+ * @description Lista harmonogramów serwisowych (opcjonalnie tylko zbliżające się terminy).
+ * @access Private
+ */
+app.get('/api/service-schedules', authenticateToken, async (req, res) => {
+  try {
+    const dueWithinDays = parseInt(req.query.dueWithinDays, 10);
+    let sql = `${SCHEDULE_SELECT_BASE} WHERE ss.last_service_date IS NOT NULL`;
+    const params = [];
+    if (!Number.isNaN(dueWithinDays)) {
+      sql += ` AND (ss.last_service_date + (ss.service_interval_months * INTERVAL '1 month')) <= (CURRENT_DATE + ($1::int * INTERVAL '1 day'))`;
+      params.push(dueWithinDays);
+    }
+    sql += ' ORDER BY next_service_due ASC NULLS LAST';
+    const result = await pool.query(sql, params);
+    res.json(result.rows.map(mapScheduleRow));
+  } catch (err) {
+    console.error('Błąd w GET /api/service-schedules:', err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
+
+/**
+ * @route GET /api/service-schedules/client/:clientId
+ * @description Harmonogramy serwisowe dla klienta.
+ * @access Private
+ */
+app.get('/api/service-schedules/client/:clientId', authenticateToken, async (req, res) => {
+  try {
+    const { clientId } = req.params;
+    const sql = `${SCHEDULE_SELECT_BASE} WHERE ss.client_id = $1 ORDER BY ss.miejscowosc ASC`;
+    const result = await pool.query(sql, [clientId]);
+    res.json(result.rows.map(mapScheduleRow));
+  } catch (err) {
+    console.error('Błąd w GET /api/service-schedules/client/:clientId:', err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
+
+/**
+ * @route POST /api/service-schedules
+ * @description Tworzy harmonogram serwisowy bez zlecenia.
+ * @access Private (Editor, Admin)
+ */
+app.post('/api/service-schedules', authenticateToken, canEdit, async (req, res) => {
+  const { clientId, miejscowosc, serviceIntervalMonths, lastServiceDate, notes } = req.body;
+  if (!clientId || !miejscowosc) {
+    return res.status(400).json({ error: 'Wymagane: clientId i miejscowosc.' });
+  }
+  const miejscowoscDisplay = formatScheduleMiejscowosc(miejscowosc);
+  const miejscowoscKey = normalizeMiejscowosc(miejscowosc);
+  const interval = parseInt(serviceIntervalMonths, 10) || 12;
+
+  try {
+    const insertRes = await pool.query(
+      `
+      INSERT INTO service_schedules (
+        client_id, miejscowosc, miejscowosc_key, service_interval_months,
+        last_service_date, last_service_date_source, notes, updated_at
+      ) VALUES ($1, $2, $3, $4, $5::date, $6, $7, NOW())
+      RETURNING id
+      `,
+      [
+        clientId,
+        miejscowoscDisplay,
+        miejscowoscKey,
+        interval,
+        lastServiceDate || null,
+        lastServiceDate ? 'manual' : 'job',
+        notes || null,
+      ]
+    );
+    const scheduleId = insertRes.rows[0].id;
+    const rowRes = await pool.query(`${SCHEDULE_SELECT_BASE} WHERE ss.id = $1`, [scheduleId]);
+    res.status(201).json(mapScheduleRow(rowRes.rows[0]));
+  } catch (err) {
+    if (err.code === '23505') {
+      return res.status(409).json({ error: 'Harmonogram dla tej lokalizacji już istnieje.' });
+    }
+    console.error('Błąd w POST /api/service-schedules:', err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
+
+/**
+ * @route PATCH /api/service-schedules/:id
+ * @description Aktualizuje harmonogram (interwał, kotwica, notatki).
+ * @access Private (Editor, Admin)
+ */
+app.patch('/api/service-schedules/:id', authenticateToken, canEdit, async (req, res) => {
+  const { id } = req.params;
+  const { serviceIntervalMonths, lastServiceDate, notes, miejscowosc } = req.body;
+
+  try {
+    const existingRes = await pool.query('SELECT * FROM service_schedules WHERE id = $1', [id]);
+    if (existingRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Nie znaleziono harmonogramu.' });
+    }
+    const existing = existingRes.rows[0];
+
+    const newMiejscowosc = miejscowosc !== undefined ? formatScheduleMiejscowosc(miejscowosc) : existing.miejscowosc;
+    const newKey = miejscowosc !== undefined ? normalizeMiejscowosc(miejscowosc) : existing.miejscowosc_key;
+    const newInterval =
+      serviceIntervalMonths !== undefined ? parseInt(serviceIntervalMonths, 10) || 12 : existing.service_interval_months;
+    const newLastDate = lastServiceDate !== undefined ? lastServiceDate : existing.last_service_date;
+    const newSource =
+      lastServiceDate !== undefined ? 'manual' : existing.last_service_date_source;
+    const newNotes = notes !== undefined ? notes : existing.notes;
+
+    await pool.query(
+      `
+      UPDATE service_schedules SET
+        miejscowosc = $1,
+        miejscowosc_key = $2,
+        service_interval_months = $3,
+        last_service_date = $4::date,
+        last_service_date_source = $5,
+        notes = $6,
+        updated_at = NOW()
+      WHERE id = $7
+      `,
+      [newMiejscowosc, newKey, newInterval, newLastDate, newSource, newNotes, id]
+    );
+
+    const rowRes = await pool.query(`${SCHEDULE_SELECT_BASE} WHERE ss.id = $1`, [id]);
+    res.json(mapScheduleRow(rowRes.rows[0]));
+  } catch (err) {
+    if (err.code === '23505') {
+      return res.status(409).json({ error: 'Harmonogram dla tej lokalizacji już istnieje.' });
+    }
+    console.error(`Błąd w PATCH /api/service-schedules/${id}:`, err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
+
+/**
+ * @route POST /api/service-schedules/:id/postpone
+ * @description Odłącza termin serwisu o podaną liczbę miesięcy (bez zlecenia).
+ * @access Private (Editor, Admin)
+ */
+app.post('/api/service-schedules/:id/postpone', authenticateToken, canEdit, async (req, res) => {
+  const { id } = req.params;
+  const months = parseInt(req.body.months, 10);
+  if (!months || months < 1) {
+    return res.status(400).json({ error: 'Podaj liczbę miesięcy (months >= 1).' });
+  }
+
+  try {
+    const existingRes = await pool.query(
+      'SELECT last_service_date FROM service_schedules WHERE id = $1',
+      [id]
+    );
+    if (existingRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Nie znaleziono harmonogramu.' });
+    }
+    const anchor = existingRes.rows[0].last_service_date || new Date().toISOString().slice(0, 10);
+
+    await pool.query(
+      `
+      UPDATE service_schedules SET
+        last_service_date = ($1::date + ($2::int * INTERVAL '1 month'))::date,
+        last_service_date_source = 'manual',
+        updated_at = NOW()
+      WHERE id = $3
+      `,
+      [anchor, months, id]
+    );
+
+    const rowRes = await pool.query(`${SCHEDULE_SELECT_BASE} WHERE ss.id = $1`, [id]);
+    res.json(mapScheduleRow(rowRes.rows[0]));
+  } catch (err) {
+    console.error(`Błąd w POST /api/service-schedules/${id}/postpone:`, err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
+
+/**
+ * @route POST /api/service-schedules/:id/mark-serviced
+ * @description Oznacza serwis jako wykonany bez tworzenia zlecenia.
+ * @access Private (Editor, Admin)
+ */
+app.post('/api/service-schedules/:id/mark-serviced', authenticateToken, canEdit, async (req, res) => {
+  const { id } = req.params;
+  const serviceDate = req.body.date || new Date().toISOString().slice(0, 10);
+
+  try {
+    const result = await pool.query(
+      `
+      UPDATE service_schedules SET
+        last_service_date = $1::date,
+        last_service_date_source = 'manual',
+        updated_at = NOW()
+      WHERE id = $2
+      RETURNING id
+      `,
+      [serviceDate, id]
+    );
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Nie znaleziono harmonogramu.' });
+    }
+
+    const rowRes = await pool.query(`${SCHEDULE_SELECT_BASE} WHERE ss.id = $1`, [id]);
+    res.json(mapScheduleRow(rowRes.rows[0]));
+  } catch (err) {
+    console.error(`Błąd w POST /api/service-schedules/${id}/mark-serviced:`, err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
+
+/**
  * @route GET /api/service-reminders
- * @description Zwraca listę klientów z zbliżającym się terminem serwisu stacji uzdatniania.
+ * @description Zwraca harmonogramy z terminem w ciągu 30 dni (kompatybilność z pulpitem).
  * @access Private
  */
 app.get('/api/service-reminders', authenticateToken, async (req, res) => {
   try {
     const sql = `
-      SELECT
-        sub.client_id,
-        sub.client_name,
-        sub.client_phone,
-        TO_CHAR(sub.last_event_date, 'YYYY-MM-DD') as last_event_date,
-        TO_CHAR((sub.last_event_date + (sub.service_interval_months * INTERVAL '1 month')), 'YYYY-MM-DD') as next_service_due
-      FROM (
-        SELECT
-          c.id AS client_id,
-          c.name AS client_name,
-          c.phone_number AS client_phone,
-          (SELECT MAX(job_date) FROM jobs WHERE client_id = c.id AND job_type IN ('treatment_station', 'service')) as last_event_date,
-          (SELECT service_interval_months FROM treatment_station_details tsd JOIN jobs j ON j.details_id = tsd.id WHERE j.client_id = c.id AND j.job_type = 'treatment_station' ORDER BY j.job_date DESC LIMIT 1) as service_interval_months
-        FROM clients c
-        WHERE c.id IN (SELECT client_id FROM jobs WHERE job_type = 'treatment_station')
-      ) as sub
-      WHERE 
-        sub.last_event_date IS NOT NULL 
-        AND sub.service_interval_months IS NOT NULL
-        AND (sub.last_event_date + (sub.service_interval_months * INTERVAL '1 month')) <= (NOW()::date + INTERVAL '30 days')
-      ORDER BY next_service_due ASC;
+      ${SCHEDULE_SELECT_BASE}
+      WHERE ss.last_service_date IS NOT NULL
+        AND (ss.last_service_date + (ss.service_interval_months * INTERVAL '1 month')) <= (CURRENT_DATE + INTERVAL '30 days')
+      ORDER BY next_service_due ASC
     `;
     const result = await pool.query(sql);
-    res.json(result.rows);
+    const mapped = result.rows.map(mapScheduleRow);
+    res.json(
+      mapped.map((r) => ({
+        ...r,
+        last_event_date: r.last_service_date,
+      }))
+    );
   } catch (err) {
     console.error('Błąd w GET /api/service-reminders:', err);
     res.status(500).json({ error: 'Wystąpił błąd serwera' });

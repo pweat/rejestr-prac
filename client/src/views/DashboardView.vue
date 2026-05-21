@@ -4,9 +4,10 @@
 // ================================================================================================
 import { ref, onMounted, watch } from 'vue';
 import { RouterLink, useRouter } from 'vue-router';
-import { getAuthHeaders, removeToken } from '../auth/auth.js';
+import { getUserRole, removeToken } from '../auth/auth.js';
 import { formatDate } from '../utils/formatters.js';
 import { authenticatedFetch } from '../api/api.js';
+import { useToast } from '../composables/useToast.js';
 
 // ================================================================================================
 // ⚙️ KONFIGURACJA I INICJALIZACJA
@@ -17,6 +18,13 @@ const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
 
 /** Dostęp do instancji routera Vue. */
 const router = useRouter();
+const toast = useToast();
+const userRole = getUserRole();
+
+const showPostponeModal = ref(false);
+const postponeTarget = ref(null);
+const postponeMonths = ref(3);
+const scheduleActionLoading = ref(false);
 
 // ================================================================================================
 // ✨ STAN KOMPONENTU (REFS)
@@ -98,6 +106,83 @@ function vehicleReminderLabel(status) {
   if (status === 'expired') return 'Wygasło';
   if (status === 'warning') return 'Wkrótce';
   return '';
+}
+
+function serviceReminderLabel(status) {
+  if (status === 'expired') return 'Wygasło';
+  if (status === 'warning') return 'Wkrótce';
+  return '';
+}
+
+function jobsLinkForReminder(reminder) {
+  const params = new URLSearchParams({ clientId: String(reminder.client_id) });
+  if (reminder.miejscowosc && reminder.miejscowosc !== '—') {
+    params.set('miejscowosc', reminder.miejscowosc);
+  }
+  return `/zlecenia?${params.toString()}`;
+}
+
+function quickServiceLink(reminder) {
+  const params = new URLSearchParams({
+    clientId: String(reminder.client_id),
+    jobType: 'service',
+    action: 'new',
+  });
+  if (reminder.miejscowosc && reminder.miejscowosc !== '—') {
+    params.set('miejscowosc', reminder.miejscowosc);
+  }
+  return `/zlecenia?${params.toString()}`;
+}
+
+async function markScheduleServiced(reminder) {
+  if (!reminder.schedule_id || userRole === 'viewer') return;
+  scheduleActionLoading.value = true;
+  try {
+    const response = await authenticatedFetch(`${API_URL}/api/service-schedules/${reminder.schedule_id}/mark-serviced`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Nie udało się oznaczyć serwisu.');
+    toast.success('Harmonogram zaktualizowany — serwis oznaczony jako wykonany.');
+    await fetchServiceReminders();
+  } catch (error) {
+    console.error(error);
+    toast.error(error.message || 'Błąd operacji.');
+  } finally {
+    scheduleActionLoading.value = false;
+  }
+}
+
+function openPostponeModal(reminder) {
+  postponeTarget.value = reminder;
+  postponeMonths.value = 3;
+  showPostponeModal.value = true;
+}
+
+async function confirmPostpone() {
+  if (!postponeTarget.value?.schedule_id) return;
+  scheduleActionLoading.value = true;
+  try {
+    const response = await authenticatedFetch(
+      `${API_URL}/api/service-schedules/${postponeTarget.value.schedule_id}/postpone`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ months: postponeMonths.value }),
+      }
+    );
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Nie udało się odłożyć terminu.');
+    toast.success(`Termin przesunięty o ${postponeMonths.value} mies.`);
+    showPostponeModal.value = false;
+    postponeTarget.value = null;
+    await fetchServiceReminders();
+  } catch (error) {
+    console.error(error);
+    toast.error(error.message || 'Błąd operacji.');
+  } finally {
+    scheduleActionLoading.value = false;
+  }
 }
 
 /**
@@ -191,12 +276,49 @@ onMounted(() => {
           <div class="spinner"></div>
         </div>
         <div v-else-if="serviceReminders.length > 0" class="reminders-list">
-          <div v-for="reminder in serviceReminders" :key="reminder.client_id" class="reminder-item">
+          <div
+            v-for="reminder in serviceReminders"
+            :key="reminder.schedule_id || `${reminder.client_id}-${reminder.miejscowosc}`"
+            class="reminder-item service-reminder"
+            :class="{ 'reminder-item--expired': reminder.status === 'expired' }"
+          >
             <div class="reminder-icon">⚠️</div>
             <div class="reminder-details">
-              <strong>{{ reminder.client_name || 'Klient' }} ({{ reminder.client_phone }})</strong>
-              <span>Wymaga serwisu! Ostatnia usługa: {{ formatDate(reminder.last_event_date) }}</span>
-              <small>Następny serwis do: {{ formatDate(reminder.next_service_due) }}</small>
+              <strong>
+                {{ reminder.client_name || 'Klient' }} ({{ reminder.client_phone }})
+                <em v-if="reminder.status" :class="reminder.status">({{ serviceReminderLabel(reminder.status) }})</em>
+              </strong>
+              <span>
+                <strong>Lokalizacja:</strong> {{ reminder.miejscowosc || '—' }}
+                · co {{ reminder.service_interval_months || 12 }} mies.
+              </span>
+              <span>
+                Ostatni serwis: {{ formatDate(reminder.last_service_date || reminder.last_event_date) }}
+                · Następny: {{ formatDate(reminder.next_service_due) }}
+                <template v-if="reminder.days_until_due !== null && reminder.days_until_due !== undefined">
+                  (za {{ reminder.days_until_due }} dni)
+                </template>
+              </span>
+              <div class="reminder-actions">
+                <RouterLink :to="`/klienci/${reminder.client_id}`" class="reminder-link">Karta klienta →</RouterLink>
+                <RouterLink :to="jobsLinkForReminder(reminder)" class="reminder-link">Zlecenia →</RouterLink>
+                <RouterLink v-if="userRole !== 'viewer'" :to="quickServiceLink(reminder)" class="reminder-link reminder-link--primary">
+                  Dodaj serwis →
+                </RouterLink>
+              </div>
+              <div v-if="userRole !== 'viewer'" class="reminder-buttons">
+                <button
+                  type="button"
+                  class="btn-mini"
+                  :disabled="scheduleActionLoading"
+                  @click="markScheduleServiced(reminder)"
+                >
+                  Wykonano
+                </button>
+                <button type="button" class="btn-mini btn-mini--secondary" :disabled="scheduleActionLoading" @click="openPostponeModal(reminder)">
+                  Odłóż…
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -287,6 +409,29 @@ onMounted(() => {
         </div>
       </div>
     </div>
+
+    <div v-if="showPostponeModal" class="modal-backdrop" @click.self="showPostponeModal = false">
+      <div class="modal-content modal-content--small">
+        <h3>Odłóż termin serwisu</h3>
+        <p v-if="postponeTarget">
+          {{ postponeTarget.client_name }} — {{ postponeTarget.miejscowosc }}
+        </p>
+        <label>
+          Przesuń o liczbę miesięcy:
+          <input v-model.number="postponeMonths" type="number" min="1" max="60" step="1" />
+        </label>
+        <div class="postpone-presets">
+          <button type="button" class="btn-mini" @click="postponeMonths = 1">1 m-c</button>
+          <button type="button" class="btn-mini" @click="postponeMonths = 3">3 m-ce</button>
+          <button type="button" class="btn-mini" @click="postponeMonths = 6">6 m-cy</button>
+          <button type="button" class="btn-mini" @click="postponeMonths = 12">12 m-cy</button>
+        </div>
+        <div class="modal-actions-inline">
+          <button type="button" class="btn-mini btn-mini--secondary" @click="showPostponeModal = false">Anuluj</button>
+          <button type="button" class="btn-mini" :disabled="scheduleActionLoading" @click="confirmPostpone">Zapisz</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -363,6 +508,84 @@ onMounted(() => {
   background-color: #eef6ff;
   border-color: #b3d4fc;
   border-left-color: #0d6efd;
+}
+.reminder-item.service-reminder {
+  align-items: flex-start;
+}
+.reminder-item.reminder-item--expired {
+  background-color: #fff3f3;
+  border-color: #fdb8b8;
+  border-left-color: #dc3545;
+}
+.reminder-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 4px;
+}
+.reminder-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.reminder-link--primary {
+  font-weight: 600;
+}
+.reminder-details em.expired,
+.reminder-details em.warning {
+  margin-left: 6px;
+}
+.btn-mini {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--blue);
+  background: var(--blue);
+  color: #fff;
+  cursor: pointer;
+}
+.btn-mini:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.btn-mini--secondary {
+  background: #fff;
+  color: var(--text-color);
+  border-color: var(--border-color);
+}
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.modal-content--small {
+  background: var(--background-light);
+  padding: 24px;
+  border-radius: 8px;
+  min-width: 320px;
+  max-width: 90vw;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.modal-content--small h3 {
+  margin: 0;
+}
+.postpone-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.modal-actions-inline {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
 }
 .reminder-link {
   font-size: 13px;

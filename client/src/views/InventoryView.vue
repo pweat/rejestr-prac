@@ -489,10 +489,12 @@ onMounted(() => {
                   <span class="status-badge" :class="getItemStatus(item).class">{{ getItemStatus(item).text }}</span>
                 </td>
                 <td data-label="Akcje" class="actions-cell">
-                  <button v-if="userRole !== 'viewer'" class="btn-secondary" @click="handleShowOperationModal(item)">Operacje</button>
-                  <button v-if="userRole !== 'viewer'" class="pokaż" @click="handleShowHistory(item)">Historia</button>
-                  <button v-if="userRole !== 'viewer'" class="edytuj" @click="handleShowEditModal(item)">Edytuj</button>
-                  <button v-if="userRole === 'admin'" class="usun" @click="handleDeleteItem(item.id)">Usuń</button>
+                  <div class="actions-cell-inner">
+                    <button v-if="userRole !== 'viewer'" class="btn-secondary" @click="handleShowOperationModal(item)">Operacje</button>
+                    <button v-if="userRole !== 'viewer'" class="pokaż" @click="handleShowHistory(item)">Historia</button>
+                    <button v-if="userRole !== 'viewer'" class="edytuj" @click="handleShowEditModal(item)">Edytuj</button>
+                    <button v-if="userRole === 'admin'" class="usun" @click="handleDeleteItem(item.id)">Usuń</button>
+                  </div>
                 </td>
               </tr>
             </tbody>

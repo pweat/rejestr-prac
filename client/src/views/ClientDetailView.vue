@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue';
 import { RouterLink, useRoute } from 'vue-router';
+import { getUserRole } from '../auth/auth.js';
 import { authenticatedFetch } from '../api/api.js';
 import { useToast } from '../composables/useToast.js';
 import { formatDate } from '../utils/formatters.js';
@@ -8,9 +9,23 @@ import { formatDate } from '../utils/formatters.js';
 const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
 const route = useRoute();
 const toast = useToast();
+const userRole = getUserRole();
 
 const isLoading = ref(true);
 const data = ref(null);
+const serviceSchedules = ref([]);
+const schedulesLoading = ref(false);
+const showAddScheduleModal = ref(false);
+const showEditScheduleModal = ref(false);
+const scheduleForm = ref({
+  miejscowosc: '',
+  serviceIntervalMonths: 12,
+  lastServiceDate: '',
+  notes: '',
+});
+const editingSchedule = ref(null);
+const postponeScheduleId = ref(null);
+const postponeMonths = ref(3);
 
 const JOB_TYPE_LABELS = {
   well_drilling: 'Wykonanie Studni',
@@ -60,8 +75,157 @@ async function fetchData() {
   }
 }
 
-watch(clientId, () => fetchData());
-onMounted(fetchData);
+function scheduleStatusLabel(status) {
+  if (status === 'expired') return 'Wygasło';
+  if (status === 'warning') return 'Wkrótce';
+  return 'OK';
+}
+
+async function fetchServiceSchedules() {
+  schedulesLoading.value = true;
+  try {
+    const response = await authenticatedFetch(`${API_URL}/api/service-schedules/client/${clientId.value}`);
+    if (!response.ok) throw new Error('Błąd pobierania harmonogramów');
+    serviceSchedules.value = await response.json();
+  } catch (error) {
+    console.error(error);
+    toast.error(error.message || 'Nie udało się pobrać harmonogramów serwisowych.');
+  } finally {
+    schedulesLoading.value = false;
+  }
+}
+
+function resetScheduleForm() {
+  scheduleForm.value = {
+    miejscowosc: '',
+    serviceIntervalMonths: 12,
+    lastServiceDate: '',
+    notes: '',
+  };
+}
+
+function openAddScheduleModal() {
+  resetScheduleForm();
+  showAddScheduleModal.value = true;
+}
+
+function openEditScheduleModal(schedule) {
+  editingSchedule.value = schedule;
+  scheduleForm.value = {
+    miejscowosc: schedule.miejscowosc === '—' ? '' : schedule.miejscowosc,
+    serviceIntervalMonths: schedule.service_interval_months,
+    lastServiceDate: schedule.last_service_date || '',
+    notes: schedule.notes || '',
+  };
+  showEditScheduleModal.value = true;
+}
+
+async function saveNewSchedule() {
+  if (!scheduleForm.value.miejscowosc?.trim()) {
+    toast.warn('Podaj miejscowość / lokalizację.');
+    return;
+  }
+  try {
+    const response = await authenticatedFetch(`${API_URL}/api/service-schedules`, {
+      method: 'POST',
+      body: JSON.stringify({
+        clientId: Number(clientId.value),
+        miejscowosc: scheduleForm.value.miejscowosc.trim(),
+        serviceIntervalMonths: scheduleForm.value.serviceIntervalMonths,
+        lastServiceDate: scheduleForm.value.lastServiceDate || null,
+        notes: scheduleForm.value.notes || null,
+      }),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Nie udało się utworzyć harmonogramu.');
+    toast.success('Harmonogram dodany.');
+    showAddScheduleModal.value = false;
+    await fetchServiceSchedules();
+  } catch (error) {
+    toast.error(error.message);
+  }
+}
+
+async function saveEditSchedule() {
+  if (!editingSchedule.value) return;
+  try {
+    const response = await authenticatedFetch(`${API_URL}/api/service-schedules/${editingSchedule.value.schedule_id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        miejscowosc: scheduleForm.value.miejscowosc.trim(),
+        serviceIntervalMonths: scheduleForm.value.serviceIntervalMonths,
+        lastServiceDate: scheduleForm.value.lastServiceDate || null,
+        notes: scheduleForm.value.notes || null,
+      }),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Nie udało się zapisać zmian.');
+    toast.success('Harmonogram zaktualizowany.');
+    showEditScheduleModal.value = false;
+    editingSchedule.value = null;
+    await fetchServiceSchedules();
+  } catch (error) {
+    toast.error(error.message);
+  }
+}
+
+async function markScheduleServiced(schedule) {
+  try {
+    const response = await authenticatedFetch(`${API_URL}/api/service-schedules/${schedule.schedule_id}/mark-serviced`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Operacja nie powiodła się.');
+    toast.success('Oznaczono jako wykonany.');
+    await fetchServiceSchedules();
+  } catch (error) {
+    toast.error(error.message);
+  }
+}
+
+function openPostponeForSchedule(schedule) {
+  postponeScheduleId.value = schedule.schedule_id;
+  postponeMonths.value = 3;
+}
+
+async function confirmSchedulePostpone() {
+  if (!postponeScheduleId.value) return;
+  try {
+    const response = await authenticatedFetch(`${API_URL}/api/service-schedules/${postponeScheduleId.value}/postpone`, {
+      method: 'POST',
+      body: JSON.stringify({ months: postponeMonths.value }),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Operacja nie powiodła się.');
+    toast.success(`Termin przesunięty o ${postponeMonths.value} mies.`);
+    postponeScheduleId.value = null;
+    await fetchServiceSchedules();
+  } catch (error) {
+    toast.error(error.message);
+  }
+}
+
+function quickServiceLink(schedule) {
+  const params = new URLSearchParams({
+    clientId: String(clientId.value),
+    jobType: 'service',
+    action: 'new',
+  });
+  if (schedule.miejscowosc && schedule.miejscowosc !== '—') {
+    params.set('miejscowosc', schedule.miejscowosc);
+  }
+  return `/zlecenia?${params.toString()}`;
+}
+
+watch(clientId, () => {
+  fetchData();
+  fetchServiceSchedules();
+});
+onMounted(() => {
+  fetchData();
+  fetchServiceSchedules();
+});
 
 const summary = computed(() => data.value?.summary || null);
 </script>
@@ -131,6 +295,56 @@ const summary = computed(() => data.value?.summary || null);
 
       <section class="panel">
         <div class="panel-header">
+          <h2>Harmonogramy serwisowe ({{ serviceSchedules.length }})</h2>
+          <button v-if="userRole !== 'viewer'" type="button" class="btn btn-small" @click="openAddScheduleModal">+ Dodaj harmonogram</button>
+        </div>
+        <div v-if="schedulesLoading" class="empty-mini">Ładowanie harmonogramów…</div>
+        <div v-else-if="!serviceSchedules.length" class="empty-mini">Brak harmonogramów. Dodaj przy instalacji stacji lub ręcznie.</div>
+        <div v-else class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Miejscowość</th>
+                <th>Interwał</th>
+                <th>Ostatni serwis</th>
+                <th>Następny termin</th>
+                <th>Status</th>
+                <th v-if="userRole !== 'viewer'">Akcje</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="schedule in serviceSchedules" :key="schedule.schedule_id">
+                <td data-label="Miejscowość">{{ schedule.miejscowosc || '—' }}</td>
+                <td data-label="Interwał">co {{ schedule.service_interval_months }} mies.</td>
+                <td data-label="Ostatni">{{ formatDate(schedule.last_service_date) }}</td>
+                <td data-label="Następny">{{ formatDate(schedule.next_service_due) }}</td>
+                <td data-label="Status">
+                  <span class="badge" :class="`badge--schedule-${schedule.status}`">{{ scheduleStatusLabel(schedule.status) }}</span>
+                </td>
+                <td v-if="userRole !== 'viewer'" data-label="Akcje" class="actions-cell schedule-actions">
+                  <div class="actions-cell-inner">
+                    <RouterLink :to="quickServiceLink(schedule)" class="link">Serwis</RouterLink>
+                    <button type="button" class="link-btn" @click="markScheduleServiced(schedule)">Wykonano</button>
+                    <button type="button" class="link-btn" @click="openPostponeForSchedule(schedule)">Odłóż</button>
+                    <button type="button" class="link-btn" @click="openEditScheduleModal(schedule)">Edytuj</button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-if="postponeScheduleId && userRole !== 'viewer'" class="postpone-inline">
+          <label>
+            Odłóż o (mies.):
+            <input v-model.number="postponeMonths" type="number" min="1" max="60" />
+          </label>
+          <button type="button" class="btn btn-small" @click="confirmSchedulePostpone">Zapisz</button>
+          <button type="button" class="btn btn-small btn-secondary" @click="postponeScheduleId = null">Anuluj</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
           <h2>Zlecenia ({{ data.jobs.length }})</h2>
           <RouterLink :to="`/zlecenia?clientId=${clientId}`" class="link">Zobacz wszystkie →</RouterLink>
         </div>
@@ -193,6 +407,38 @@ const summary = computed(() => data.value?.summary || null);
         </div>
       </section>
     </template>
+
+    <div v-if="showAddScheduleModal" class="modal-backdrop" @click.self="showAddScheduleModal = false">
+      <div class="modal-box">
+        <h3>Nowy harmonogram serwisowy</h3>
+        <div class="form-grid">
+          <label>Miejscowość / lokalizacja<input v-model="scheduleForm.miejscowosc" type="text" /></label>
+          <label>Interwał (mies.)<input v-model.number="scheduleForm.serviceIntervalMonths" type="number" min="1" /></label>
+          <label>Ostatni serwis (opcj.)<input v-model="scheduleForm.lastServiceDate" type="date" /></label>
+          <label class="full">Notatki<textarea v-model="scheduleForm.notes" rows="2" /></label>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" @click="showAddScheduleModal = false">Anuluj</button>
+          <button type="button" class="btn" @click="saveNewSchedule">Zapisz</button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="showEditScheduleModal" class="modal-backdrop" @click.self="showEditScheduleModal = false">
+      <div class="modal-box">
+        <h3>Edycja harmonogramu</h3>
+        <div class="form-grid">
+          <label>Miejscowość<input v-model="scheduleForm.miejscowosc" type="text" /></label>
+          <label>Interwał (mies.)<input v-model.number="scheduleForm.serviceIntervalMonths" type="number" min="1" /></label>
+          <label>Ostatni serwis<input v-model="scheduleForm.lastServiceDate" type="date" /></label>
+          <label class="full">Notatki<textarea v-model="scheduleForm.notes" rows="2" /></label>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" @click="showEditScheduleModal = false">Anuluj</button>
+          <button type="button" class="btn" @click="saveEditSchedule">Zapisz</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -392,5 +638,82 @@ const summary = computed(() => data.value?.summary || null);
 }
 .badge--status-rejected {
   background-color: #dc3545;
+}
+.badge--schedule-expired {
+  background-color: #fdecea;
+  color: #c0392b;
+}
+.badge--schedule-warning {
+  background-color: #fff8e1;
+  color: #b8860b;
+}
+.badge--schedule-ok {
+  background-color: #e8f5e9;
+  color: #2e7d32;
+}
+.btn-small {
+  font-size: 13px;
+  padding: 6px 12px;
+}
+.link-btn {
+  background: none;
+  border: none;
+  color: var(--blue);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0;
+  text-decoration: underline;
+}
+.postpone-inline {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.modal-box {
+  background: var(--background-light);
+  padding: 24px;
+  border-radius: 8px;
+  min-width: 360px;
+  max-width: 95vw;
+}
+.modal-box h3 {
+  margin-top: 0;
+}
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 16px 0;
+}
+.form-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 14px;
+}
+.form-grid label.full {
+  grid-column: 1 / -1;
+}
+.form-grid input,
+.form-grid textarea {
+  padding: 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
 }
 </style>

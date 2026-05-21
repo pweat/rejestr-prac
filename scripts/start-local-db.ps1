@@ -1,9 +1,6 @@
 # Uruchamia lokalny PostgreSQL (klaster w .local-pgdata, port 5433)
 $pgBin = "C:\Program Files\PostgreSQL\18\bin"
-$dataDir = Join-Path $PSScriptRoot ".." ".local-pgdata" | Resolve-Path -ErrorAction SilentlyContinue
-if (-not $dataDir) {
-  $dataDir = (Join-Path (Split-Path $PSScriptRoot -Parent) ".local-pgdata")
-}
+$dataDir = Join-Path (Split-Path $PSScriptRoot -Parent) ".local-pgdata"
 
 if (-not (Test-Path "$dataDir\PG_VERSION")) {
   Write-Host "Inicjalizacja nowego klastra PostgreSQL w $dataDir ..."
