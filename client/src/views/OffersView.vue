@@ -722,7 +722,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <div v-if="showAddOfferModal" class="modal-backdrop" @click.self="showAddOfferModal = false">
+    <div v-if="showAddOfferModal" class="modal-backdrop">
       <div class="modal-content">
         <div class="modal-header">
           <h3>Nowa Oferta</h3>
@@ -854,7 +854,7 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="modal-actions">
-            <span class="hint">💡 Ctrl+S aby zapisać, Esc aby anulować</span>
+            <span class="hint">💡 Ctrl+S aby zapisać · Zamknij przyciskiem Anuluj lub Esc</span>
             <div class="modal-actions-buttons">
               <button type="button" class="anuluj" @click="showAddOfferModal = false">Anuluj</button>
               <button type="submit" class="zapisz">Zapisz Ofertę</button>
@@ -864,7 +864,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <div v-if="showEditOfferModal" class="modal-backdrop" @click.self="showEditOfferModal = false">
+    <div v-if="showEditOfferModal" class="modal-backdrop">
       <div class="modal-content">
         <div class="modal-header">
           <h3>Edytuj Ofertę nr {{ editedOfferData?.offer_number }}</h3>
@@ -991,7 +991,7 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="modal-actions">
-            <span class="hint">💡 Ctrl+S aby zapisać, Esc aby anulować</span>
+            <span class="hint">💡 Ctrl+S aby zapisać · Zamknij przyciskiem Anuluj lub Esc</span>
             <div class="modal-actions-buttons">
               <button type="button" class="anuluj" @click="showEditOfferModal = false">Anuluj</button>
               <button type="submit" class="zapisz">Zapisz Zmiany</button>
