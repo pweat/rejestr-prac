@@ -247,7 +247,8 @@ const initializeDatabase = async () => {
         unit TEXT NOT NULL, 
         min_stock_level REAL NOT NULL DEFAULT 0, 
         last_delivery_date DATE, 
-        is_ordered BOOLEAN DEFAULT FALSE NOT NULL
+        is_ordered BOOLEAN DEFAULT FALSE NOT NULL,
+        alert_on_dashboard BOOLEAN DEFAULT FALSE NOT NULL
       )`);
 
     // Tabela historii operacji magazynowych
@@ -430,6 +431,11 @@ const initializeDatabase = async () => {
         column: 'status',
         query: "ALTER TABLE offers ADD COLUMN status TEXT NOT NULL DEFAULT 'draft'",
       },
+      {
+        table: 'inventory_items',
+        column: 'alert_on_dashboard',
+        query: 'ALTER TABLE inventory_items ADD COLUMN alert_on_dashboard BOOLEAN DEFAULT FALSE NOT NULL',
+      },
     ];
 
     for (const migration of migrations) {
@@ -498,6 +504,12 @@ const initializeDatabase = async () => {
       }
       console.log(`🔧 Backfill service_schedules: utworzono wpisy dla ${seenKeys.size} lokalizacji.`);
     }
+
+    await client.query(`
+      UPDATE inventory_items
+      SET alert_on_dashboard = (min_stock_level > 0)
+      WHERE alert_on_dashboard IS DISTINCT FROM (min_stock_level > 0)
+    `);
   } catch (err) {
     console.error('❌ Błąd podczas inicjalizacji bazy danych:', err);
     process.exit(1); // Zakończ proces, jeśli baza danych nie jest gotowa
@@ -2676,10 +2688,33 @@ app.delete('/api/inventory/categories/:id', authenticateToken, isAdmin, async (r
 // API ROUTES: Magazyn (Inventory)
 // =================================================================================================
 
+const INVENTORY_SORT_COLUMNS = {
+  name: 'i.name',
+  quantity: 'i.quantity',
+  unit: 'i.unit',
+  min_stock_level: 'i.min_stock_level',
+};
+
+function resolveAlertOnDashboard(minStockLevel, alertOnDashboardInput) {
+  const min = parseFloat(minStockLevel) || 0;
+  if (min <= 0) return false;
+  if (alertOnDashboardInput === false || alertOnDashboardInput === 'false') return false;
+  if (alertOnDashboardInput === true || alertOnDashboardInput === 'true') return true;
+  return true;
+}
+
 // Funkcja pomocnicza do pobierania spaginowanej listy przedmiotów
-const getPaginatedInventory = async (page = 1, search = '', categoryId = null, sortBy = 'name', sortOrder = 'asc') => {
+const getPaginatedInventory = async (
+  page = 1,
+  search = '',
+  categoryId = null,
+  sortBy = 'name',
+  sortOrder = 'asc',
+  filters = {}
+) => {
   const limit = 30;
   const offset = (page - 1) * limit;
+  const { lowStockOnly, alertOnly, hideOrdered } = filters;
 
   let whereClauses = [];
   let queryParams = [];
@@ -2691,26 +2726,35 @@ const getPaginatedInventory = async (page = 1, search = '', categoryId = null, s
     paramIndex++;
   }
   if (categoryId) {
-    // Dodano filtrowanie po kategorii
     whereClauses.push(`i.category_id = $${paramIndex}`);
     queryParams.push(categoryId);
     paramIndex++;
   }
+  if (lowStockOnly === true || lowStockOnly === 'true') {
+    whereClauses.push(`i.min_stock_level > 0 AND i.quantity <= i.min_stock_level`);
+  }
+  if (alertOnly === true || alertOnly === 'true') {
+    whereClauses.push(`i.alert_on_dashboard = true`);
+  }
+  if (hideOrdered === true || hideOrdered === 'true') {
+    whereClauses.push(`i.is_ordered = false`);
+  }
 
   const whereString = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+  const orderColumn = INVENTORY_SORT_COLUMNS[sortBy] || INVENTORY_SORT_COLUMNS.name;
+  const orderDir = sortOrder === 'desc' ? 'DESC' : 'ASC';
 
   const countSql = `SELECT COUNT(i.id) FROM inventory_items i ${whereString}`;
   const countResult = await pool.query(countSql, queryParams);
   const totalItems = parseInt(countResult.rows[0].count);
   const totalPages = Math.ceil(totalItems / limit);
 
-  // Dodano LEFT JOIN i wybór nazwy kategorii
   const dataSql = `
     SELECT i.*, c.name as category_name
     FROM inventory_items i
     LEFT JOIN inventory_categories c ON i.category_id = c.id
     ${whereString}
-    ORDER BY ${sortBy} ${sortOrder}
+    ORDER BY ${orderColumn} ${orderDir}
     LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
   `;
   const dataResult = await pool.query(dataSql, [...queryParams, limit, offset]);
@@ -2726,9 +2770,14 @@ app.get('/api/inventory', authenticateToken, async (req, res) => {
     const paginatedData = await getPaginatedInventory(
       parseInt(req.query.page) || 1,
       req.query.search || '',
-      req.query.categoryId || null, // Przekazanie categoryId
+      req.query.categoryId || null,
       req.query.sortBy || 'name',
-      req.query.sortOrder || 'asc'
+      req.query.sortOrder || 'asc',
+      {
+        lowStockOnly: req.query.lowStockOnly,
+        alertOnly: req.query.alertOnly,
+        hideOrdered: req.query.hideOrdered,
+      }
     );
     res.json(paginatedData);
   } catch (err) {
@@ -2739,13 +2788,14 @@ app.get('/api/inventory', authenticateToken, async (req, res) => {
 
 app.post('/api/inventory', authenticateToken, canEdit, async (req, res) => {
   try {
-    const { name, quantity, unit, min_stock_level, category_id } = req.body; // Dodano category_id
+    const { name, quantity, unit, min_stock_level, category_id, alert_on_dashboard } = req.body;
     if (!name || !unit) {
       return res.status(400).json({ error: 'Nazwa i jednostka miary są wymagane.' });
     }
-    // Dodano category_id do INSERT
-    const sql = `INSERT INTO inventory_items (name, quantity, unit, min_stock_level, category_id, is_ordered) VALUES ($1, $2, $3, $4, $5, false) RETURNING *`;
-    const result = await pool.query(sql, [name, quantity || 0, unit, min_stock_level || 0, category_id || null]);
+    const minLevel = parseFloat(min_stock_level) || 0;
+    const alertFlag = resolveAlertOnDashboard(minLevel, alert_on_dashboard);
+    const sql = `INSERT INTO inventory_items (name, quantity, unit, min_stock_level, category_id, is_ordered, alert_on_dashboard) VALUES ($1, $2, $3, $4, $5, false, $6) RETURNING *`;
+    const result = await pool.query(sql, [name, quantity || 0, unit, minLevel, category_id || null, alertFlag]);
     res.status(201).json(result.rows[0]);
   } catch (err) {
     if (err.code === '23505') {
@@ -2759,13 +2809,14 @@ app.post('/api/inventory', authenticateToken, canEdit, async (req, res) => {
 app.put('/api/inventory/:id', authenticateToken, canEdit, async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, quantity, unit, min_stock_level, category_id } = req.body; // Dodano category_id
+    const { name, quantity, unit, min_stock_level, category_id, alert_on_dashboard } = req.body;
     if (!name || !unit) {
       return res.status(400).json({ error: 'Nazwa i jednostka miary są wymagane.' });
     }
-    // Dodano category_id do UPDATE
-    const sql = `UPDATE inventory_items SET name = $1, quantity = $2, unit = $3, min_stock_level = $4, category_id = $5 WHERE id = $6 RETURNING *`;
-    const result = await pool.query(sql, [name, quantity || 0, unit, min_stock_level || 0, category_id || null, id]);
+    const minLevel = parseFloat(min_stock_level) || 0;
+    const alertFlag = resolveAlertOnDashboard(minLevel, alert_on_dashboard);
+    const sql = `UPDATE inventory_items SET name = $1, quantity = $2, unit = $3, min_stock_level = $4, category_id = $5, alert_on_dashboard = $6 WHERE id = $7 RETURNING *`;
+    const result = await pool.query(sql, [name, quantity || 0, unit, minLevel, category_id || null, alertFlag, id]);
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Nie znaleziono przedmiotu.' });
     }
@@ -2827,9 +2878,49 @@ app.post('/api/inventory/operation', authenticateToken, canEdit, async (req, res
 
 app.get('/api/inventory/low-stock', authenticateToken, async (req, res) => {
   try {
-    const sql = `SELECT id, name, quantity, min_stock_level, unit FROM inventory_items WHERE quantity <= min_stock_level AND min_stock_level > 0 ORDER BY name ASC`;
-    const result = await pool.query(sql);
-    res.json(result.rows);
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 12, 1), 50);
+
+    const countSql = `
+      SELECT COUNT(*)::int AS total
+      FROM inventory_items i
+      WHERE i.alert_on_dashboard = true
+        AND i.min_stock_level > 0
+        AND i.quantity <= i.min_stock_level
+        AND i.is_ordered = false
+    `;
+    const countResult = await pool.query(countSql);
+    const totalCount = countResult.rows[0].total;
+
+    const dataSql = `
+      SELECT
+        i.id,
+        i.name,
+        i.quantity,
+        i.min_stock_level,
+        i.unit,
+        i.is_ordered,
+        c.name AS category_name,
+        (i.quantity <= 0) AS is_critical,
+        CASE WHEN i.min_stock_level > 0 THEN i.quantity / i.min_stock_level ELSE NULL END AS fill_ratio
+      FROM inventory_items i
+      LEFT JOIN inventory_categories c ON i.category_id = c.id
+      WHERE i.alert_on_dashboard = true
+        AND i.min_stock_level > 0
+        AND i.quantity <= i.min_stock_level
+        AND i.is_ordered = false
+      ORDER BY
+        CASE WHEN i.quantity <= 0 THEN 0 ELSE 1 END,
+        (i.quantity / NULLIF(i.min_stock_level, 0)) ASC,
+        i.name ASC
+      LIMIT $1
+    `;
+    const dataResult = await pool.query(dataSql, [limit]);
+    res.json({
+      items: dataResult.rows,
+      totalCount,
+      limit,
+      hasMore: totalCount > limit,
+    });
   } catch (err) {
     console.error('Błąd w GET /api/inventory/low-stock:', err);
     res.status(500).json({ error: 'Wystąpił błąd serwera' });

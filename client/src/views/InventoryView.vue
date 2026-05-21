@@ -3,6 +3,7 @@
 // 📜 IMPORTS
 // ================================================================================================
 import { ref, onMounted, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import { getAuthHeaders, getUserRole } from '../auth/auth.js';
 import { formatDate } from '../utils/formatters.js';
 import PaginationControls from '../components/PaginationControls.vue';
@@ -58,6 +59,12 @@ const showCategoryModal = ref(false); // Widoczność modala zarządzania katego
 const newCategoryName = ref(''); // Nazwa nowej kategorii
 const editingCategory = ref(null); // Kategoria w trakcie edycji
 
+const filterLowStock = ref(false);
+const filterAlertOnly = ref(false);
+const filterHideOrdered = ref(false);
+
+const route = useRoute();
+
 // ================================================================================================
 // 헬 FUNKCJE POMOCNICZE
 // ================================================================================================
@@ -72,8 +79,39 @@ function initializeNewItem() {
     quantity: 0,
     unit: 'szt.',
     min_stock_level: 0,
-    category_id: null, // Dodano category_id
+    category_id: null,
+    alert_on_dashboard: false,
   };
+}
+
+function onMinStockInput(item) {
+  const min = parseFloat(item.min_stock_level) || 0;
+  if (min <= 0) {
+    item.alert_on_dashboard = false;
+  } else if (item.alert_on_dashboard === undefined || item.alert_on_dashboard === null) {
+    item.alert_on_dashboard = true;
+  }
+}
+
+async function toggleOrderedQuick(item) {
+  if (userRole === 'viewer') return;
+  try {
+    const response = await authenticatedFetch(`${API_URL}/api/inventory/operation`, {
+      method: 'POST',
+      body: JSON.stringify({
+        itemId: item.id,
+        operationType: 'toggle_ordered',
+        quantity: 0,
+      }),
+    });
+    const updatedItem = await response.json();
+    if (!response.ok) throw new Error(updatedItem.error || 'Błąd zmiany statusu zamówienia.');
+    const index = inventoryItems.value.findIndex((i) => i.id === updatedItem.id);
+    if (index !== -1) inventoryItems.value[index] = updatedItem;
+  } catch (error) {
+    console.error(error);
+    alert(error.message);
+  }
 }
 
 /**
@@ -218,10 +256,13 @@ async function fetchItems() {
       page: currentPage.value,
       limit: 30,
       search: searchQuery.value,
-      categoryId: selectedCategoryId.value || '', // Dodano categoryId
+      categoryId: selectedCategoryId.value || '',
       sortBy: sortBy.value,
       sortOrder: sortOrder.value,
     });
+    if (filterLowStock.value) params.set('lowStockOnly', 'true');
+    if (filterAlertOnly.value) params.set('alertOnly', 'true');
+    if (filterHideOrdered.value) params.set('hideOrdered', 'true');
     const response = await authenticatedFetch(`${API_URL}/api/inventory?${params.toString()}`);
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || 'Błąd pobierania danych z magazynu');
@@ -402,8 +443,13 @@ function changeSort(key) {
 // ================================================================================================
 
 watch(selectedCategoryId, () => {
-    currentPage.value = 1; // Wróć na 1 stronę po zmianie kategorii
-    fetchItems();
+  currentPage.value = 1;
+  fetchItems();
+});
+
+watch([filterLowStock, filterAlertOnly, filterHideOrdered], () => {
+  currentPage.value = 1;
+  fetchItems();
 });
 
 /** Obserwuje zmiany w paginacji i sortowaniu, by odświeżyć listę. */
@@ -421,8 +467,11 @@ watch(searchQuery, () => {
 
 /** Pobiera dane po zamontowaniu komponentu. */
 onMounted(() => {
+  if (route.query.lowStockOnly === 'true') filterLowStock.value = true;
+  if (route.query.alertOnly === 'true') filterAlertOnly.value = true;
+  if (route.query.hideOrdered === 'true') filterHideOrdered.value = true;
   fetchItems();
-  fetchCategories(); // Dodano pobieranie kategorii przy starcie
+  fetchCategories();
 });
 </script>
 
@@ -450,6 +499,21 @@ onMounted(() => {
   <button class="btn-secondary" @click="showCategoryModal = true">Zarządzaj Kategoriami</button>
 </div>
 
+    <div class="inventory-extra-filters">
+      <label class="filter-checkbox">
+        <input type="checkbox" v-model="filterLowStock" />
+        Tylko niski stan
+      </label>
+      <label class="filter-checkbox">
+        <input type="checkbox" v-model="filterAlertOnly" />
+        Tylko z alertem na pulpicie
+      </label>
+      <label class="filter-checkbox">
+        <input type="checkbox" v-model="filterHideOrdered" />
+        Ukryj zamówione
+      </label>
+    </div>
+
     <div class="main-content-wrapper">
       <div v-if="isLoading" class="loading-overlay"><div class="spinner"></div></div>
       <div class="table-and-pagination" :class="{ 'is-loading': isLoading }">
@@ -470,13 +534,18 @@ onMounted(() => {
                   Jednostka
                   <span v-if="sortBy === 'unit'">{{ sortOrder === 'asc' ? '▲' : '▼' }}</span>
                 </th>
+                <th @click="changeSort('min_stock_level')" class="sortable">
+                  Min. stan
+                  <span v-if="sortBy === 'min_stock_level'">{{ sortOrder === 'asc' ? '▲' : '▼' }}</span>
+                </th>
+                <th>Alert</th>
                 <th>Status</th>
                 <th>Akcje</th>
               </tr>
             </thead>
             <tbody>
               <tr v-if="!inventoryItems.length && !isLoading">
-                <td colspan="5" class="empty-table-message">
+                <td colspan="8" class="empty-table-message">
                   <p>Brak przedmiotów w magazynie.</p>
                 </td>
               </tr>
@@ -485,8 +554,26 @@ onMounted(() => {
                 <td data-label="Nazwa Przedmiotu">{{ item.name }}</td>
                 <td data-label="Ilość" class="quantity-cell">{{ item.quantity }}</td>
                 <td data-label="Jednostka">{{ item.unit }}</td>
+                <td data-label="Min. stan">{{ item.min_stock_level > 0 ? item.min_stock_level : '—' }}</td>
+                <td data-label="Alert" class="alert-cell">
+                  <span
+                    v-if="item.alert_on_dashboard && item.min_stock_level > 0"
+                    class="alert-icon alert-icon--on"
+                    title="Alert na pulpicie włączony"
+                  >🔔</span>
+                  <span v-else class="alert-icon alert-icon--off" title="Brak alertu na pulpicie">—</span>
+                </td>
                 <td data-label="Status">
                   <span class="status-badge" :class="getItemStatus(item).class">{{ getItemStatus(item).text }}</span>
+                  <button
+                    v-if="userRole !== 'viewer'"
+                    type="button"
+                    class="btn-ordered-toggle"
+                    :class="{ 'btn-ordered-toggle--active': item.is_ordered }"
+                    @click="toggleOrderedQuick(item)"
+                  >
+                    {{ item.is_ordered ? '✓ Zamówione' : 'Oznacz zamówione' }}
+                  </button>
                 </td>
                 <td data-label="Akcje" class="actions-cell">
                   <div class="actions-cell-inner">
@@ -526,8 +613,22 @@ onMounted(() => {
             <input type="number" step="any" id="itemQuantity" v-model.number="newItemData.quantity" required />
           </div>
           <div class="form-group">
-            <label for="itemMinStock">Minimalny stan magazynowy (próg alertu)</label>
-            <input type="number" step="any" id="itemMinStock" v-model.number="newItemData.min_stock_level" required />
+            <label for="itemMinStock">Minimalny stan magazynowy</label>
+            <input
+              type="number"
+              step="any"
+              min="0"
+              id="itemMinStock"
+              v-model.number="newItemData.min_stock_level"
+              @input="onMinStockInput(newItemData)"
+            />
+            <small class="field-hint">0 = brak progu i brak alertów na pulpicie.</small>
+          </div>
+          <div v-if="newItemData.min_stock_level > 0" class="form-group form-group--checkbox">
+            <label>
+              <input type="checkbox" v-model="newItemData.alert_on_dashboard" />
+              Pokazuj alert na pulpicie
+            </label>
           </div>
           <div class="form-group">
   <label for="itemCategory">Kategoria (opcjonalnie)</label>
@@ -569,7 +670,21 @@ onMounted(() => {
           </div>
           <div class="form-group">
             <label for="editItemMinStock">Minimalny stan magazynowy</label>
-            <input type="number" step="any" id="editItemMinStock" v-model.number="editedItemData.min_stock_level" required />
+            <input
+              type="number"
+              step="any"
+              min="0"
+              id="editItemMinStock"
+              v-model.number="editedItemData.min_stock_level"
+              @input="onMinStockInput(editedItemData)"
+            />
+            <small class="field-hint">0 = brak progu i brak alertów na pulpicie.</small>
+          </div>
+          <div v-if="editedItemData.min_stock_level > 0" class="form-group form-group--checkbox">
+            <label>
+              <input type="checkbox" v-model="editedItemData.alert_on_dashboard" />
+              Pokazuj alert na pulpicie
+            </label>
           </div>
           <div class="form-group">
   <label for="editItemCategory">Kategoria (opcjonalnie)</label>
@@ -861,5 +976,70 @@ onMounted(() => {
 /* Dostosowanie marginesów dla przycisków wewnątrz listy kategorii */
 .category-list button {
   margin: 0;
+}
+
+.inventory-extra-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 24px;
+  margin-bottom: 1rem;
+  padding: 12px 15px;
+  background-color: var(--background-light-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+}
+
+.filter-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.field-hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--grey);
+}
+
+.form-group--checkbox label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: normal;
+  cursor: pointer;
+}
+
+.alert-cell {
+  text-align: center;
+}
+
+.alert-icon--on {
+  font-size: 16px;
+}
+
+.alert-icon--off {
+  color: var(--grey);
+}
+
+.btn-ordered-toggle {
+  display: block;
+  margin-top: 6px;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  background: #fff;
+  cursor: pointer;
+  color: var(--text-color);
+}
+
+.btn-ordered-toggle--active {
+  background: #e8f4fd;
+  border-color: var(--blue);
+  color: var(--blue);
+  font-weight: 600;
 }
 </style>

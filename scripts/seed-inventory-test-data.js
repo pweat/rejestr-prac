@@ -20,13 +20,8 @@ if (fs.existsSync(localEnvPath)) {
 
 const useSsl = process.env.DATABASE_URL && !/localhost|127\.0\.0\.1/.test(process.env.DATABASE_URL);
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: process.env.DATABASE_URL || 'postgresql://postgres:admin@127.0.0.1:5433/rejestr_prac',
   ssl: useSsl ? { rejectUnauthorized: false } : false,
-  user: 'postgres',
-  host: 'localhost',
-  database: 'rejestr_prac',
-  password: 'admin',
-  port: 5432,
 });
 
 const randomFloat = (min, max, precision = 1) => Number((Math.random() * (max - min) + min).toFixed(precision));
@@ -159,15 +154,18 @@ async function upsertCategory(name) {
 
 async function upsertItem({ name, unit, min_stock_level, category_id }) {
   const quantity = randomFloat(min_stock_level * 0.5, min_stock_level * 4, 1);
+  const isLow = quantity < min_stock_level;
+  const alertOnDashboard = min_stock_level > 0 && isLow && Math.random() < 0.35;
   const result = await pool.query(
-    `INSERT INTO inventory_items (name, quantity, unit, min_stock_level, category_id, is_ordered)
-     VALUES ($1, $2, $3, $4, $5, $6)
+    `INSERT INTO inventory_items (name, quantity, unit, min_stock_level, category_id, is_ordered, alert_on_dashboard)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
      ON CONFLICT (name) DO UPDATE SET
        unit = EXCLUDED.unit,
        min_stock_level = EXCLUDED.min_stock_level,
-       category_id = EXCLUDED.category_id
+       category_id = EXCLUDED.category_id,
+       alert_on_dashboard = EXCLUDED.alert_on_dashboard
      RETURNING id, name`,
-    [name, quantity, unit, min_stock_level, category_id, quantity < min_stock_level]
+    [name, quantity, unit, min_stock_level, category_id, isLow, alertOnDashboard]
   );
   return result.rows[0];
 }

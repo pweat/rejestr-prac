@@ -36,8 +36,11 @@ const isLoading = ref(true);
 /** Lista przypomnień o zbliżających się serwisach. */
 const serviceReminders = ref([]);
 
-/** Lista produktów z niskim stanem magazynowym. */
+/** Lista produktów z niskim stanem magazynowym (widok pulpitu). */
 const lowStockItems = ref([]);
+const lowStockTotalCount = ref(0);
+const lowStockHasMore = ref(false);
+const LOW_STOCK_LIMIT = 12;
 
 /** Lista pojazdów z wygasłym lub zbliżającym się przeglądem / OC. */
 const vehicleReminders = ref([]);
@@ -74,9 +77,12 @@ async function fetchServiceReminders() {
  */
 async function fetchLowStockItems() {
   try {
-    const response = await authenticatedFetch(`${API_URL}/api/inventory/low-stock`);
+    const response = await authenticatedFetch(`${API_URL}/api/inventory/low-stock?limit=${LOW_STOCK_LIMIT}`);
     if (!response.ok) throw new Error('Błąd pobierania danych o niskim stanie magazynowym');
-    lowStockItems.value = await response.json();
+    const result = await response.json();
+    lowStockItems.value = result.items || [];
+    lowStockTotalCount.value = result.totalCount ?? lowStockItems.value.length;
+    lowStockHasMore.value = result.hasMore ?? lowStockTotalCount.value > lowStockItems.value.length;
   } catch (error) {
     console.error('Błąd podczas pobierania danych o niskim stanie magazynowym:', error);
     if (!handleAuthError(error)) {
@@ -112,6 +118,17 @@ function serviceReminderLabel(status) {
   if (status === 'expired') return 'Wygasło';
   if (status === 'warning') return 'Wkrótce';
   return '';
+}
+
+const inventoryAlertLink = '/magazyn?lowStockOnly=true&alertOnly=true&hideOrdered=true';
+
+function lowStockMoreCount() {
+  return Math.max(0, lowStockTotalCount.value - lowStockItems.value.length);
+}
+
+function stockItemBadge(item) {
+  if (item.is_critical || item.quantity <= 0) return { text: 'Brak', class: 'badge-critical' };
+  return { text: 'Niski', class: 'badge-low' };
 }
 
 function jobsLinkForReminder(reminder) {
@@ -264,151 +281,149 @@ onMounted(() => {
       <h1>Pulpit</h1>
     </div>
 
-    <div class="month-picker-container">
-      <label for="month-picker">Pokaż statystyki dla miesiąca:</label>
-      <input type="month" id="month-picker" v-model="selectedMonth" />
-    </div>
-
-    <div class="dashboard-grid">
+    <section class="dashboard-alerts">
       <div class="dashboard-widget">
-        <h2 class="widget-title"><span class="icon">🔔</span> Powiadomienia Serwisowe</h2>
-        <div v-if="isLoading" class="loading-container">
+        <div class="widget-title-row">
+          <h2 class="widget-title"><span class="icon">🔔</span> Powiadomienia Serwisowe <span v-if="!isLoading" class="widget-count">({{ serviceReminders.length }})</span></h2>
+          <RouterLink to="/zlecenia" class="widget-see-all">Zobacz wszystkie →</RouterLink>
+        </div>
+        <div v-if="isLoading" class="loading-container loading-container--compact">
           <div class="spinner"></div>
         </div>
-        <div v-else-if="serviceReminders.length > 0" class="reminders-list">
+        <div v-else-if="serviceReminders.length > 0" class="widget-body widget-body--scroll">
           <div
             v-for="reminder in serviceReminders"
             :key="reminder.schedule_id || `${reminder.client_id}-${reminder.miejscowosc}`"
-            class="reminder-item service-reminder"
-            :class="{ 'reminder-item--expired': reminder.status === 'expired' }"
+            class="alert-row"
+            :class="{ 'alert-row--expired': reminder.status === 'expired' }"
           >
-            <div class="reminder-icon">⚠️</div>
-            <div class="reminder-details">
-              <strong>
-                {{ reminder.client_name || 'Klient' }} ({{ reminder.client_phone }})
-                <em v-if="reminder.status" :class="reminder.status">({{ serviceReminderLabel(reminder.status) }})</em>
-              </strong>
-              <span>
-                <strong>Lokalizacja:</strong> {{ reminder.miejscowosc || '—' }}
-                · co {{ reminder.service_interval_months || 12 }} mies.
-              </span>
-              <span>
-                Ostatni serwis: {{ formatDate(reminder.last_service_date || reminder.last_event_date) }}
-                · Następny: {{ formatDate(reminder.next_service_due) }}
-                <template v-if="reminder.days_until_due !== null && reminder.days_until_due !== undefined">
-                  (za {{ reminder.days_until_due }} dni)
-                </template>
-              </span>
-              <div class="reminder-actions">
-                <RouterLink :to="`/klienci/${reminder.client_id}`" class="reminder-link">Karta klienta →</RouterLink>
-                <RouterLink :to="jobsLinkForReminder(reminder)" class="reminder-link">Zlecenia →</RouterLink>
-                <RouterLink v-if="userRole !== 'viewer'" :to="quickServiceLink(reminder)" class="reminder-link reminder-link--primary">
-                  Dodaj serwis →
-                </RouterLink>
-              </div>
-              <div v-if="userRole !== 'viewer'" class="reminder-buttons">
-                <button
-                  type="button"
-                  class="btn-mini"
-                  :disabled="scheduleActionLoading"
-                  @click="markScheduleServiced(reminder)"
-                >
-                  Wykonano
-                </button>
-                <button type="button" class="btn-mini btn-mini--secondary" :disabled="scheduleActionLoading" @click="openPostponeModal(reminder)">
-                  Odłóż…
-                </button>
-              </div>
+            <div class="alert-row-main">
+              <strong class="alert-row-title">{{ reminder.client_name || 'Klient' }}</strong>
+              <span v-if="reminder.status" class="status-pill" :class="reminder.status">{{ serviceReminderLabel(reminder.status) }}</span>
+            </div>
+            <p class="alert-row-detail">
+              {{ reminder.miejscowosc || '—' }} · nast. {{ formatDate(reminder.next_service_due) }}
+              <template v-if="reminder.days_until_due !== null && reminder.days_until_due !== undefined"> (za {{ reminder.days_until_due }} dni)</template>
+            </p>
+            <div v-if="userRole !== 'viewer'" class="alert-row-actions">
+              <button type="button" class="btn-mini" :disabled="scheduleActionLoading" @click="markScheduleServiced(reminder)">Wykonano</button>
+              <button type="button" class="btn-mini btn-mini--secondary" :disabled="scheduleActionLoading" @click="openPostponeModal(reminder)">Odłóż</button>
+              <RouterLink :to="quickServiceLink(reminder)" class="btn-mini btn-mini--link">Serwis</RouterLink>
             </div>
           </div>
         </div>
-        <div v-else class="empty-message">
+        <div v-else class="empty-message empty-message--compact">
           <p>Brak pilnych powiadomień serwisowych.</p>
         </div>
       </div>
 
       <div class="dashboard-widget">
-        <h2 class="widget-title"><span class="icon">🚗</span> Pojazdy — przegląd / OC</h2>
-        <div v-if="isLoading" class="loading-container">
+        <div class="widget-title-row">
+          <h2 class="widget-title"><span class="icon">🚗</span> Pojazdy <span v-if="!isLoading" class="widget-count">({{ vehicleReminders.length }})</span></h2>
+          <RouterLink to="/pojazdy" class="widget-see-all">Zobacz wszystkie →</RouterLink>
+        </div>
+        <div v-if="isLoading" class="loading-container loading-container--compact">
           <div class="spinner"></div>
         </div>
-        <div v-else-if="vehicleReminders.length > 0" class="reminders-list">
-          <div v-for="vehicle in vehicleReminders" :key="vehicle.id" class="reminder-item vehicle-reminder">
-            <div class="reminder-icon">🚗</div>
-            <div class="reminder-details">
-              <strong>{{ vehicle.registration_number }} — {{ [vehicle.make, vehicle.model].filter(Boolean).join(' ') || 'Pojazd' }}</strong>
-              <span v-if="vehicle.inspection_status === 'expired' || vehicle.inspection_status === 'warning'">
-                Przegląd: {{ formatDate(vehicle.inspection_valid_until) }}
-                <em :class="vehicle.inspection_status">({{ vehicleReminderLabel(vehicle.inspection_status) }})</em>
+        <div v-else-if="vehicleReminders.length > 0" class="widget-body widget-body--scroll">
+          <div v-for="vehicle in vehicleReminders" :key="vehicle.id" class="alert-row alert-row--vehicle">
+            <div class="alert-row-main">
+              <strong class="alert-row-title">{{ vehicle.registration_number }}</strong>
+              <span v-if="vehicle.inspection_status === 'expired' || vehicle.inspection_status === 'warning'" class="status-pill" :class="vehicle.inspection_status">
+                Przegląd {{ vehicleReminderLabel(vehicle.inspection_status) }}
               </span>
-              <span v-if="vehicle.insurance_status === 'expired' || vehicle.insurance_status === 'warning'">
-                OC: {{ formatDate(vehicle.insurance_valid_until) }}
-                <em :class="vehicle.insurance_status">({{ vehicleReminderLabel(vehicle.insurance_status) }})</em>
-              </span>
-              <RouterLink to="/pojazdy" class="reminder-link">Przejdź do pojazdów →</RouterLink>
             </div>
+            <p class="alert-row-detail">
+              {{ [vehicle.make, vehicle.model].filter(Boolean).join(' ') || 'Pojazd' }}
+              <template v-if="vehicle.insurance_status === 'expired' || vehicle.insurance_status === 'warning'">
+                · OC {{ formatDate(vehicle.insurance_valid_until) }} ({{ vehicleReminderLabel(vehicle.insurance_status) }})
+              </template>
+            </p>
           </div>
         </div>
-        <div v-else class="empty-message">
+        <div v-else class="empty-message empty-message--compact">
           <p>Brak pilnych terminów przeglądu lub OC.</p>
         </div>
       </div>
 
       <div class="dashboard-widget">
-        <h2 class="widget-title"><span class="icon">📊</span> Statystyki</h2>
-        <div v-if="isLoading" class="loading-container">
+        <div class="widget-title-row">
+          <h2 class="widget-title"><span class="icon">📦</span> Magazyn <span v-if="!isLoading" class="widget-count">({{ lowStockTotalCount }})</span></h2>
+          <RouterLink :to="inventoryAlertLink" class="widget-see-all">Przejdź do magazynu →</RouterLink>
+        </div>
+        <div v-if="isLoading" class="loading-container loading-container--compact">
           <div class="spinner"></div>
         </div>
-        <div v-else-if="monthlyStats" class="stats-list">
-          <div class="stat-item">
-            <span>Suma metrów:</span>
-            <strong>{{ monthlyStats.totalMeters || 0 }} m</strong>
-          </div>
-          <div class="stat-item">
-            <span>Wykonane studnie:</span>
-            <strong>{{ monthlyStats.jobCounts.well_drilling || 0 }}</strong>
-          </div>
-          <div class="stat-item">
-            <span>Wykonane podłączenia:</span>
-            <strong>{{ monthlyStats.jobCounts.connection || 0 }}</strong>
-          </div>
-          <div class="stat-item">
-            <span>Zainstalowane stacje:</span>
-            <strong>{{ monthlyStats.jobCounts.treatment_station || 0 }}</strong>
-          </div>
-          <div class="stat-item">
-            <span>Wykonane serwisy:</span>
-            <strong>{{ monthlyStats.jobCounts.service || 0 }}</strong>
-          </div>
-          <div class="stat-item total-profit">
-            <span>Dochód w tym miesiącu:</span>
-            <strong :class="monthlyStats.totalProfit >= 0 ? 'profit-positive' : 'profit-negative'"> {{ (monthlyStats.totalProfit || 0).toFixed(2) }} zł </strong>
-          </div>
-        </div>
-        <div v-else class="empty-message">
-          <p>Brak danych do wyświetlenia.</p>
-        </div>
-      </div>
-
-      <div class="dashboard-widget">
-        <h2 class="widget-title"><span class="icon">📦</span> Niski Stan Magazynowy</h2>
-        <div v-if="isLoading" class="loading-container">
-          <div class="spinner"></div>
-        </div>
-        <div v-else-if="lowStockItems.length > 0" class="reminders-list">
-          <div v-for="item in lowStockItems" :key="item.id" class="reminder-item low-stock">
-            <div class="reminder-icon">❗</div>
-            <div class="reminder-details">
-              <strong>{{ item.name }}</strong>
-              <span>Stan: {{ item.quantity }} {{ item.unit }} (Minimum: {{ item.min_stock_level }})</span>
+        <div v-else-if="lowStockItems.length > 0" class="widget-body widget-body--scroll">
+          <div
+            v-for="item in lowStockItems"
+            :key="item.id"
+            class="alert-row alert-row--stock"
+            :class="{ 'alert-row--critical': item.is_critical || item.quantity <= 0 }"
+          >
+            <div class="alert-row-main">
+              <strong class="alert-row-title">{{ item.name }}</strong>
+              <span class="status-pill" :class="stockItemBadge(item).class">{{ stockItemBadge(item).text }}</span>
             </div>
+            <p class="alert-row-detail">
+              {{ item.quantity }} / {{ item.min_stock_level }} {{ item.unit }}
+              <template v-if="item.category_name"> · {{ item.category_name }}</template>
+            </p>
           </div>
+          <p v-if="lowStockHasMore" class="widget-more">
+            i {{ lowStockMoreCount() }} więcej —
+            <RouterLink :to="inventoryAlertLink">pokaż w magazynie</RouterLink>
+          </p>
         </div>
-        <div v-else class="empty-message">
-          <p>Brak przedmiotów z niskim stanem magazynowym.</p>
+        <div v-else class="empty-message empty-message--compact">
+          <p>Brak pilnych alertów magazynowych.</p>
         </div>
       </div>
-    </div>
+    </section>
+
+    <section class="dashboard-stats">
+      <div class="stats-header">
+        <h2 class="widget-title"><span class="icon">📊</span> Statystyki miesiąca</h2>
+        <div class="month-picker-inline">
+          <label for="month-picker">Miesiąc:</label>
+          <input type="month" id="month-picker" v-model="selectedMonth" />
+        </div>
+      </div>
+      <div v-if="isLoading" class="loading-container">
+        <div class="spinner"></div>
+      </div>
+      <div v-else-if="monthlyStats" class="stats-kpi-grid">
+        <div class="kpi-card">
+          <span class="kpi-label">Suma metrów</span>
+          <strong class="kpi-value">{{ monthlyStats.totalMeters || 0 }} m</strong>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Studnie</span>
+          <strong class="kpi-value">{{ monthlyStats.jobCounts.well_drilling || 0 }}</strong>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Podłączenia</span>
+          <strong class="kpi-value">{{ monthlyStats.jobCounts.connection || 0 }}</strong>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Stacje</span>
+          <strong class="kpi-value">{{ monthlyStats.jobCounts.treatment_station || 0 }}</strong>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Serwisy</span>
+          <strong class="kpi-value">{{ monthlyStats.jobCounts.service || 0 }}</strong>
+        </div>
+        <div class="kpi-card kpi-card--profit">
+          <span class="kpi-label">Dochód w tym miesiącu</span>
+          <strong class="kpi-value" :class="monthlyStats.totalProfit >= 0 ? 'profit-positive' : 'profit-negative'">
+            {{ (monthlyStats.totalProfit || 0).toFixed(2) }} zł
+          </strong>
+        </div>
+      </div>
+      <div v-else class="empty-message">
+        <p>Brak danych do wyświetlenia.</p>
+      </div>
+    </section>
 
     <div v-if="showPostponeModal" class="modal-backdrop" @click.self="showPostponeModal = false">
       <div class="modal-content modal-content--small">
@@ -436,47 +451,274 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.dashboard-grid {
+.dashboard-alerts {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-  gap: 25px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  margin-bottom: 28px;
 }
-.dashboard-widget {
+
+@media (max-width: 1100px) {
+  .dashboard-alerts {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 700px) {
+  .dashboard-alerts {
+    grid-template-columns: 1fr;
+  }
+}
+
+.dashboard-widget,
+.dashboard-stats {
   background-color: var(--background-light);
   border: 1px solid var(--border-color);
-  padding: 20px 25px;
+  padding: 16px 18px;
   border-radius: 8px;
+}
+
+.dashboard-widget {
   display: flex;
   flex-direction: column;
+  min-height: 200px;
 }
-.widget-title {
-  margin-top: 0;
-  margin-bottom: 20px;
-  font-size: 18px;
+
+.widget-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
   border-bottom: 1px solid var(--border-color);
-  padding-bottom: 15px;
+}
+
+.widget-title {
+  margin: 0;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.widget-count {
+  font-weight: normal;
+  color: var(--grey);
+  font-size: 14px;
+}
+
+.widget-see-all {
+  font-size: 12px;
+  color: var(--blue);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.widget-body--scroll {
+  max-height: 380px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-right: 4px;
+}
+
+.alert-row {
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid #ffe58f;
+  border-left: 4px solid #ffc107;
+  background: #fffbe6;
+}
+
+.alert-row--expired,
+.alert-row--critical {
+  background: #fff3f3;
+  border-color: #fdb8b8;
+  border-left-color: #dc3545;
+}
+
+.alert-row--vehicle {
+  background: #eef6ff;
+  border-color: #b3d4fc;
+  border-left-color: #0d6efd;
+}
+
+.alert-row--stock {
+  background: #fff8f0;
+  border-color: #ffd8a8;
+  border-left-color: #fd7e14;
+}
+
+.alert-row-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.alert-row-title {
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.alert-row-detail {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--grey);
+  line-height: 1.35;
+}
+
+.alert-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.status-pill {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.status-pill.expired,
+.status-pill.badge-critical {
+  background: #fde8e8;
+  color: #c0392b;
+}
+
+.status-pill.warning,
+.status-pill.badge-low {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.widget-more {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--grey);
+  text-align: center;
+}
+
+.widget-more a {
+  color: var(--blue);
+}
+
+.dashboard-stats {
+  padding: 20px 22px;
+}
+
+.stats-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 18px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.stats-header .widget-title {
+  margin: 0;
+  border: none;
+  padding: 0;
+}
+
+.month-picker-inline {
   display: flex;
   align-items: center;
   gap: 10px;
 }
-.widget-title .icon {
-  font-size: 20px;
+
+.month-picker-inline label {
+  font-weight: 600;
+  font-size: 14px;
 }
+
+.month-picker-inline input[type='month'] {
+  font-size: 14px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background-color: var(--background-light);
+  color: var(--text-color);
+}
+
+.stats-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 14px;
+}
+
+.kpi-card {
+  background: var(--background-light-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.kpi-card--profit {
+  grid-column: 1 / -1;
+  background: linear-gradient(135deg, #f8fafc 0%, #eef6ff 100%);
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+}
+
+@media (min-width: 900px) {
+  .kpi-card--profit {
+    grid-column: span 2;
+  }
+}
+
+.kpi-label {
+  font-size: 13px;
+  color: var(--grey);
+}
+
+.kpi-value {
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.kpi-card--profit .kpi-value {
+  font-size: 26px;
+}
+
 .loading-container {
   display: flex;
   justify-content: center;
   align-items: center;
-  min-height: 150px;
-  flex-grow: 1;
+  min-height: 120px;
 }
+
+.loading-container--compact {
+  min-height: 80px;
+  flex: 1;
+}
+
 .spinner {
   border: 4px solid rgba(0, 0, 0, 0.1);
   border-top: 4px solid var(--blue);
   border-radius: 50%;
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   animation: spin 1s linear infinite;
 }
+
 @keyframes spin {
   from {
     transform: rotate(0deg);
@@ -485,75 +727,35 @@ onMounted(() => {
     transform: rotate(360deg);
   }
 }
-.reminders-list {
-  display: flex;
-  flex-direction: column;
-  gap: 15px;
-}
-.reminder-item {
-  display: flex;
-  align-items: center;
-  background-color: #fffbe6;
-  border: 1px solid #ffe58f;
-  border-left: 5px solid #ffc107;
-  padding: 15px;
-  border-radius: 6px;
-}
-.reminder-item.low-stock {
-  background-color: #fff3f3;
-  border-color: #fdb8b8;
-  border-left-color: #dc3545;
-}
-.reminder-item.vehicle-reminder {
-  background-color: #eef6ff;
-  border-color: #b3d4fc;
-  border-left-color: #0d6efd;
-}
-.reminder-item.service-reminder {
-  align-items: flex-start;
-}
-.reminder-item.reminder-item--expired {
-  background-color: #fff3f3;
-  border-color: #fdb8b8;
-  border-left-color: #dc3545;
-}
-.reminder-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 4px;
-}
-.reminder-buttons {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 8px;
-}
-.reminder-link--primary {
-  font-weight: 600;
-}
-.reminder-details em.expired,
-.reminder-details em.warning {
-  margin-left: 6px;
-}
+
 .btn-mini {
-  font-size: 12px;
-  padding: 4px 10px;
+  font-size: 11px;
+  padding: 3px 8px;
   border-radius: 4px;
   border: 1px solid var(--blue);
   background: var(--blue);
   color: #fff;
   cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
 }
+
 .btn-mini:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
+
 .btn-mini--secondary {
   background: #fff;
   color: var(--text-color);
   border-color: var(--border-color);
 }
+
+.btn-mini--link {
+  background: #fff;
+  color: var(--blue);
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -563,6 +765,7 @@ onMounted(() => {
   justify-content: center;
   z-index: 1000;
 }
+
 .modal-content--small {
   background: var(--background-light);
   padding: 24px;
@@ -573,115 +776,44 @@ onMounted(() => {
   flex-direction: column;
   gap: 12px;
 }
+
 .modal-content--small h3 {
   margin: 0;
 }
+
 .postpone-presets {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
+
 .modal-actions-inline {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
   margin-top: 8px;
 }
-.reminder-link {
-  font-size: 13px;
-  color: var(--blue);
-  margin-top: 4px;
-}
-.reminder-details em.expired {
-  color: #c0392b;
-  font-style: normal;
-  font-weight: 600;
-}
-.reminder-details em.warning {
-  color: #b8860b;
-  font-style: normal;
-  font-weight: 600;
-}
-.reminder-icon {
-  font-size: 24px;
-  margin-right: 15px;
-}
-.reminder-details {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.reminder-details strong {
-  font-weight: 600;
-}
-.reminder-details span {
-  font-size: 14px;
-  color: var(--grey);
-}
-.reminder-details small {
-  font-size: 12px;
-  color: #a0937d;
-  font-style: italic;
-}
-.stats-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.stat-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 15px;
-  padding: 8px 0;
-}
-.stat-item:not(:last-child) {
-  border-bottom: 1px solid #f0f0f0;
-}
-.stat-item strong {
-  font-weight: 600;
-  font-size: 16px;
-}
-.stat-item.total-profit {
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 2px solid var(--border-color);
-  font-size: 16px;
-}
+
 .profit-positive {
   color: var(--green);
 }
+
 .profit-negative {
   color: var(--red);
 }
+
 .empty-message {
   text-align: center;
   color: var(--grey);
-  padding: 20px;
-  flex-grow: 1;
+  padding: 24px 12px;
+  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
 }
-.month-picker-container {
-  margin-bottom: 25px;
-  padding: 20px;
-  background-color: var(--background-light-secondary);
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  gap: 15px;
-  border: 1px solid var(--border-color);
-}
-.month-picker-container label {
-  font-weight: 600;
-}
-.month-picker-container input[type='month'] {
-  font-size: 16px;
-  padding: 8px;
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  background-color: var(--background-light);
-  color: var(--text-color);
+
+.empty-message--compact {
+  padding: 16px 8px;
+  font-size: 13px;
 }
 </style>

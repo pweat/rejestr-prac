@@ -4,7 +4,9 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "seed:service-demo": "node scripts/seed-service-reminders-demo.js"
+    "seed:service-demo": "node scripts/seed-service-reminders-demo.js",
+    "seed:inventory-demo": "node scripts/seed-inventory-dashboard-demo.js",
+    "seed:inventory": "node scripts/seed-inventory-test-data.js"
   },
   "keywords": [],
   "author": "",
