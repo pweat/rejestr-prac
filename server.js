@@ -3075,6 +3075,9 @@ function pdfFont(doc, bold) {
 
 function stripHtmlToPlain(html) {
   return String(html || '')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&amp;/gi, '&')
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/p>/gi, '\n')
     .replace(/<[^>]+>/g, '')
@@ -3085,6 +3088,9 @@ function stripHtmlToPlain(html) {
 /** Tokenizuje mini-HTML na segmenty { text, bold, italic } */
 function tokenizeMiniHtml(html) {
   const normalized = String(html || '')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&amp;/gi, '&')
     .replace(/<strong>/gi, '<b>')
     .replace(/<\/strong>/gi, '</b>')
     .replace(/<em>/gi, '<i>')
@@ -3135,13 +3141,29 @@ function drawMiniHtmlInBox(doc, html, x, y, width, fontSize = 9, color = '#1d2a3
   doc.fillColor(color);
 
   for (const segments of lineSegments) {
-    // Uproszczony rendering: zachowujemy treść, a styl (B/I) traktujemy jako "best effort"
-    // żeby nie destabilizować paginacji PDF.
     const plain = segments.map((s) => s.text || '').join('');
-    pdfFont(doc, false);
-    doc.fontSize(fontSize);
-    doc.text(plain, x, cursorY, { width, align: 'left' });
-    cursorY = doc.y + lineGap;
+    const lineWidth = doc.widthOfString(plain, { width });
+    const needsWrap = lineWidth > width;
+    if (needsWrap) {
+      // Gdy linia się zawija, renderujemy stabilnie plain-text bez znaczników.
+      pdfFont(doc, false);
+      doc.fontSize(fontSize);
+      doc.text(plain, x, cursorY, { width, align: 'left' });
+      cursorY = doc.y + lineGap;
+      continue;
+    }
+
+    // Jednoliniowe renderowanie segmentów z pogrubieniem.
+    let cursorX = x;
+    for (const seg of segments) {
+      const text = seg.text || '';
+      if (!text) continue;
+      pdfFont(doc, !!seg.bold);
+      doc.fontSize(fontSize);
+      doc.text(text, cursorX, cursorY, { lineBreak: false });
+      cursorX += doc.widthOfString(text);
+    }
+    cursorY += fontSize + lineGap;
   }
   doc.y = savedY;
   return cursorY - y;
@@ -3590,8 +3612,9 @@ app.get('/api/offers/:id/download', authenticateToken, async (req, res) => {
       size: 'A4',
     });
     const fileName = `Oferta nr ${offerData.offer_number.replace(/\//g, '-')}.pdf`;
+    const inlineMode = req.query.inline === '1' || req.query.inline === 'true';
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.setHeader('Content-Disposition', `${inlineMode ? 'inline' : 'attachment'}; filename="${fileName}"`);
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');

@@ -501,6 +501,24 @@ async function handleGeneratePdf(offerId) {
   }
 }
 
+async function handlePreviewPdf(offerId) {
+  try {
+    const response = await authenticatedFetch(`${API_URL}/api/offers/${offerId}/download?inline=1&t=${Date.now()}`);
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.error || `Błąd serwera: ${response.status} ${response.statusText}`);
+    }
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const opened = window.open(url, '_blank', 'noopener,noreferrer');
+    if (!opened) throw new Error('Przeglądarka zablokowała podgląd PDF (popup blocker).');
+    setTimeout(() => window.URL.revokeObjectURL(url), 60000);
+  } catch (error) {
+    console.error('Błąd podglądu PDF:', error);
+    toast.error(error.message);
+  }
+}
+
 // ================================================================================================
 // HANDLERY ZDARZEŃ I INTERAKCJI UŻYTKOWNIKA
 // ================================================================================================
@@ -804,30 +822,31 @@ onBeforeUnmount(() => {
                 </td>
                 <td data-label="Akcje" class="actions-cell">
                   <div class="actions-cell-inner">
-                    <button class="zapisz" @click="handleGeneratePdf(offer.id)">PDF</button>
+                    <button class="btn-secondary row-action-btn" @click="handlePreviewPdf(offer.id)">Podgląd</button>
+                    <button class="zapisz row-action-btn" @click="handleGeneratePdf(offer.id)">PDF</button>
                     <button
                       v-if="userRole !== 'viewer' && (offer.status === 'draft' || !offer.status)"
-                      class="btn-quick btn-quick-sent"
+                      class="btn-quick btn-quick-sent row-action-btn"
                       @click="changeOfferStatus(offer, 'sent')"
                       title="Oznacz jako wysłaną"
                     >Wyślij</button>
                     <button
                       v-if="userRole !== 'viewer' && offer.status === 'sent'"
-                      class="btn-quick btn-quick-accept"
+                      class="btn-quick btn-quick-accept row-action-btn"
                       @click="changeOfferStatus(offer, 'accepted')"
                       title="Oznacz jako zaakceptowaną"
                     >Akcept.</button>
                     <button
                       v-if="userRole !== 'viewer' && offer.status === 'sent'"
-                      class="btn-quick btn-quick-reject"
+                      class="btn-quick btn-quick-reject row-action-btn"
                       @click="changeOfferStatus(offer, 'rejected')"
                       title="Oznacz jako odrzuconą"
                     >Odrzuć</button>
-                    <button v-if="userRole === 'admin' || userRole === 'editor'" class="edytuj" @click="handleShowEditModal(offer.id)">Edytuj</button>
+                    <button v-if="userRole === 'admin' || userRole === 'editor'" class="edytuj row-action-btn" @click="handleShowEditModal(offer.id)">Edytuj</button>
                     <RouterLink v-if="offer.client_id" :to="`/klienci/${offer.client_id}`" class="action-link">
-                      <button class="karta">Karta</button>
+                      <button class="karta row-action-btn">Karta</button>
                     </RouterLink>
-                    <button v-if="userRole === 'admin'" class="usun" @click="handleDeleteOffer(offer.id)">Usuń</button>
+                    <button v-if="userRole === 'admin'" class="usun row-action-btn" @click="handleDeleteOffer(offer.id)">Usuń</button>
                   </div>
                 </td>
               </tr>
@@ -1732,8 +1751,14 @@ onBeforeUnmount(() => {
 .action-link {
   display: inline-block;
 }
+.row-action-btn {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
 .btn-quick {
-  padding: 6px 10px;
+  padding: 0 10px;
   font-size: 12px;
   font-weight: 600;
   border-radius: 6px;
