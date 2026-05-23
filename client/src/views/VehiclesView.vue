@@ -275,7 +275,9 @@ onMounted(() => {
                 </td>
               </tr>
               <tr v-for="vehicle in vehicles" :key="vehicle.id" :class="{ 'row-inactive': !vehicle.is_active }">
-                <td data-label="Nr rejestracyjny"><strong>{{ vehicle.registration_number }}</strong></td>
+                <td data-label="Nr rejestracyjny">
+                  <strong>{{ vehicle.registration_number }}</strong>
+                </td>
                 <td data-label="Marka / Model">{{ [vehicle.make, vehicle.model].filter(Boolean).join(' ') || '-' }}</td>
                 <td data-label="Rok">{{ vehicle.production_year || '-' }}</td>
                 <td data-label="Przebieg">{{ vehicle.mileage != null ? `${vehicle.mileage} km` : '-' }}</td>
@@ -315,7 +317,7 @@ onMounted(() => {
     <div class="modal-content modal-content-wide">
       <div class="modal-header">
         <h3>Dodaj pojazd</h3>
-        <button class="close-button" @click="showAddModal = false">&times;</button>
+        <button class="close-button" aria-label="Zamknij" @click="showAddModal = false">&times;</button>
       </div>
       <form @submit.prevent="handleAddVehicle">
         <div class="form-grid">
@@ -382,7 +384,7 @@ onMounted(() => {
     <div class="modal-content modal-content-wide">
       <div class="modal-header">
         <h3>Edytuj pojazd — {{ editedVehicleData ? vehicleLabel(editedVehicleData) : '' }}</h3>
-        <button class="close-button" @click="showEditModal = false">&times;</button>
+        <button class="close-button" aria-label="Zamknij" @click="showEditModal = false">&times;</button>
       </div>
       <form v-if="editedVehicleData" @submit.prevent="handleUpdateVehicle">
         <div class="form-grid">
