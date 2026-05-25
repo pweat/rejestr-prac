@@ -596,7 +596,7 @@ onMounted(() => {
     <div class="modal-content">
       <div class="modal-header">
         <h3>Dodaj nowy przedmiot do magazynu</h3>
-        <button class="close-button" @click="showAddItemModal = false">&times;</button>
+        <button class="close-button" aria-label="Zamknij" @click="showAddItemModal = false">&times;</button>
       </div>
       <form @submit.prevent="handleAddItem">
         <div class="form-grid-single-col">
@@ -652,7 +652,7 @@ onMounted(() => {
     <div class="modal-content">
       <div class="modal-header">
         <h3>Edytuj przedmiot</h3>
-        <button class="close-button" @click="showEditItemModal = false">&times;</button>
+        <button class="close-button" aria-label="Zamknij" @click="showEditItemModal = false">&times;</button>
       </div>
       <form v-if="editedItemData" @submit.prevent="handleUpdateItem">
         <div class="form-grid-single-col">
@@ -708,7 +708,7 @@ onMounted(() => {
     <div class="modal-content">
       <div class="modal-header">
         <h3>Operacja na: {{ currentOperationItem.name }}</h3>
-        <button class="close-button" @click="showOperationModal = false">&times;</button>
+        <button class="close-button" aria-label="Zamknij" @click="showOperationModal = false">&times;</button>
       </div>
       <form @submit.prevent="handleProcessOperation">
         <div class="form-grid-single-col">
@@ -743,7 +743,7 @@ onMounted(() => {
     <div class="modal-content modal-lg">
       <div class="modal-header">
         <h3>Historia dla: {{ currentItemForHistory.name }}</h3>
-        <button class="close-button" @click="showHistoryModal = false">&times;</button>
+        <button class="close-button" aria-label="Zamknij" @click="showHistoryModal = false">&times;</button>
       </div>
       <div class="modal-body">
         <div v-if="isHistoryLoading" class="modal-loading-spinner"><div class="spinner"></div></div>
@@ -767,7 +767,7 @@ onMounted(() => {
   <div class="modal-content">
     <div class="modal-header">
       <h3>Zarządzaj Kategoriami Magazynu</h3>
-      <button class="close-button" @click="showCategoryModal = false">&times;</button>
+      <button class="close-button" aria-label="Zamknij" @click="showCategoryModal = false">&times;</button>
     </div>
     <div class="modal-body">
       <div class="category-manager">
