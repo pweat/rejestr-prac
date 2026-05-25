@@ -862,7 +862,7 @@ onBeforeUnmount(() => {
       <div class="modal-content">
         <div class="modal-header">
           <h3>Nowa Oferta</h3>
-          <button class="close-button" @click="showAddOfferModal = false">&times;</button>
+          <button class="close-button" aria-label="Zamknij" @click="showAddOfferModal = false">&times;</button>
         </div>
         <form @submit.prevent="handleSaveOffer">
           <div class="form-grid-single-col">
@@ -1002,7 +1002,7 @@ onBeforeUnmount(() => {
       <div class="modal-content">
         <div class="modal-header">
           <h3>Edytuj Ofertę nr {{ editedOfferData?.offer_number }}</h3>
-          <button class="close-button" @click="showEditOfferModal = false">&times;</button>
+          <button class="close-button" aria-label="Zamknij" @click="showEditOfferModal = false">&times;</button>
         </div>
         <div v-if="!editedOfferData" class="loading-modal-content">
           <div class="spinner"></div>
@@ -1139,7 +1139,7 @@ onBeforeUnmount(() => {
       <div class="modal-content modal-content--wide">
         <div class="modal-header">
           <h3>Szablony typów ofert</h3>
-          <button class="close-button" @click="showTemplateManagerModal = false">&times;</button>
+          <button class="close-button" aria-label="Zamknij" @click="showTemplateManagerModal = false">&times;</button>
         </div>
         <div class="template-manager-layout">
           <aside class="template-list-panel">

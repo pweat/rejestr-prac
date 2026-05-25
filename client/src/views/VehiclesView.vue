@@ -315,7 +315,7 @@ onMounted(() => {
     <div class="modal-content modal-content-wide">
       <div class="modal-header">
         <h3>Dodaj pojazd</h3>
-        <button class="close-button" @click="showAddModal = false">&times;</button>
+        <button class="close-button" aria-label="Zamknij" @click="showAddModal = false">&times;</button>
       </div>
       <form @submit.prevent="handleAddVehicle">
         <div class="form-grid">
@@ -382,7 +382,7 @@ onMounted(() => {
     <div class="modal-content modal-content-wide">
       <div class="modal-header">
         <h3>Edytuj pojazd — {{ editedVehicleData ? vehicleLabel(editedVehicleData) : '' }}</h3>
-        <button class="close-button" @click="showEditModal = false">&times;</button>
+        <button class="close-button" aria-label="Zamknij" @click="showEditModal = false">&times;</button>
       </div>
       <form v-if="editedVehicleData" @submit.prevent="handleUpdateVehicle">
         <div class="form-grid">
