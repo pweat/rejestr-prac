@@ -722,7 +722,7 @@ onBeforeUnmount(() => {
                     <span>Filtr węglowy: {{ selectedClientPreviewJobDetails.details.carbon_filter || '-' }}</span>
                     <span>Interwał serwisu: {{ selectedClientPreviewJobDetails.details.service_interval_months || '12' }} mies.</span>
                   </div>
-                  <div v-else-if="selectedClientPreviewJobDetails.job_type === 'service'" class="client-preview-details-grid service">
+                  <div v-else-if="selectedClientPreviewJobDetails.job_type === 'service'" class="client-preview-details-grid preview-service-grid">
                     <span>Gwarancyjny: {{ selectedClientPreviewJobDetails.details.is_warranty ? 'Tak' : 'Nie' }}</span>
                     <span class="preview-service-description">Opis: {{ selectedClientPreviewJobDetails.details.description || '-' }}</span>
                   </div>
@@ -1467,7 +1467,7 @@ button.karta {
   padding: 0 12px 12px;
   color: var(--text-color-secondary);
 }
-.client-preview-details-grid.service .preview-service-description {
+.client-preview-details-grid.preview-service-grid .preview-service-description {
   grid-column: 1 / -1;
 }
 .client-preview-details-actions {

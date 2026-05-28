@@ -50,6 +50,7 @@ const monthlyStats = ref(null);
 
 /** Aktualnie wybrany miesiąc w formacie YYYY-MM. */
 const selectedMonth = ref(new Date().toISOString().slice(0, 7));
+const activeMetric = ref(null);
 
 // ================================================================================================
 // 🔄 FUNKCJE POBIERAJĄCE DANE (API)
@@ -129,6 +130,56 @@ function lowStockMoreCount() {
 function stockItemBadge(item) {
   if (item.is_critical || item.quantity <= 0) return { text: 'Brak', class: 'badge-critical' };
   return { text: 'Niski', class: 'badge-low' };
+}
+
+function formatCurrency(value) {
+  const number = Number(value) || 0;
+  return `${number.toFixed(2)} zł`;
+}
+
+function metricLabel(metric) {
+  const labels = {
+    meters: 'Suma metrów',
+    well_drilling: 'Studnie',
+    connection: 'Podłączenia',
+    treatment_station: 'Stacje',
+    service: 'Serwisy',
+    revenue: 'Przychód',
+    costs: 'Wydatki',
+    profit: 'Dochód',
+  };
+  return labels[metric] || 'Szczegóły';
+}
+
+function toggleMetric(metric) {
+  if (!monthlyStats.value) return;
+  activeMetric.value = activeMetric.value === metric ? null : metric;
+}
+
+function monthDateRange() {
+  const [yearStr, monthStr] = (selectedMonth.value || '').split('-');
+  const year = Number(yearStr);
+  const month = Number(monthStr);
+  if (!year || !month) return { dateFrom: '', dateTo: '' };
+  const start = `${year}-${String(month).padStart(2, '0')}-01`;
+  const nextMonthDate = new Date(Date.UTC(year, month, 1));
+  const end = new Date(nextMonthDate.getTime() - 1).toISOString().split('T')[0];
+  return { dateFrom: start, dateTo: end };
+}
+
+function jobsLinkForMonth(jobType) {
+  const { dateFrom, dateTo } = monthDateRange();
+  const params = new URLSearchParams();
+  if (dateFrom) params.set('dateFrom', dateFrom);
+  if (dateTo) params.set('dateTo', dateTo);
+  if (jobType) params.set('jobTypes', jobType);
+  return `/zlecenia?${params.toString()}`;
+}
+
+function activeJobTypeBreakdown() {
+  const type = activeMetric.value;
+  if (!type || !monthlyStats.value?.breakdown?.jobTypes) return null;
+  return monthlyStats.value.breakdown.jobTypes.find((item) => item.key === type) || null;
 }
 
 function jobsLinkForReminder(reminder) {
@@ -265,7 +316,10 @@ const handleAuthError = (error) => {
 /**
  * Obserwuje zmianę wybranego miesiąca i automatycznie pobiera nowe statystyki.
  */
-watch(selectedMonth, getStatsForMonth);
+watch(selectedMonth, () => {
+  activeMetric.value = null;
+  getStatsForMonth();
+});
 
 /**
  * Po zamontowaniu komponentu, uruchamia pobieranie wszystkich danych.
@@ -393,31 +447,171 @@ onMounted(() => {
         <div class="spinner"></div>
       </div>
       <div v-else-if="monthlyStats" class="stats-kpi-grid">
-        <div class="kpi-card">
+        <button type="button" class="kpi-card kpi-card--button" :class="{ active: activeMetric === 'meters' }" @click="toggleMetric('meters')">
           <span class="kpi-label">Suma metrów</span>
           <strong class="kpi-value">{{ monthlyStats.totalMeters || 0 }} m</strong>
-        </div>
-        <div class="kpi-card">
+        </button>
+        <button type="button" class="kpi-card kpi-card--button" :class="{ active: activeMetric === 'well_drilling' }" @click="toggleMetric('well_drilling')">
           <span class="kpi-label">Studnie</span>
           <strong class="kpi-value">{{ monthlyStats.jobCounts.well_drilling || 0 }}</strong>
-        </div>
-        <div class="kpi-card">
+        </button>
+        <button type="button" class="kpi-card kpi-card--button" :class="{ active: activeMetric === 'connection' }" @click="toggleMetric('connection')">
           <span class="kpi-label">Podłączenia</span>
           <strong class="kpi-value">{{ monthlyStats.jobCounts.connection || 0 }}</strong>
-        </div>
-        <div class="kpi-card">
+        </button>
+        <button type="button" class="kpi-card kpi-card--button" :class="{ active: activeMetric === 'treatment_station' }" @click="toggleMetric('treatment_station')">
           <span class="kpi-label">Stacje</span>
           <strong class="kpi-value">{{ monthlyStats.jobCounts.treatment_station || 0 }}</strong>
-        </div>
-        <div class="kpi-card">
+        </button>
+        <button type="button" class="kpi-card kpi-card--button" :class="{ active: activeMetric === 'service' }" @click="toggleMetric('service')">
           <span class="kpi-label">Serwisy</span>
           <strong class="kpi-value">{{ monthlyStats.jobCounts.service || 0 }}</strong>
-        </div>
-        <div class="kpi-card kpi-card--profit">
+        </button>
+        <button type="button" class="kpi-card kpi-card--button" :class="{ active: activeMetric === 'revenue' }" @click="toggleMetric('revenue')">
+          <span class="kpi-label">Przychód</span>
+          <strong class="kpi-value">{{ formatCurrency(monthlyStats.totalRevenue) }}</strong>
+        </button>
+        <button type="button" class="kpi-card kpi-card--button" :class="{ active: activeMetric === 'costs' }" @click="toggleMetric('costs')">
+          <span class="kpi-label">Wydatki</span>
+          <strong class="kpi-value">{{ formatCurrency(monthlyStats.totalCosts) }}</strong>
+        </button>
+        <button type="button" class="kpi-card kpi-card--profit kpi-card--button" :class="{ active: activeMetric === 'profit' }" @click="toggleMetric('profit')">
           <span class="kpi-label">Dochód w tym miesiącu</span>
           <strong class="kpi-value" :class="monthlyStats.totalProfit >= 0 ? 'profit-positive' : 'profit-negative'">
             {{ (monthlyStats.totalProfit || 0).toFixed(2) }} zł
           </strong>
+        </button>
+      </div>
+      <div v-if="monthlyStats && activeMetric && monthlyStats.breakdown" class="stats-drilldown-panel">
+        <div class="stats-drilldown-header">
+          <h3>{{ metricLabel(activeMetric) }} — szczegóły</h3>
+          <button type="button" class="btn-mini btn-mini--secondary" @click="activeMetric = null">Zamknij</button>
+        </div>
+
+        <div v-if="activeMetric === 'meters'" class="stats-drilldown-content">
+          <div class="stats-mini-grid">
+            <div><strong>Suma metrów:</strong> {{ monthlyStats.breakdown.meters.totalMeters || 0 }} m</div>
+            <div><strong>Liczba studni:</strong> {{ monthlyStats.breakdown.meters.wellJobsCount || 0 }}</div>
+            <div><strong>Średnio / studnię:</strong> {{ (monthlyStats.breakdown.meters.avgMetersPerWell || 0).toFixed(2) }} m</div>
+          </div>
+          <div class="stats-subtitle">Największe realizacje studni w miesiącu</div>
+          <div v-if="monthlyStats.breakdown.meters.topWells?.length" class="stats-table-wrap">
+            <table class="stats-table">
+              <thead>
+                <tr>
+                  <th>Data</th>
+                  <th>Klient</th>
+                  <th>Miejscowość</th>
+                  <th>Metry</th>
+                  <th>Szac. przychód</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="well in monthlyStats.breakdown.meters.topWells" :key="well.id">
+                  <td>{{ well.jobDate }}</td>
+                  <td>{{ well.clientName }}</td>
+                  <td>{{ well.miejscowosc }}</td>
+                  <td>{{ well.meters }}</td>
+                  <td>{{ formatCurrency(well.estimatedRevenue) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p v-else class="empty-message">Brak odwiertów w tym miesiącu.</p>
+        </div>
+
+        <div
+          v-else-if="['well_drilling', 'connection', 'treatment_station', 'service'].includes(activeMetric)"
+          class="stats-drilldown-content"
+        >
+          <template v-if="activeJobTypeBreakdown()">
+            <div class="stats-mini-grid">
+              <div><strong>Liczba zleceń:</strong> {{ activeJobTypeBreakdown().count }}</div>
+              <div><strong>Udział w miesiącu:</strong> {{ (activeJobTypeBreakdown().sharePercent || 0).toFixed(1) }}%</div>
+              <div><strong>Przychód:</strong> {{ formatCurrency(activeJobTypeBreakdown().revenue) }}</div>
+              <div><strong>Koszty:</strong> {{ formatCurrency(activeJobTypeBreakdown().costs) }}</div>
+              <div><strong>Dochód:</strong> {{ formatCurrency(activeJobTypeBreakdown().profit) }}</div>
+            </div>
+            <RouterLink :to="jobsLinkForMonth(activeMetric)" class="widget-see-all">Przejdź do listy zleceń tego typu →</RouterLink>
+          </template>
+        </div>
+
+        <div v-else-if="activeMetric === 'revenue'" class="stats-drilldown-content">
+          <div class="stats-subtitle">Przychód według typu zlecenia</div>
+          <div class="stats-table-wrap">
+            <table class="stats-table">
+              <thead>
+                <tr>
+                  <th>Typ</th>
+                  <th>Przychód</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="item in monthlyStats.breakdown.financials.byJobType" :key="`rev-${item.key}`">
+                  <td>{{ item.label }}</td>
+                  <td>{{ formatCurrency(item.revenue) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div v-else-if="activeMetric === 'costs'" class="stats-drilldown-content">
+          <div class="stats-subtitle">Źródła kosztów</div>
+          <div class="stats-mini-grid">
+            <div v-for="source in monthlyStats.breakdown.financials.sources" :key="source.key">
+              <strong>{{ source.label }}:</strong> {{ formatCurrency(source.amount) }}
+            </div>
+          </div>
+          <div class="stats-subtitle">Kategorie wydatków</div>
+          <div v-if="monthlyStats.breakdown.financials.costCategories?.length" class="stats-table-wrap">
+            <table class="stats-table">
+              <thead>
+                <tr>
+                  <th>Kategoria</th>
+                  <th>Kwota</th>
+                  <th>Udział w kosztach</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="item in monthlyStats.breakdown.financials.costCategories" :key="item.key">
+                  <td>{{ item.label }}</td>
+                  <td>{{ formatCurrency(item.amount) }}</td>
+                  <td>{{ (item.shareOfAllCostsPercent || 0).toFixed(1) }}%</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p v-else class="empty-message">Brak wydatków w tym miesiącu.</p>
+        </div>
+
+        <div v-else-if="activeMetric === 'profit'" class="stats-drilldown-content">
+          <div class="stats-mini-grid">
+            <div><strong>Przychód:</strong> {{ formatCurrency(monthlyStats.totalRevenue) }}</div>
+            <div><strong>Wydatki:</strong> {{ formatCurrency(monthlyStats.totalCosts) }}</div>
+            <div><strong>Dochód:</strong> {{ formatCurrency(monthlyStats.totalProfit) }}</div>
+          </div>
+          <div class="stats-subtitle">Dochód według typu zlecenia</div>
+          <div class="stats-table-wrap">
+            <table class="stats-table">
+              <thead>
+                <tr>
+                  <th>Typ</th>
+                  <th>Przychód</th>
+                  <th>Koszty</th>
+                  <th>Dochód</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="item in monthlyStats.breakdown.financials.byJobType" :key="`profit-${item.key}`">
+                  <td>{{ item.label }}</td>
+                  <td>{{ formatCurrency(item.revenue) }}</td>
+                  <td>{{ formatCurrency(item.costs) }}</td>
+                  <td>{{ formatCurrency(item.profit) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
       <div v-else class="empty-message">
@@ -669,6 +863,21 @@ onMounted(() => {
   flex-direction: column;
   gap: 6px;
 }
+.kpi-card--button {
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+.kpi-card--button:hover:not(:disabled) {
+  transform: none;
+  box-shadow: none;
+  border-color: var(--blue);
+}
+.kpi-card--button.active {
+  border-color: var(--blue);
+  background: #eef6ff;
+}
 
 .kpi-card--profit {
   grid-column: 1 / -1;
@@ -696,6 +905,64 @@ onMounted(() => {
 
 .kpi-card--profit .kpi-value {
   font-size: 26px;
+}
+
+.stats-drilldown-panel {
+  margin-top: 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--background-light-secondary);
+  padding: 14px;
+}
+.stats-drilldown-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.stats-drilldown-header h3 {
+  margin: 0;
+  font-size: 15px;
+}
+.stats-drilldown-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.stats-subtitle {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-color-secondary);
+}
+.stats-mini-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px 14px;
+  font-size: 14px;
+}
+.stats-table-wrap {
+  overflow-x: auto;
+}
+.stats-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--background-light);
+  border: 1px solid var(--border-color);
+}
+.stats-table th,
+.stats-table td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-color);
+  font-size: 13px;
+}
+.stats-table th {
+  font-weight: 700;
+  color: var(--text-color-secondary);
+}
+.stats-table tbody tr:last-child td {
+  border-bottom: 0;
 }
 
 .loading-container {
@@ -815,5 +1082,15 @@ onMounted(() => {
 .empty-message--compact {
   padding: 16px 8px;
   font-size: 13px;
+}
+
+@media (max-width: 760px) {
+  .stats-drilldown-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .stats-mini-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

@@ -2705,6 +2705,200 @@ app.get('/api/stats/monthly-summary', authenticateToken, async (req, res) => {
     const totalCosts = totalJobCosts + totalHourlyCostsPaid; // Suma kosztów ze zleceń i wypłat godzinowych
     const totalProfit = totalRevenue - totalCosts;
 
+    const [revenueByTypeResult, costsByTypeResult, costCategoriesResult, topWellsResult] = await Promise.all([
+      pool.query(
+        `
+        SELECT job_type, COALESCE(SUM(revenue), 0) AS total_revenue
+        FROM (
+          SELECT 'connection'::text AS job_type, COALESCE(cd.revenue, 0) AS revenue
+          FROM jobs j
+          JOIN connection_details cd ON j.details_id = cd.id
+          WHERE j.job_type = 'connection' AND j.job_date >= $1 AND j.job_date <= $2
+          UNION ALL
+          SELECT 'treatment_station'::text AS job_type, COALESCE(tsd.revenue, 0) AS revenue
+          FROM jobs j
+          JOIN treatment_station_details tsd ON j.details_id = tsd.id
+          WHERE j.job_type = 'treatment_station' AND j.job_date >= $1 AND j.job_date <= $2
+          UNION ALL
+          SELECT 'well_drilling'::text AS job_type, (COALESCE(wd.ilosc_metrow, 0) * COALESCE(wd.cena_za_metr, 0)) AS revenue
+          FROM jobs j
+          JOIN well_details wd ON j.details_id = wd.id
+          WHERE j.job_type = 'well_drilling' AND j.job_date >= $1 AND j.job_date <= $2
+          UNION ALL
+          SELECT 'service'::text AS job_type, COALESCE(sd.revenue, 0) AS revenue
+          FROM jobs j
+          JOIN service_details sd ON j.details_id = sd.id
+          WHERE j.job_type = 'service' AND j.job_date >= $1 AND j.job_date <= $2 AND sd.is_warranty = false
+        ) revenues
+        GROUP BY job_type
+      `,
+        [startDate, endDate]
+      ),
+      pool.query(
+        `
+        SELECT job_type, COALESCE(SUM(total_cost), 0) AS total_cost
+        FROM (
+          SELECT 'connection'::text AS job_type, (COALESCE(cd.casing_cost,0) + COALESCE(cd.equipment_cost,0) + COALESCE(cd.labor_cost,0) + COALESCE(cd.wholesale_materials_cost,0)) AS total_cost
+          FROM jobs j
+          JOIN connection_details cd ON j.details_id = cd.id
+          WHERE j.job_type = 'connection' AND j.job_date >= $1 AND j.job_date <= $2
+          UNION ALL
+          SELECT 'treatment_station'::text AS job_type, (COALESCE(tsd.equipment_cost,0) + COALESCE(tsd.labor_cost,0) + COALESCE(tsd.wholesale_materials_cost,0)) AS total_cost
+          FROM jobs j
+          JOIN treatment_station_details tsd ON j.details_id = tsd.id
+          WHERE j.job_type = 'treatment_station' AND j.job_date >= $1 AND j.job_date <= $2
+          UNION ALL
+          SELECT 'well_drilling'::text AS job_type, (COALESCE(wd.wyplaty,0) + COALESCE(wd.rury,0) + COALESCE(wd.inne_koszta,0)) AS total_cost
+          FROM jobs j
+          JOIN well_details wd ON j.details_id = wd.id
+          WHERE j.job_type = 'well_drilling' AND j.job_date >= $1 AND j.job_date <= $2
+          UNION ALL
+          SELECT 'service'::text AS job_type, COALESCE(sd.labor_cost,0) AS total_cost
+          FROM jobs j
+          JOIN service_details sd ON j.details_id = sd.id
+          WHERE j.job_type = 'service' AND j.job_date >= $1 AND j.job_date <= $2 AND sd.is_warranty = false
+        ) costs
+        GROUP BY job_type
+      `,
+        [startDate, endDate]
+      ),
+      pool.query(
+        `
+        SELECT category_key, category_label, COALESCE(SUM(amount), 0) AS total_amount
+        FROM (
+          SELECT 'well_labor'::text AS category_key, 'Wypłaty (studnie)'::text AS category_label, COALESCE(wd.wyplaty,0) AS amount
+          FROM jobs j
+          JOIN well_details wd ON j.details_id = wd.id
+          WHERE j.job_type = 'well_drilling' AND j.job_date >= $1 AND j.job_date <= $2
+          UNION ALL
+          SELECT 'well_pipes', 'Rury (studnie)', COALESCE(wd.rury,0)
+          FROM jobs j
+          JOIN well_details wd ON j.details_id = wd.id
+          WHERE j.job_type = 'well_drilling' AND j.job_date >= $1 AND j.job_date <= $2
+          UNION ALL
+          SELECT 'well_other', 'Inne koszty (studnie)', COALESCE(wd.inne_koszta,0)
+          FROM jobs j
+          JOIN well_details wd ON j.details_id = wd.id
+          WHERE j.job_type = 'well_drilling' AND j.job_date >= $1 AND j.job_date <= $2
+          UNION ALL
+          SELECT 'connection_casing', 'Obudowa (podłączenia)', COALESCE(cd.casing_cost,0)
+          FROM jobs j
+          JOIN connection_details cd ON j.details_id = cd.id
+          WHERE j.job_type = 'connection' AND j.job_date >= $1 AND j.job_date <= $2
+          UNION ALL
+          SELECT 'equipment', 'Osprzęt (podłączenia/stacje)', (COALESCE(cd.equipment_cost,0))
+          FROM jobs j
+          JOIN connection_details cd ON j.details_id = cd.id
+          WHERE j.job_type = 'connection' AND j.job_date >= $1 AND j.job_date <= $2
+          UNION ALL
+          SELECT 'equipment', 'Osprzęt (podłączenia/stacje)', (COALESCE(tsd.equipment_cost,0))
+          FROM jobs j
+          JOIN treatment_station_details tsd ON j.details_id = tsd.id
+          WHERE j.job_type = 'treatment_station' AND j.job_date >= $1 AND j.job_date <= $2
+          UNION ALL
+          SELECT 'job_labor', 'Wypłaty (zlecenia)', COALESCE(cd.labor_cost,0)
+          FROM jobs j
+          JOIN connection_details cd ON j.details_id = cd.id
+          WHERE j.job_type = 'connection' AND j.job_date >= $1 AND j.job_date <= $2
+          UNION ALL
+          SELECT 'job_labor', 'Wypłaty (zlecenia)', COALESCE(tsd.labor_cost,0)
+          FROM jobs j
+          JOIN treatment_station_details tsd ON j.details_id = tsd.id
+          WHERE j.job_type = 'treatment_station' AND j.job_date >= $1 AND j.job_date <= $2
+          UNION ALL
+          SELECT 'job_labor', 'Wypłaty (zlecenia)', COALESCE(sd.labor_cost,0)
+          FROM jobs j
+          JOIN service_details sd ON j.details_id = sd.id
+          WHERE j.job_type = 'service' AND j.job_date >= $1 AND j.job_date <= $2 AND sd.is_warranty = false
+          UNION ALL
+          SELECT 'wholesale_materials', 'Materiały z hurtowni', COALESCE(cd.wholesale_materials_cost,0)
+          FROM jobs j
+          JOIN connection_details cd ON j.details_id = cd.id
+          WHERE j.job_type = 'connection' AND j.job_date >= $1 AND j.job_date <= $2
+          UNION ALL
+          SELECT 'wholesale_materials', 'Materiały z hurtowni', COALESCE(tsd.wholesale_materials_cost,0)
+          FROM jobs j
+          JOIN treatment_station_details tsd ON j.details_id = tsd.id
+          WHERE j.job_type = 'treatment_station' AND j.job_date >= $1 AND j.job_date <= $2
+        ) cost_items
+        GROUP BY category_key, category_label
+      `,
+        [startDate, endDate]
+      ),
+      pool.query(
+        `
+        SELECT
+          j.id,
+          TO_CHAR(j.job_date, 'YYYY-MM-DD') AS job_date,
+          c.name AS client_name,
+          j.miejscowosc,
+          COALESCE(wd.ilosc_metrow, 0) AS meters,
+          COALESCE(wd.cena_za_metr, 0) AS price_per_meter
+        FROM jobs j
+        JOIN clients c ON c.id = j.client_id
+        JOIN well_details wd ON wd.id = j.details_id
+        WHERE j.job_type = 'well_drilling' AND j.job_date >= $1 AND j.job_date <= $2
+        ORDER BY wd.ilosc_metrow DESC NULLS LAST, j.job_date DESC
+        LIMIT 5
+      `,
+        [startDate, endDate]
+      ),
+    ]);
+
+    const jobTypeLabelMap = {
+      well_drilling: 'Studnie',
+      connection: 'Podłączenia',
+      treatment_station: 'Stacje',
+      service: 'Serwisy',
+    };
+
+    const revenueByTypeMap = Object.fromEntries(revenueByTypeResult.rows.map((row) => [row.job_type, parseFloat(row.total_revenue) || 0]));
+    const costsByTypeMap = Object.fromEntries(costsByTypeResult.rows.map((row) => [row.job_type, parseFloat(row.total_cost) || 0]));
+    const jobTypesBreakdown = Object.keys(jobCounts).map((key) => ({
+      key,
+      label: jobTypeLabelMap[key] || key,
+      count: jobCounts[key] || 0,
+      sharePercent: Object.values(jobCounts).reduce((acc, count) => acc + count, 0)
+        ? ((jobCounts[key] || 0) / Object.values(jobCounts).reduce((acc, count) => acc + count, 0)) * 100
+        : 0,
+      revenue: revenueByTypeMap[key] || 0,
+      costs: costsByTypeMap[key] || 0,
+      profit: (revenueByTypeMap[key] || 0) - (costsByTypeMap[key] || 0),
+    }));
+
+    const costCategories = costCategoriesResult.rows
+      .map((row) => ({
+        key: row.category_key,
+        label: row.category_label,
+        amount: parseFloat(row.total_amount) || 0,
+      }))
+      .filter((item) => item.amount > 0)
+      .sort((a, b) => b.amount - a.amount);
+
+    if (totalHourlyCostsPaid > 0) {
+      costCategories.push({
+        key: 'weekly_settlements',
+        label: 'Wypłaty tygodniowe pracowników',
+        amount: totalHourlyCostsPaid,
+      });
+    }
+
+    const categorizedCostsTotal = costCategories.reduce((sum, item) => sum + item.amount, 0);
+    const normalizedCostCategories = costCategories.map((item) => ({
+      ...item,
+      sharePercent: categorizedCostsTotal > 0 ? (item.amount / categorizedCostsTotal) * 100 : 0,
+      shareOfAllCostsPercent: totalCosts > 0 ? (item.amount / totalCosts) * 100 : 0,
+    }));
+
+    const topWells = topWellsResult.rows.map((row) => ({
+      id: row.id,
+      jobDate: row.job_date,
+      clientName: row.client_name || '-',
+      miejscowosc: row.miejscowosc || '-',
+      meters: parseFloat(row.meters) || 0,
+      estimatedRevenue: (parseFloat(row.meters) || 0) * (parseFloat(row.price_per_meter) || 0),
+    }));
+
     res.json({
       jobCounts,
       totalMeters,
@@ -2713,6 +2907,33 @@ app.get('/api/stats/monthly-summary', authenticateToken, async (req, res) => {
       totalCosts: totalCosts,
       totalJobCosts: totalJobCosts, // Koszty tylko ze zleceń
       totalHourlyCostsPaid: totalHourlyCostsPaid, // Wypłaty godzinowe
+      breakdown: {
+        period: { startDate, endDate },
+        jobTypes: jobTypesBreakdown,
+        meters: {
+          totalMeters,
+          wellJobsCount: jobCounts.well_drilling || 0,
+          avgMetersPerWell: (jobCounts.well_drilling || 0) > 0 ? totalMeters / jobCounts.well_drilling : 0,
+          topWells,
+        },
+        financials: {
+          totalRevenue,
+          totalCosts,
+          totalProfit,
+          sources: [
+            { key: 'job_costs', label: 'Koszty ze zleceń', amount: totalJobCosts },
+            { key: 'weekly_settlements', label: 'Wypłaty tygodniowe', amount: totalHourlyCostsPaid },
+          ],
+          costCategories: normalizedCostCategories,
+          byJobType: jobTypesBreakdown.map((item) => ({
+            key: item.key,
+            label: item.label,
+            revenue: item.revenue,
+            costs: item.costs,
+            profit: item.profit,
+          })),
+        },
+      },
     });
   } catch (err) {
     console.error('Błąd w GET /api/stats/monthly-summary:', err);
