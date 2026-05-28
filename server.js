@@ -1122,12 +1122,39 @@ app.get('/api/clients/:id', authenticateToken, async (req, res) => {
 
 /**
  * @route GET /api/clients-for-select
- * @description Zwraca uproszczoną listę klientów (id, name, phone) do użycia w formularzach.
+ * @description Zwraca listę klientów do użycia w formularzach wraz z ostatnią miejscowością.
  * @access Private
  */
 app.get('/api/clients-for-select', authenticateToken, async (req, res) => {
   try {
-    const result = await pool.query('SELECT id, name, phone_number FROM clients ORDER BY name ASC');
+    const result = await pool.query(`
+      SELECT
+        c.id,
+        c.name,
+        c.phone_number,
+        c.address,
+        COALESCE(last_job.miejscowosc, last_service.miejscowosc, '') AS last_miejscowosc
+      FROM clients c
+      LEFT JOIN LATERAL (
+        SELECT j.miejscowosc
+        FROM jobs j
+        WHERE j.client_id = c.id
+          AND j.miejscowosc IS NOT NULL
+          AND BTRIM(j.miejscowosc) <> ''
+        ORDER BY j.job_date DESC NULLS LAST, j.id DESC
+        LIMIT 1
+      ) last_job ON true
+      LEFT JOIN LATERAL (
+        SELECT ss.miejscowosc
+        FROM service_schedules ss
+        WHERE ss.client_id = c.id
+          AND ss.miejscowosc IS NOT NULL
+          AND BTRIM(ss.miejscowosc) <> ''
+        ORDER BY ss.next_service_date DESC NULLS LAST, ss.id DESC
+        LIMIT 1
+      ) last_service ON true
+      ORDER BY c.name ASC NULLS LAST, c.id ASC
+    `);
     res.json(result.rows);
   } catch (err) {
     console.error('Błąd w GET /api/clients-for-select:', err);

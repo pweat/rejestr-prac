@@ -49,8 +49,10 @@ const filterClients = (options, search) => {
   const lowerSearch = search.toLowerCase();
   return options.filter((client) => {
     const nameMatch = client.name && client.name.toLowerCase().includes(lowerSearch);
-    const phoneMatch = client.phone_number && client.phone_number.includes(lowerSearch);
-    return nameMatch || phoneMatch;
+    const phoneMatch = client.phone_number && client.phone_number.toLowerCase().includes(lowerSearch);
+    const townMatch = client.last_miejscowosc && client.last_miejscowosc.toLowerCase().includes(lowerSearch);
+    const addressMatch = client.address && client.address.toLowerCase().includes(lowerSearch);
+    return nameMatch || phoneMatch || townMatch || addressMatch;
   });
 };
 
@@ -71,6 +73,9 @@ const searchQuery = ref('');
 const sortBy = ref('job_date');
 const sortOrder = ref('desc');
 const newJobData = ref(initializeNewJob());
+const clientJobsPreview = ref([]);
+const isClientJobsPreviewLoading = ref(false);
+const clientJobsPreviewError = ref('');
 const editedJobData = ref(null);
 const selectedJobDetails = ref(null);
 
@@ -169,6 +174,35 @@ async function fetchClientsForSelect() {
     availableClients.value = await response.json();
   } catch (error) {
     console.error('Błąd podczas pobierania klientów do formularza:', error);
+  }
+}
+
+async function fetchClientJobsPreview(clientId) {
+  if (!clientId) {
+    clientJobsPreview.value = [];
+    clientJobsPreviewError.value = '';
+    return;
+  }
+  isClientJobsPreviewLoading.value = true;
+  clientJobsPreviewError.value = '';
+  try {
+    const params = new URLSearchParams({
+      clientId: String(clientId),
+      page: '1',
+      limit: '5',
+      sortBy: 'job_date',
+      sortOrder: 'desc',
+    });
+    const response = await authenticatedFetch(`${API_URL}/api/jobs?${params.toString()}`);
+    if (!response.ok) throw new Error('Nie udało się pobrać historii zleceń klienta.');
+    const result = await response.json();
+    clientJobsPreview.value = Array.isArray(result.data) ? result.data : [];
+  } catch (error) {
+    console.error('Błąd podczas pobierania podglądu zleceń klienta:', error);
+    clientJobsPreview.value = [];
+    clientJobsPreviewError.value = 'Nie udało się pobrać historii zleceń klienta.';
+  } finally {
+    isClientJobsPreviewLoading.value = false;
   }
 }
 
@@ -363,6 +397,19 @@ watch(
   () => {
     newJobData.value.details = {};
   }
+);
+
+watch(
+  () => [showAddJobModal.value, newJobData.value.clientId],
+  ([isOpen, clientId]) => {
+    if (!isOpen) {
+      clientJobsPreview.value = [];
+      clientJobsPreviewError.value = '';
+      return;
+    }
+    fetchClientJobsPreview(clientId);
+  },
+  { immediate: true }
 );
 
 watch(
@@ -564,15 +611,41 @@ onBeforeUnmount(() => {
                 :filter="filterClients"
                 :reduce="(client) => client.id"
                 v-model="newJobData.clientId"
-                placeholder="-- Wyszukaj klienta --"
+                placeholder="-- Wyszukaj klienta (nazwa, telefon, miejscowość) --"
               >
-                <template #option="{ name, phone_number }">
-                  <div><strong>{{ name || 'Brak nazwy' }}</strong><br /><small>{{ phone_number }}</small></div>
+                <template #option="{ name, phone_number, last_miejscowosc }">
+                  <div>
+                    <strong>{{ name || 'Brak nazwy' }}</strong><br />
+                    <small>{{ phone_number }}</small>
+                    <small v-if="last_miejscowosc"> • {{ last_miejscowosc }}</small>
+                  </div>
                 </template>
-                <template #selected-option="{ name, phone_number }">
-                  <div><strong>{{ name || 'Brak nazwy' }}</strong> <small>({{ phone_number }})</small></div>
+                <template #selected-option="{ name, phone_number, last_miejscowosc }">
+                  <div>
+                    <strong>{{ name || 'Brak nazwy' }}</strong>
+                    <small>({{ phone_number }})</small>
+                    <small v-if="last_miejscowosc"> - {{ last_miejscowosc }}</small>
+                  </div>
                 </template>
               </v-select>
+            </div>
+            <div v-if="newJobData.clientId" class="client-preview-card">
+              <div class="client-preview-header">
+                <h5>Ostatnie zlecenia klienta</h5>
+                <small>Podgląd 5 najnowszych</small>
+              </div>
+              <div v-if="isClientJobsPreviewLoading" class="client-preview-state">Ładowanie historii...</div>
+              <div v-else-if="clientJobsPreviewError" class="client-preview-state error">{{ clientJobsPreviewError }}</div>
+              <div v-else-if="!clientJobsPreview.length" class="client-preview-state">Brak wcześniejszych zleceń dla tego klienta.</div>
+              <ul v-else class="client-preview-list">
+                <li v-for="job in clientJobsPreview" :key="job.id">
+                  <button type="button" class="client-preview-item" @click="handleShowDetails(job.id)">
+                    <span>{{ formatDate(job.job_date) }}</span>
+                    <span>{{ translateJobType(job.job_type) }}</span>
+                    <span>{{ job.miejscowosc || '-' }}</span>
+                  </button>
+                </li>
+              </ul>
             </div>
             <div class="form-grid two-col">
               <div class="form-group">
@@ -607,7 +680,7 @@ onBeforeUnmount(() => {
               <div v-else-if="newJobData.jobType === 'connection'" class="form-grid">
                 <div class="form-group"><label>Miejscowość:</label><input type="text" v-model="newJobData.miejscowosc" /></div>
                 <div class="form-group"><label>Głębokość studni (m):</label><input type="number" step="any" v-model.number="newJobData.details.well_depth" /></div>
-                <div class="form-group"><label>Średnica (cal):</label><input type="number" step="any" v-model.number="newJobData.details.diameter" /></div>
+                <div class="form-group"><label>Średnica (mm):</label><input type="number" step="any" v-model.number="newJobData.details.diameter" /></div>
                 <div class="form-group"><label>Na ilu metrach pompa:</label><input type="number" step="any" v-model.number="newJobData.details.pump_depth" /></div>
                 <div class="form-group"><label>Jaka pompa:</label><input type="text" v-model="newJobData.details.pump_model" /></div>
                 <div class="form-group"><label>Jaki sterownik:</label><input type="text" v-model="newJobData.details.controller_model" /></div>
@@ -1174,6 +1247,59 @@ button.karta {
 }
 .form-grid.two-col {
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+.client-preview-card {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background-color: #fff;
+}
+.client-preview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-color);
+}
+.client-preview-header h5 {
+  margin: 0;
+  font-size: 14px;
+}
+.client-preview-header small {
+  color: var(--text-color-secondary);
+}
+.client-preview-state {
+  padding: 12px;
+  color: var(--text-color-secondary);
+  font-size: 14px;
+}
+.client-preview-state.error {
+  color: var(--red);
+}
+.client-preview-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.client-preview-item {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--border-color);
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
+  display: grid;
+  grid-template-columns: 120px 1fr 1fr;
+  gap: 8px;
+  padding: 10px 12px;
+  color: var(--text-color);
+}
+.client-preview-item:hover:not(:disabled) {
+  transform: none;
+  box-shadow: none;
+  background-color: #f8f9fa;
+}
+.client-preview-list li:last-child .client-preview-item {
+  border-bottom: 0;
 }
 .readonly-block .readonly-value {
   padding: 10px 12px;
