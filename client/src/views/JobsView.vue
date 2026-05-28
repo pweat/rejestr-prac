@@ -76,6 +76,10 @@ const newJobData = ref(initializeNewJob());
 const clientJobsPreview = ref([]);
 const isClientJobsPreviewLoading = ref(false);
 const clientJobsPreviewError = ref('');
+const selectedClientPreviewJobId = ref(null);
+const selectedClientPreviewJobDetails = ref(null);
+const isClientPreviewDetailsLoading = ref(false);
+const clientPreviewDetailsError = ref('');
 const editedJobData = ref(null);
 const selectedJobDetails = ref(null);
 
@@ -117,8 +121,8 @@ const stationProfit = computed(() => {
 
 const serviceProfit = computed(() => {
   const details = selectedJobDetails.value?.details;
-  if (!details || details.is_warranty) return { profit: 0, totalCost: 0 };
-  const revenue = parseFloat(details.revenue) || 0;
+  if (!details) return { profit: 0, totalCost: 0 };
+  const revenue = details.is_warranty ? 0 : parseFloat(details.revenue) || 0;
   const totalCost = parseFloat(details.labor_cost) || 0;
   return { profit: revenue - totalCost, totalCost };
 });
@@ -181,6 +185,9 @@ async function fetchClientJobsPreview(clientId) {
   if (!clientId) {
     clientJobsPreview.value = [];
     clientJobsPreviewError.value = '';
+    selectedClientPreviewJobId.value = null;
+    selectedClientPreviewJobDetails.value = null;
+    clientPreviewDetailsError.value = '';
     return;
   }
   isClientJobsPreviewLoading.value = true;
@@ -204,6 +211,31 @@ async function fetchClientJobsPreview(clientId) {
   } finally {
     isClientJobsPreviewLoading.value = false;
   }
+}
+
+async function handleSelectClientPreviewJob(jobId) {
+  if (!jobId) return;
+  selectedClientPreviewJobId.value = jobId;
+  selectedClientPreviewJobDetails.value = null;
+  clientPreviewDetailsError.value = '';
+  isClientPreviewDetailsLoading.value = true;
+  try {
+    const response = await authenticatedFetch(`${API_URL}/api/jobs/${jobId}`);
+    if (!response.ok) throw new Error('Nie udało się pobrać szczegółów tego zlecenia.');
+    selectedClientPreviewJobDetails.value = await response.json();
+  } catch (error) {
+    console.error('Błąd podczas pobierania szczegółów podglądu klienta:', error);
+    clientPreviewDetailsError.value = 'Nie udało się pobrać szczegółów tego zlecenia.';
+  } finally {
+    isClientPreviewDetailsLoading.value = false;
+  }
+}
+
+async function openSelectedPreviewAsFullDetails() {
+  if (!selectedClientPreviewJobId.value) return;
+  showAddJobModal.value = false;
+  await nextTick();
+  await handleShowDetails(selectedClientPreviewJobId.value);
 }
 
 async function handleAddJob() {
@@ -401,11 +433,19 @@ watch(
 
 watch(
   () => [showAddJobModal.value, newJobData.value.clientId],
-  ([isOpen, clientId]) => {
+  ([isOpen, clientId], [prevOpen, prevClientId]) => {
     if (!isOpen) {
       clientJobsPreview.value = [];
       clientJobsPreviewError.value = '';
+      selectedClientPreviewJobId.value = null;
+      selectedClientPreviewJobDetails.value = null;
+      clientPreviewDetailsError.value = '';
       return;
+    }
+    if (!prevOpen || clientId !== prevClientId) {
+      selectedClientPreviewJobId.value = null;
+      selectedClientPreviewJobDetails.value = null;
+      clientPreviewDetailsError.value = '';
     }
     fetchClientJobsPreview(clientId);
   },
@@ -639,13 +679,58 @@ onBeforeUnmount(() => {
               <div v-else-if="!clientJobsPreview.length" class="client-preview-state">Brak wcześniejszych zleceń dla tego klienta.</div>
               <ul v-else class="client-preview-list">
                 <li v-for="job in clientJobsPreview" :key="job.id">
-                  <button type="button" class="client-preview-item" @click="handleShowDetails(job.id)">
-                    <span>{{ formatDate(job.job_date) }}</span>
-                    <span>{{ translateJobType(job.job_type) }}</span>
-                    <span>{{ job.miejscowosc || '-' }}</span>
+                  <button
+                    type="button"
+                    class="client-preview-item"
+                    :class="{ active: selectedClientPreviewJobId === job.id }"
+                    @click="handleSelectClientPreviewJob(job.id)"
+                  >
+                    <span class="preview-item-date">{{ formatDate(job.job_date) }}</span>
+                    <span class="preview-item-type">{{ translateJobType(job.job_type) }}</span>
+                    <span class="preview-item-town">{{ job.miejscowosc || '-' }}</span>
+                    <span class="preview-item-action">Podgląd</span>
                   </button>
                 </li>
               </ul>
+              <div v-if="selectedClientPreviewJobId" class="client-preview-details-panel">
+                <div v-if="isClientPreviewDetailsLoading" class="client-preview-state">Wczytywanie szczegółów...</div>
+                <div v-else-if="clientPreviewDetailsError" class="client-preview-state error">{{ clientPreviewDetailsError }}</div>
+                <template v-else-if="selectedClientPreviewJobDetails">
+                  <div class="client-preview-details-head">
+                    <strong>{{ translateJobType(selectedClientPreviewJobDetails.job_type) }}</strong>
+                    <small>{{ formatDate(selectedClientPreviewJobDetails.job_date) }} | {{ selectedClientPreviewJobDetails.miejscowosc || '-' }}</small>
+                  </div>
+
+                  <div v-if="selectedClientPreviewJobDetails.job_type === 'well_drilling'" class="client-preview-details-grid">
+                    <span>Średnica: {{ selectedClientPreviewJobDetails.details.srednica || '-' }}</span>
+                    <span>Ilość metrów: {{ selectedClientPreviewJobDetails.details.ilosc_metrow || '-' }} m</span>
+                    <span>Lustro statyczne: {{ selectedClientPreviewJobDetails.details.lustro_statyczne || '-' }} m</span>
+                    <span>Wydajność: {{ selectedClientPreviewJobDetails.details.wydajnosc || '-' }} m³/h</span>
+                  </div>
+                  <div v-else-if="selectedClientPreviewJobDetails.job_type === 'connection'" class="client-preview-details-grid">
+                    <span>Głębokość studni: {{ selectedClientPreviewJobDetails.details.well_depth || '-' }} m</span>
+                    <span>Średnica: {{ selectedClientPreviewJobDetails.details.diameter || '-' }} mm</span>
+                    <span>Pompa na: {{ selectedClientPreviewJobDetails.details.pump_depth || '-' }} m</span>
+                    <span>Model pompy: {{ selectedClientPreviewJobDetails.details.pump_model || '-' }}</span>
+                  </div>
+                  <div v-else-if="selectedClientPreviewJobDetails.job_type === 'treatment_station'" class="client-preview-details-grid">
+                    <span>Model stacji: {{ selectedClientPreviewJobDetails.details.station_model || '-' }}</span>
+                    <span>Lampa UV: {{ selectedClientPreviewJobDetails.details.uv_lamp_model || '-' }}</span>
+                    <span>Filtr węglowy: {{ selectedClientPreviewJobDetails.details.carbon_filter || '-' }}</span>
+                    <span>Interwał serwisu: {{ selectedClientPreviewJobDetails.details.service_interval_months || '12' }} mies.</span>
+                  </div>
+                  <div v-else-if="selectedClientPreviewJobDetails.job_type === 'service'" class="client-preview-details-grid service">
+                    <span>Gwarancyjny: {{ selectedClientPreviewJobDetails.details.is_warranty ? 'Tak' : 'Nie' }}</span>
+                    <span class="full">Opis: {{ selectedClientPreviewJobDetails.details.description || '-' }}</span>
+                  </div>
+
+                  <div class="client-preview-details-actions">
+                    <button type="button" class="client-preview-open-full" @click="openSelectedPreviewAsFullDetails">
+                      Otwórz pełne szczegóły
+                    </button>
+                  </div>
+                </template>
+              </div>
             </div>
             <div class="form-grid two-col">
               <div class="form-group">
@@ -718,8 +803,8 @@ onBeforeUnmount(() => {
                 </div>
                 <template v-if="!newJobData.details.is_warranty">
                   <div class="form-group"><label>Przychód:</label><input type="number" step="any" v-model.number="newJobData.details.revenue" /></div>
-                  <div class="form-group"><label>Wypłaty:</label><input type="number" step="any" v-model.number="newJobData.details.labor_cost" /></div>
                 </template>
+                <div class="form-group"><label>Wypłaty:</label><input type="number" step="any" v-model.number="newJobData.details.labor_cost" /></div>
               </div>
             </div>
           </div>
@@ -859,13 +944,11 @@ onBeforeUnmount(() => {
               <p class="full-width-p"><strong>Opis wykonanych prac:</strong> {{ selectedJobDetails.details.description || '-' }}</p>
               <hr class="full-width-hr" />
               <p><strong>Serwis gwarancyjny:</strong> {{ selectedJobDetails.details.is_warranty ? 'Tak' : 'Nie' }}</p>
-              <template v-if="!selectedJobDetails.details.is_warranty">
-                <p><strong>Przychód:</strong> {{ selectedJobDetails.details.revenue || 0 }} zł</p>
-                <p><strong>Wypłaty:</strong> {{ selectedJobDetails.details.labor_cost || 0 }} zł</p>
-                <p class="full-width-p profit-summary">
-                  <strong>Dochód:</strong> <span :class="serviceProfit.profit >= 0 ? 'profit-positive' : 'profit-negative'">{{ serviceProfit.profit?.toFixed(2) || '0.00' }} zł</span>
-                </p>
-              </template>
+              <p><strong>Przychód:</strong> {{ selectedJobDetails.details.is_warranty ? 0 : selectedJobDetails.details.revenue || 0 }} zł</p>
+              <p><strong>Wypłaty:</strong> {{ selectedJobDetails.details.labor_cost || 0 }} zł</p>
+              <p class="full-width-p profit-summary">
+                <strong>Dochód:</strong> <span :class="serviceProfit.profit >= 0 ? 'profit-positive' : 'profit-negative'">{{ serviceProfit.profit?.toFixed(2) || '0.00' }} zł</span>
+              </p>
             </div>
           </div>
         </div>
@@ -960,8 +1043,8 @@ onBeforeUnmount(() => {
                 </div>
                 <template v-if="!editedJobData.details.is_warranty">
                   <div class="form-group"><label>Przychód:</label><input type="number" step="any" v-model.number="editedJobData.details.revenue" /></div>
-                  <div class="form-group"><label>Wypłaty:</label><input type="number" step="any" v-model.number="editedJobData.details.labor_cost" /></div>
                 </template>
+                <div class="form-group"><label>Wypłaty:</label><input type="number" step="any" v-model.number="editedJobData.details.labor_cost" /></div>
               </div>
             </div>
           </div>
@@ -1288,9 +1371,9 @@ button.karta {
   background: transparent;
   text-align: left;
   display: grid;
-  grid-template-columns: 120px 1fr 1fr;
-  gap: 8px;
-  padding: 10px 12px;
+  grid-template-columns: 120px 1fr 1fr auto;
+  gap: 10px;
+  padding: 12px;
   color: var(--text-color);
 }
 .client-preview-item:hover:not(:disabled) {
@@ -1298,8 +1381,75 @@ button.karta {
   box-shadow: none;
   background-color: #f8f9fa;
 }
+.client-preview-item.active {
+  background-color: #eef4ff;
+}
 .client-preview-list li:last-child .client-preview-item {
   border-bottom: 0;
+}
+.preview-item-date {
+  font-weight: 600;
+  grid-area: date;
+}
+.preview-item-type,
+.preview-item-town {
+  color: var(--text-color-secondary);
+}
+.preview-item-type {
+  grid-area: type;
+}
+.preview-item-town {
+  grid-area: town;
+}
+.preview-item-action {
+  grid-area: action;
+  color: var(--blue);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.client-preview-details-panel {
+  border-top: 1px solid var(--border-color);
+  background: #fcfdff;
+}
+.client-preview-details-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px;
+}
+.client-preview-details-head small {
+  color: var(--text-color-secondary);
+}
+.client-preview-details-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px 14px;
+  padding: 0 12px 12px;
+  color: var(--text-color-secondary);
+}
+.client-preview-details-grid.service .full {
+  grid-column: 1 / -1;
+}
+.client-preview-details-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 12px 12px;
+}
+.client-preview-open-full {
+  background-color: var(--background-light-secondary);
+  color: var(--text-color);
+  border: 1px solid var(--border-color);
+  padding: 8px 12px;
+  font-size: 13px;
+}
+.client-preview-open-full:hover:not(:disabled) {
+  transform: none;
+  box-shadow: none;
+  border-color: var(--blue);
+  color: var(--blue);
 }
 .readonly-block .readonly-value {
   padding: 10px 12px;
@@ -1479,6 +1629,22 @@ button.karta {
   }
   .hint {
     text-align: center;
+  }
+
+  .client-preview-item {
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      'date action'
+      'type action'
+      'town action';
+    align-items: center;
+  }
+  .preview-item-action {
+    align-self: center;
+  }
+  .client-preview-details-head {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
 </style>
