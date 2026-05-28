@@ -233,9 +233,10 @@ async function handleSelectClientPreviewJob(jobId) {
 
 async function openSelectedPreviewAsFullDetails() {
   if (!selectedClientPreviewJobId.value) return;
+  const jobIdToOpen = selectedClientPreviewJobId.value;
   showAddJobModal.value = false;
   await nextTick();
-  await handleShowDetails(selectedClientPreviewJobId.value);
+  await handleShowDetails(jobIdToOpen);
 }
 
 async function handleAddJob() {
@@ -1389,20 +1390,12 @@ button.karta {
 }
 .preview-item-date {
   font-weight: 600;
-  grid-area: date;
 }
 .preview-item-type,
 .preview-item-town {
   color: var(--text-color-secondary);
 }
-.preview-item-type {
-  grid-area: type;
-}
-.preview-item-town {
-  grid-area: town;
-}
 .preview-item-action {
-  grid-area: action;
   color: var(--blue);
   font-size: 12px;
   font-weight: 600;
@@ -1638,6 +1631,18 @@ button.karta {
       'type action'
       'town action';
     align-items: center;
+  }
+  .preview-item-date {
+    grid-area: date;
+  }
+  .preview-item-type {
+    grid-area: type;
+  }
+  .preview-item-town {
+    grid-area: town;
+  }
+  .preview-item-action {
+    grid-area: action;
   }
   .preview-item-action {
     align-self: center;
