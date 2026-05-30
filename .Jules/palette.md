@@ -1,0 +1,3 @@
+## 2025-02-18 - Avoid Unintended Commits After Testing
+**Learning:** Running local tests (like Playwright UI tests or Prettier formatters) can leave behind local artifacts (e.g., `test-results/`, `pnpm-lock.yaml`) and cause unintended widespread formatting diffs, ballooning the PR size well past the 50-line limit and creating noise for reviewers.
+**Action:** Always strictly isolate formatting to only the lines or files modified for the UX change, and ensure a robust cleanup step (`rm -rf test-results pnpm-lock.yaml` and `git restore --staged`) is executed to exclude temporary test/build artifacts before finalizing the pull request.
