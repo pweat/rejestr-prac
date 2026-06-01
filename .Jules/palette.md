@@ -1,0 +1,3 @@
+## 2026-06-01 - Missing ARIA labels on icon-only modal close buttons
+**Learning:** Modal dialogs across the application (e.g., in ClientsView, EmployeesView, InventoryView, JobsView, OffersView, VehiclesView) heavily use icon-only close buttons (`&times;`) without accessible names, reducing accessibility for screen reader users, especially in a Polish context where generic English labels might not suffice.
+**Action:** Added `aria-label="Zamknij"` to all `.close-button` elements in these Vue components to ensure proper Polish localization and accessibility for screen readers, and will look for similar icon-only buttons in the future.
