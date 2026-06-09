@@ -232,8 +232,8 @@ async function handleDeleteCategory(categoryId) {
       method: 'DELETE',
     });
     if (!response.ok && response.status !== 204) {
-       const result = await response.json();
-       throw new Error(result.error || 'Nie udało się usunąć kategorii.');
+      const result = await response.json();
+      throw new Error(result.error || 'Nie udało się usunąć kategorii.');
     }
     await fetchCategories(); // Odśwież listę
     // Jeśli usunięto aktualnie wybraną kategorię, zresetuj filtr
@@ -487,17 +487,17 @@ onMounted(() => {
     </div>
 
     <div class="filter-container">
-  <div class="form-group">
-    <label for="categoryFilter">Filtruj wg kategorii:</label>
-    <select id="categoryFilter" v-model="selectedCategoryId">
-      <option :value="null">-- Wszystkie kategorie --</option>
-      <option v-for="cat in categories" :key="cat.id" :value="cat.id">
-        {{ cat.name }}
-      </option>
-    </select>
-  </div>
-  <button class="btn-secondary" @click="showCategoryModal = true">Zarządzaj Kategoriami</button>
-</div>
+      <div class="form-group">
+        <label for="categoryFilter">Filtruj wg kategorii:</label>
+        <select id="categoryFilter" v-model="selectedCategoryId">
+          <option :value="null">-- Wszystkie kategorie --</option>
+          <option v-for="cat in categories" :key="cat.id" :value="cat.id">
+            {{ cat.name }}
+          </option>
+        </select>
+      </div>
+      <button class="btn-secondary" @click="showCategoryModal = true">Zarządzaj Kategoriami</button>
+    </div>
 
     <div class="inventory-extra-filters">
       <label class="filter-checkbox">
@@ -556,22 +556,12 @@ onMounted(() => {
                 <td data-label="Jednostka">{{ item.unit }}</td>
                 <td data-label="Min. stan">{{ item.min_stock_level > 0 ? item.min_stock_level : '—' }}</td>
                 <td data-label="Alert" class="alert-cell">
-                  <span
-                    v-if="item.alert_on_dashboard && item.min_stock_level > 0"
-                    class="alert-icon alert-icon--on"
-                    title="Alert na pulpicie włączony"
-                  >🔔</span>
+                  <span v-if="item.alert_on_dashboard && item.min_stock_level > 0" class="alert-icon alert-icon--on" title="Alert na pulpicie włączony">🔔</span>
                   <span v-else class="alert-icon alert-icon--off" title="Brak alertu na pulpicie">—</span>
                 </td>
                 <td data-label="Status">
                   <span class="status-badge" :class="getItemStatus(item).class">{{ getItemStatus(item).text }}</span>
-                  <button
-                    v-if="userRole !== 'viewer'"
-                    type="button"
-                    class="btn-ordered-toggle"
-                    :class="{ 'btn-ordered-toggle--active': item.is_ordered }"
-                    @click="toggleOrderedQuick(item)"
-                  >
+                  <button v-if="userRole !== 'viewer'" type="button" class="btn-ordered-toggle" :class="{ 'btn-ordered-toggle--active': item.is_ordered }" @click="toggleOrderedQuick(item)">
                     {{ item.is_ordered ? '✓ Zamówione' : 'Oznacz zamówione' }}
                   </button>
                 </td>
@@ -596,7 +586,7 @@ onMounted(() => {
     <div class="modal-content">
       <div class="modal-header">
         <h3>Dodaj nowy przedmiot do magazynu</h3>
-        <button class="close-button" @click="showAddItemModal = false">&times;</button>
+        <button class="close-button" @click="showAddItemModal = false" aria-label="Zamknij">&times;</button>
       </div>
       <form @submit.prevent="handleAddItem">
         <div class="form-grid-single-col">
@@ -614,14 +604,7 @@ onMounted(() => {
           </div>
           <div class="form-group">
             <label for="itemMinStock">Minimalny stan magazynowy</label>
-            <input
-              type="number"
-              step="any"
-              min="0"
-              id="itemMinStock"
-              v-model.number="newItemData.min_stock_level"
-              @input="onMinStockInput(newItemData)"
-            />
+            <input type="number" step="any" min="0" id="itemMinStock" v-model.number="newItemData.min_stock_level" @input="onMinStockInput(newItemData)" />
             <small class="field-hint">0 = brak progu i brak alertów na pulpicie.</small>
           </div>
           <div v-if="newItemData.min_stock_level > 0" class="form-group form-group--checkbox">
@@ -631,14 +614,14 @@ onMounted(() => {
             </label>
           </div>
           <div class="form-group">
-  <label for="itemCategory">Kategoria (opcjonalnie)</label>
-  <select id="itemCategory" v-model="newItemData.category_id">
-    <option :value="null">-- Brak kategorii --</option>
-    <option v-for="cat in categories" :key="cat.id" :value="cat.id">
-      {{ cat.name }}
-    </option>
-  </select>
-</div>
+            <label for="itemCategory">Kategoria (opcjonalnie)</label>
+            <select id="itemCategory" v-model="newItemData.category_id">
+              <option :value="null">-- Brak kategorii --</option>
+              <option v-for="cat in categories" :key="cat.id" :value="cat.id">
+                {{ cat.name }}
+              </option>
+            </select>
+          </div>
         </div>
         <div class="modal-actions">
           <button type="submit" class="zapisz">Dodaj przedmiot</button>
@@ -652,7 +635,7 @@ onMounted(() => {
     <div class="modal-content">
       <div class="modal-header">
         <h3>Edytuj przedmiot</h3>
-        <button class="close-button" @click="showEditItemModal = false">&times;</button>
+        <button class="close-button" @click="showEditItemModal = false" aria-label="Zamknij">&times;</button>
       </div>
       <form v-if="editedItemData" @submit.prevent="handleUpdateItem">
         <div class="form-grid-single-col">
@@ -670,14 +653,7 @@ onMounted(() => {
           </div>
           <div class="form-group">
             <label for="editItemMinStock">Minimalny stan magazynowy</label>
-            <input
-              type="number"
-              step="any"
-              min="0"
-              id="editItemMinStock"
-              v-model.number="editedItemData.min_stock_level"
-              @input="onMinStockInput(editedItemData)"
-            />
+            <input type="number" step="any" min="0" id="editItemMinStock" v-model.number="editedItemData.min_stock_level" @input="onMinStockInput(editedItemData)" />
             <small class="field-hint">0 = brak progu i brak alertów na pulpicie.</small>
           </div>
           <div v-if="editedItemData.min_stock_level > 0" class="form-group form-group--checkbox">
@@ -687,14 +663,14 @@ onMounted(() => {
             </label>
           </div>
           <div class="form-group">
-  <label for="editItemCategory">Kategoria (opcjonalnie)</label>
-  <select id="editItemCategory" v-model="editedItemData.category_id">
-    <option :value="null">-- Brak kategorii --</option>
-    <option v-for="cat in categories" :key="cat.id" :value="cat.id">
-      {{ cat.name }}
-    </option>
-  </select>
-</div>
+            <label for="editItemCategory">Kategoria (opcjonalnie)</label>
+            <select id="editItemCategory" v-model="editedItemData.category_id">
+              <option :value="null">-- Brak kategorii --</option>
+              <option v-for="cat in categories" :key="cat.id" :value="cat.id">
+                {{ cat.name }}
+              </option>
+            </select>
+          </div>
         </div>
         <div class="modal-actions">
           <button type="submit" class="zapisz">Zapisz zmiany</button>
@@ -708,7 +684,7 @@ onMounted(() => {
     <div class="modal-content">
       <div class="modal-header">
         <h3>Operacja na: {{ currentOperationItem.name }}</h3>
-        <button class="close-button" @click="showOperationModal = false">&times;</button>
+        <button class="close-button" @click="showOperationModal = false" aria-label="Zamknij">&times;</button>
       </div>
       <form @submit.prevent="handleProcessOperation">
         <div class="form-grid-single-col">
@@ -743,7 +719,7 @@ onMounted(() => {
     <div class="modal-content modal-lg">
       <div class="modal-header">
         <h3>Historia dla: {{ currentItemForHistory.name }}</h3>
-        <button class="close-button" @click="showHistoryModal = false">&times;</button>
+        <button class="close-button" @click="showHistoryModal = false" aria-label="Zamknij">&times;</button>
       </div>
       <div class="modal-body">
         <div v-if="isHistoryLoading" class="modal-loading-spinner"><div class="spinner"></div></div>
@@ -764,39 +740,39 @@ onMounted(() => {
     </div>
   </div>
   <div v-if="showCategoryModal" class="modal-backdrop">
-  <div class="modal-content">
-    <div class="modal-header">
-      <h3>Zarządzaj Kategoriami Magazynu</h3>
-      <button class="close-button" @click="showCategoryModal = false">&times;</button>
-    </div>
-    <div class="modal-body">
-      <div class="category-manager">
-        <form @submit.prevent="handleAddCategory" class="add-category-form">
-          <input type="text" v-model="newCategoryName" placeholder="Nazwa nowej kategorii..." required>
-          <button type="submit" class="zapisz">Dodaj</button>
-        </form>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Zarządzaj Kategoriami Magazynu</h3>
+        <button class="close-button" @click="showCategoryModal = false" aria-label="Zamknij">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="category-manager">
+          <form @submit.prevent="handleAddCategory" class="add-category-form">
+            <input type="text" v-model="newCategoryName" placeholder="Nazwa nowej kategorii..." required />
+            <button type="submit" class="zapisz">Dodaj</button>
+          </form>
 
-        <ul class="category-list">
-          <li v-for="cat in categories" :key="cat.id">
-            <template v-if="editingCategory && editingCategory.id === cat.id">
-              <input type="text" v-model="editingCategory.name" required>
-              <button class="zapisz" @click="handleUpdateCategory">Zapisz</button>
-              <button class="anuluj" @click="editingCategory = null">Anuluj</button>
-            </template>
-            <template v-else>
-              <span>{{ cat.name }}</span>
-              <div class="category-actions">
-                <button class="edytuj" @click="editingCategory = { ...cat }">Edytuj</button>
-                <button class="usun" @click="handleDeleteCategory(cat.id)">Usuń</button>
-              </div>
-            </template>
-          </li>
-          <li v-if="!categories.length">Brak zdefiniowanych kategorii.</li>
-        </ul>
+          <ul class="category-list">
+            <li v-for="cat in categories" :key="cat.id">
+              <template v-if="editingCategory && editingCategory.id === cat.id">
+                <input type="text" v-model="editingCategory.name" required />
+                <button class="zapisz" @click="handleUpdateCategory">Zapisz</button>
+                <button class="anuluj" @click="editingCategory = null">Anuluj</button>
+              </template>
+              <template v-else>
+                <span>{{ cat.name }}</span>
+                <div class="category-actions">
+                  <button class="edytuj" @click="editingCategory = { ...cat }">Edytuj</button>
+                  <button class="usun" @click="handleDeleteCategory(cat.id)">Usuń</button>
+                </div>
+              </template>
+            </li>
+            <li v-if="!categories.length">Brak zdefiniowanych kategorii.</li>
+          </ul>
+        </div>
       </div>
     </div>
   </div>
-</div>
 </template>
 
 <style scoped>
