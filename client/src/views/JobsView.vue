@@ -641,7 +641,7 @@ onBeforeUnmount(() => {
     <div class="modal-content">
       <div class="modal-header">
         <h3>Dodaj nowe zlecenie</h3>
-        <button class="close-button" @click="showAddJobModal = false">&times;</button>
+        <button class="close-button" @click="showAddJobModal = false" aria-label="Zamknij">&times;</button>
       </div>
       <form class="modal-body-form" @submit.prevent="handleAddJob">
         <div class="modal-body">
@@ -870,7 +870,7 @@ onBeforeUnmount(() => {
     <div class="modal-content">
       <div class="modal-header">
         <h3>Szczegóły zlecenia #{{ selectedJobDetails?.id }}</h3>
-        <button class="close-button" @click="showDetailsModal = false">&times;</button>
+        <button class="close-button" @click="showDetailsModal = false" aria-label="Zamknij">&times;</button>
       </div>
       <div class="modal-body">
         <div v-if="isDetailsLoading" class="modal-loading-spinner"><div class="spinner"></div></div>
@@ -1006,7 +1006,7 @@ onBeforeUnmount(() => {
     <div class="modal-content">
       <div class="modal-header">
         <h3>Edytuj zlecenie #{{ editedJobData?.id }}</h3>
-        <button class="close-button" @click="showEditJobModal = false">&times;</button>
+        <button class="close-button" @click="showEditJobModal = false" aria-label="Zamknij">&times;</button>
       </div>
       <div v-if="isDetailsLoading" class="modal-body"><div class="modal-loading-spinner"><div class="spinner"></div></div></div>
       <form v-else-if="editedJobData" class="modal-body-form" @submit.prevent="handleUpdateJob">
