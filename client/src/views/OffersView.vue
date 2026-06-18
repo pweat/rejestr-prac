@@ -63,12 +63,8 @@ const editingTemplate = ref(null);
 const newTemplateLabel = ref('');
 const templateSaveLoading = ref(false);
 
-const isAnyModalOpen = computed(
-  () => showAddOfferModal.value || showEditOfferModal.value || showTemplateManagerModal.value
-);
-const activeFilterCount = computed(() =>
-  (selectedStatuses.value.length ? 1 : 0) + (selectedClientFilter.value ? 1 : 0)
-);
+const isAnyModalOpen = computed(() => showAddOfferModal.value || showEditOfferModal.value || showTemplateManagerModal.value);
+const activeFilterCount = computed(() => (selectedStatuses.value.length ? 1 : 0) + (selectedClientFilter.value ? 1 : 0));
 
 // ================================================================================================
 // FUNKCJE POMOCNICZE
@@ -136,10 +132,7 @@ const getOfferTypeLabel = (type) => offerTypeLabels.value[type] || type || 'Inna
 
 async function fetchOfferTemplates() {
   try {
-    const [listRes, labelsRes] = await Promise.all([
-      authenticatedFetch(`${API_URL}/api/offer-templates`),
-      authenticatedFetch(`${API_URL}/api/offer-templates/labels`),
-    ]);
+    const [listRes, labelsRes] = await Promise.all([authenticatedFetch(`${API_URL}/api/offer-templates`), authenticatedFetch(`${API_URL}/api/offer-templates/labels`)]);
     if (listRes.ok) offerTemplates.value = await listRes.json();
     if (labelsRes.ok) offerTypeLabels.value = await labelsRes.json();
   } catch (e) {
@@ -208,9 +201,7 @@ async function saveEditingTemplate() {
       items: editingTemplate.value.items,
     };
     const isNew = !editingTemplate.value.id;
-    const url = isNew
-      ? `${API_URL}/api/offer-templates`
-      : `${API_URL}/api/offer-templates/${editingTemplate.value.id}`;
+    const url = isNew ? `${API_URL}/api/offer-templates` : `${API_URL}/api/offer-templates/${editingTemplate.value.id}`;
     const res = await authenticatedFetch(url, {
       method: isNew ? 'POST' : 'PUT',
       body: JSON.stringify(body),
@@ -281,9 +272,7 @@ const calculateTotals = (items, vatRate) => {
 };
 
 const newOfferTotals = computed(() => calculateTotals(newOfferData.value.items, newOfferData.value.vat_rate));
-const editedOfferTotals = computed(() =>
-  calculateTotals(editedOfferData.value?.items, editedOfferData.value?.vat_rate)
-);
+const editedOfferTotals = computed(() => calculateTotals(editedOfferData.value?.items, editedOfferData.value?.vat_rate));
 
 // ================================================================================================
 // OBSŁUGA API (CRUD dla Ofert)
@@ -692,7 +681,9 @@ onBeforeUnmount(() => {
     <div class="header">
       <div class="header-title-group">
         <h1>Generator Ofert</h1>
-        <p class="header-subtitle">Wystawionych ofert: <strong>{{ totalItems }}</strong></p>
+        <p class="header-subtitle">
+          Wystawionych ofert: <strong>{{ totalItems }}</strong>
+        </p>
       </div>
       <div v-if="userRole !== 'viewer'" class="header-actions">
         <button type="button" class="btn-secondary" @click="openTemplateManager">Zarządzaj szablonami</button>
@@ -702,12 +693,7 @@ onBeforeUnmount(() => {
 
     <!-- Toolbar filtrów -->
     <div class="offers-toolbar">
-      <button
-        type="button"
-        class="filters-toggle"
-        :class="{ active: showFilters }"
-        @click="showFilters = !showFilters"
-      >
+      <button type="button" class="filters-toggle" :class="{ active: showFilters }" @click="showFilters = !showFilters">
         {{ showFilters ? '▲ Ukryj filtry' : '▼ Filtry' }}
         <span v-if="activeFilterCount" class="filter-count">{{ activeFilterCount }}</span>
       </button>
@@ -717,14 +703,7 @@ onBeforeUnmount(() => {
           <div class="filter-group">
             <label>Status:</label>
             <div class="chip-group">
-              <button
-                v-for="s in OFFER_STATUSES"
-                :key="s"
-                type="button"
-                class="chip"
-                :class="[`chip-status-${s}`, { selected: selectedStatuses.includes(s) }]"
-                @click="toggleStatusFilter(s)"
-              >
+              <button v-for="s in OFFER_STATUSES" :key="s" type="button" class="chip" :class="[`chip-status-${s}`, { selected: selectedStatuses.includes(s) }]" @click="toggleStatusFilter(s)">
                 {{ getOfferStatusLabel(s) }}
               </button>
             </div>
@@ -739,10 +718,15 @@ onBeforeUnmount(() => {
               placeholder="-- Filtruj po kliencie --"
             >
               <template #option="{ name, phone_number }">
-                <div><strong>{{ name || 'Brak nazwy' }}</strong><br /><small>{{ phone_number }}</small></div>
+                <div>
+                  <strong>{{ name || 'Brak nazwy' }}</strong
+                  ><br /><small>{{ phone_number }}</small>
+                </div>
               </template>
               <template #selected-option="{ name, phone_number }">
-                <div><strong>{{ name || 'Brak nazwy' }}</strong> <small>({{ phone_number }})</small></div>
+                <div>
+                  <strong>{{ name || 'Brak nazwy' }}</strong> <small>({{ phone_number }})</small>
+                </div>
               </template>
             </v-select>
           </div>
@@ -750,14 +734,7 @@ onBeforeUnmount(() => {
       </transition>
 
       <div v-if="route.query.clientId || activeFilterCount" class="active-filters">
-        <span
-          v-if="route.query.clientId"
-          class="active-chip client-chip"
-          @click="clearClientQueryFilter"
-          title="Usuń filtr klienta"
-        >
-          👤 Klient #{{ route.query.clientId }} ✕
-        </span>
+        <span v-if="route.query.clientId" class="active-chip client-chip" @click="clearClientQueryFilter" title="Usuń filtr klienta"> 👤 Klient #{{ route.query.clientId }} ✕ </span>
         <button type="button" class="clear-btn" @click="clearAllOfferFilters">Wyczyść filtry</button>
       </div>
     </div>
@@ -829,19 +806,25 @@ onBeforeUnmount(() => {
                       class="btn-quick btn-quick-sent row-action-btn"
                       @click="changeOfferStatus(offer, 'sent')"
                       title="Oznacz jako wysłaną"
-                    >Wyślij</button>
+                    >
+                      Wyślij
+                    </button>
                     <button
                       v-if="userRole !== 'viewer' && offer.status === 'sent'"
                       class="btn-quick btn-quick-accept row-action-btn"
                       @click="changeOfferStatus(offer, 'accepted')"
                       title="Oznacz jako zaakceptowaną"
-                    >Akcept.</button>
+                    >
+                      Akcept.
+                    </button>
                     <button
                       v-if="userRole !== 'viewer' && offer.status === 'sent'"
                       class="btn-quick btn-quick-reject row-action-btn"
                       @click="changeOfferStatus(offer, 'rejected')"
                       title="Oznacz jako odrzuconą"
-                    >Odrzuć</button>
+                    >
+                      Odrzuć
+                    </button>
                     <button v-if="userRole === 'admin' || userRole === 'editor'" class="edytuj row-action-btn" @click="handleShowEditModal(offer.id)">Edytuj</button>
                     <RouterLink v-if="offer.client_id" :to="`/klienci/${offer.client_id}`" class="action-link">
                       <button class="karta row-action-btn">Karta</button>
@@ -862,7 +845,7 @@ onBeforeUnmount(() => {
       <div class="modal-content">
         <div class="modal-header">
           <h3>Nowa Oferta</h3>
-          <button class="close-button" @click="showAddOfferModal = false">&times;</button>
+          <button type="button" class="close-button" aria-label="Zamknij" @click="showAddOfferModal = false">&times;</button>
         </div>
         <form @submit.prevent="handleSaveOffer">
           <div class="form-grid-single-col">
@@ -973,9 +956,15 @@ onBeforeUnmount(() => {
             <div class="details-section">
               <h4>Podsumowanie</h4>
               <div class="totals-card">
-                <p><span>Razem netto</span><strong>{{ formatCurrency(newOfferTotals.net) }}</strong></p>
-                <p><span>VAT ({{ newOfferData.vat_rate || 0 }}%)</span><strong>{{ formatCurrency(newOfferTotals.vat) }}</strong></p>
-                <p class="total-gross"><span>Razem brutto</span><strong>{{ formatCurrency(newOfferTotals.gross) }}</strong></p>
+                <p>
+                  <span>Razem netto</span><strong>{{ formatCurrency(newOfferTotals.net) }}</strong>
+                </p>
+                <p>
+                  <span>VAT ({{ newOfferData.vat_rate || 0 }}%)</span><strong>{{ formatCurrency(newOfferTotals.vat) }}</strong>
+                </p>
+                <p class="total-gross">
+                  <span>Razem brutto</span><strong>{{ formatCurrency(newOfferTotals.gross) }}</strong>
+                </p>
               </div>
             </div>
 
@@ -1002,7 +991,7 @@ onBeforeUnmount(() => {
       <div class="modal-content">
         <div class="modal-header">
           <h3>Edytuj Ofertę nr {{ editedOfferData?.offer_number }}</h3>
-          <button class="close-button" @click="showEditOfferModal = false">&times;</button>
+          <button type="button" class="close-button" aria-label="Zamknij" @click="showEditOfferModal = false">&times;</button>
         </div>
         <div v-if="!editedOfferData" class="loading-modal-content">
           <div class="spinner"></div>
@@ -1110,9 +1099,15 @@ onBeforeUnmount(() => {
             <div class="details-section">
               <h4>Podsumowanie</h4>
               <div class="totals-card">
-                <p><span>Razem netto</span><strong>{{ formatCurrency(editedOfferTotals.net) }}</strong></p>
-                <p><span>VAT ({{ editedOfferData.vat_rate || 0 }}%)</span><strong>{{ formatCurrency(editedOfferTotals.vat) }}</strong></p>
-                <p class="total-gross"><span>Razem brutto</span><strong>{{ formatCurrency(editedOfferTotals.gross) }}</strong></p>
+                <p>
+                  <span>Razem netto</span><strong>{{ formatCurrency(editedOfferTotals.net) }}</strong>
+                </p>
+                <p>
+                  <span>VAT ({{ editedOfferData.vat_rate || 0 }}%)</span><strong>{{ formatCurrency(editedOfferTotals.vat) }}</strong>
+                </p>
+                <p class="total-gross">
+                  <span>Razem brutto</span><strong>{{ formatCurrency(editedOfferTotals.gross) }}</strong>
+                </p>
               </div>
             </div>
 
@@ -1139,7 +1134,7 @@ onBeforeUnmount(() => {
       <div class="modal-content modal-content--wide">
         <div class="modal-header">
           <h3>Szablony typów ofert</h3>
-          <button class="close-button" @click="showTemplateManagerModal = false">&times;</button>
+          <button type="button" class="close-button" aria-label="Zamknij" @click="showTemplateManagerModal = false">&times;</button>
         </div>
         <div class="template-manager-layout">
           <aside class="template-list-panel">
@@ -1148,12 +1143,7 @@ onBeforeUnmount(() => {
               <button type="button" class="btn-secondary" @click="startNewTemplateDraft">+ Nowy</button>
             </div>
             <ul class="template-list">
-              <li
-                v-for="t in offerTemplates"
-                :key="t.id"
-                :class="{ active: editingTemplate?.id === t.id }"
-                @click="loadTemplateForEdit(t)"
-              >
+              <li v-for="t in offerTemplates" :key="t.id" :class="{ active: editingTemplate?.id === t.id }" @click="loadTemplateForEdit(t)">
                 <span>{{ t.label }}</span>
                 <small>{{ t.item_count }} poz.</small>
                 <span v-if="t.is_builtin" class="builtin-tag">sys</span>
@@ -1181,11 +1171,7 @@ onBeforeUnmount(() => {
             </div>
             <h4>Pozycje szablonu</h4>
             <div class="offer-items-shell">
-              <div
-                v-for="(item, index) in editingTemplate.items"
-                :key="index"
-                class="offer-item-grid offer-item-grid--row template-item-row"
-              >
+              <div v-for="(item, index) in editingTemplate.items" :key="index" class="offer-item-grid offer-item-grid--row template-item-row">
                 <div class="item-col item-col--name">
                   <OfferItemNameEditor v-model="item.name" />
                 </div>
@@ -1205,17 +1191,8 @@ onBeforeUnmount(() => {
             </div>
             <button type="button" class="btn-secondary add-item-btn" @click="addTemplateItem">+ Dodaj pozycję</button>
             <div class="modal-actions template-editor-actions">
-              <button
-                v-if="!editingTemplate.is_builtin && editingTemplate.id"
-                type="button"
-                class="usun"
-                @click="deleteTemplate(editingTemplate)"
-              >
-                Usuń szablon
-              </button>
-              <button type="button" class="zapisz" :disabled="templateSaveLoading" @click="saveEditingTemplate">
-                Zapisz szablon
-              </button>
+              <button v-if="!editingTemplate.is_builtin && editingTemplate.id" type="button" class="usun" @click="deleteTemplate(editingTemplate)">Usuń szablon</button>
+              <button type="button" class="zapisz" :disabled="templateSaveLoading" @click="saveEditingTemplate">Zapisz szablon</button>
             </div>
           </section>
           <section v-else class="template-editor-empty">
@@ -1705,8 +1682,12 @@ onBeforeUnmount(() => {
   background-repeat: no-repeat;
   appearance: none;
   background-image: linear-gradient(45deg, transparent 50%, #fff 50%), linear-gradient(135deg, #fff 50%, transparent 50%);
-  background-size: 5px 5px, 5px 5px;
-  background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%;
+  background-size:
+    5px 5px,
+    5px 5px;
+  background-position:
+    calc(100% - 14px) 50%,
+    calc(100% - 9px) 50%;
 }
 .status-select.status-draft {
   background-color: #6c757d;
