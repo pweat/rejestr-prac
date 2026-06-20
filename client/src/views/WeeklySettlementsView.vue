@@ -279,7 +279,7 @@ onMounted(fetchEmployees);
                     <div v-if="entry.notes" class="notes">{{ entry.notes }}</div>
                   </td>
                   <td class="amount-plus text-right">+{{ entry.final_amount }}</td>
-                  <td class="action-cell no-print"><button class="btn-del" @click="handleDeleteEntry('work', entry.id)">×</button></td>
+                  <td class="action-cell no-print"><button type="button" class="btn-del" aria-label="Usuń wpis" title="Usuń wpis" @click="handleDeleteEntry('work', entry.id)">×</button></td>
                 </tr>
                 <tr v-if="month.entries.length === 0">
                   <td colspan="4" class="empty-cell">Brak wpisów</td>
@@ -307,7 +307,7 @@ onMounted(fetchEmployees);
                     <div v-if="payment.notes" class="notes">{{ payment.notes }}</div>
                   </td>
                   <td class="amount-minus text-right">-{{ payment.amount }}</td>
-                  <td class="action-cell no-print"><button class="btn-del" @click="handleDeleteEntry('payment', payment.id)">×</button></td>
+                  <td class="action-cell no-print"><button type="button" class="btn-del" aria-label="Usuń wpis" title="Usuń wpis" @click="handleDeleteEntry('payment', payment.id)">×</button></td>
                 </tr>
                 <tr v-if="month.payments.length === 0">
                   <td colspan="4" class="empty-cell">Brak wpisów</td>
