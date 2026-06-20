@@ -1,0 +1,3 @@
+## 2026-06-20 - Added accessibility to icon-only modal buttons
+**Learning:** The application extensively uses icon-only buttons for closing modals (`&times;`) and deleting entries (`×`) without `type="button"` or `aria-label`. This pattern breaks screen reader accessibility (since "×" or "&times;" reads poorly or not at all) and risks accidental form submissions.
+**Action:** Whenever introducing an icon-only button like `.close-button` or `.btn-del`, explicitly provide `type="button"`, `aria-label="[Polish translation]"` (e.g. `aria-label="Zamknij"`), and optionally `title` for hover tooltips.
