@@ -133,7 +133,7 @@ onMounted(fetchEmployees);
                 <td data-label="Akcje" class="actions-cell">
                   <div class="actions-cell-inner">
                     <button class="edytuj" @click="handleShowEditModal(employee)">Edytuj</button>
-                    <button class="usun" @click="handleDeleteEmployee(employee.id)">Usuń</button>
+                    <button type="button" class="usun" @click="handleDeleteEmployee(employee.id)">Usuń</button>
                   </div>
                 </td>
               </tr>
@@ -148,7 +148,7 @@ onMounted(fetchEmployees);
     <div class="modal-content">
       <div class="modal-header">
         <h3>Dodaj pracownika</h3>
-        <button class="close-button" @click="showAddModal = false">&times;</button>
+        <button type="button" class="close-button" @click="showAddModal = false" aria-label="Zamknij">&times;</button>
       </div>
       <form @submit.prevent="handleAddEmployee">
         <div class="form-grid-single-col">
@@ -172,7 +172,7 @@ onMounted(fetchEmployees);
     <div class="modal-content">
       <div class="modal-header">
         <h3>Edytuj pracownika</h3>
-        <button class="close-button" @click="showEditModal = false">&times;</button>
+        <button type="button" class="close-button" @click="showEditModal = false" aria-label="Zamknij">&times;</button>
       </div>
       <form v-if="editedEmployeeData" @submit.prevent="handleUpdateEmployee">
         <div class="form-grid-single-col">

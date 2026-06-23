@@ -230,7 +230,7 @@ onMounted(() => {
                       <button class="pokaż">Zlecenia</button>
                     </RouterLink>
                     <button v-if="userRole === 'admin' || userRole === 'editor'" class="edytuj" @click="handleShowEditModal(client)">Edytuj</button>
-                    <button v-if="userRole === 'admin'" class="usun" @click="handleDeleteClient(client.id)">Usuń</button>
+                    <button type="button" v-if="userRole === 'admin'" class="usun" @click="handleDeleteClient(client.id)">Usuń</button>
                   </div>
                 </td>
               </tr>
@@ -247,7 +247,7 @@ onMounted(() => {
     <div class="modal-content">
       <div class="modal-header">
         <h3>Dodaj nowego klienta</h3>
-        <button class="close-button" @click="showAddModal = false">&times;</button>
+        <button type="button" class="close-button" @click="showAddModal = false" aria-label="Zamknij">&times;</button>
       </div>
       <form @submit.prevent="handleAddClient">
         <div class="form-grid-single-col">
@@ -284,7 +284,7 @@ onMounted(() => {
     <div class="modal-content">
       <div class="modal-header">
         <h3>Edytuj klienta</h3>
-        <button class="close-button" @click="showEditModal = false">&times;</button>
+        <button type="button" class="close-button" @click="showEditModal = false" aria-label="Zamknij">&times;</button>
       </div>
       <form v-if="editedClientData" @submit.prevent="handleUpdateClient">
         <div class="form-grid-single-col">

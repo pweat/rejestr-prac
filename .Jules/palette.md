@@ -1,0 +1,3 @@
+## 2025-02-12 - Icon-Only Interactive Elements Accessibility
+**Learning:** Icon-only close buttons (`&times;`) and delete buttons (`×`) lack descriptive text for screen readers and miss `type="button"` attributes, risking form submission issues and poor accessibility in Polish localization.
+**Action:** Always add `type="button"` to icon-only interactive elements to prevent unintended form submissions. Always add appropriate, localized `aria-label` attributes (e.g., `aria-label="Zamknij"` or `aria-label="Usuń wpis"`) to ensure the intent of these elements is clearly communicated to assistive technologies.
