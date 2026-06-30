@@ -53,6 +53,11 @@ function handleSearchFocus() {
   openDropdown();
 }
 
+function onSearchBlur() {
+  // Opóźnienie pozwala mousedown na elemencie dropdowna zadziałać przed zamknięciem
+  setTimeout(closeDropdown, 150);
+}
+
 function selectItem(item) {
   selectedItem.value = item;
   searchText.value = item.name;
@@ -168,7 +173,7 @@ watch(searchText, (val) => {
             autocomplete="off"
             @input="onSearchInput"
             @focus="handleSearchFocus"
-            @blur="setTimeout(closeDropdown, 150)"
+            @blur="onSearchBlur"
             @keydown="onSearchKeydown"
           />
           <button
