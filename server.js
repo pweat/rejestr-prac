@@ -3151,26 +3151,65 @@ app.post('/api/inventory', authenticateToken, canEdit, async (req, res) => {
 });
 
 app.put('/api/inventory/:id', authenticateToken, canEdit, async (req, res) => {
+  const client = await pool.connect();
   try {
     const { id } = req.params;
     const { name, quantity, unit, min_stock_level, category_id, alert_on_dashboard } = req.body;
     if (!name || !unit) {
+      client.release();
       return res.status(400).json({ error: 'Nazwa i jednostka miary są wymagane.' });
     }
+    const newQty = parseFloat(quantity) || 0;
     const minLevel = parseFloat(min_stock_level) || 0;
     const alertFlag = resolveAlertOnDashboard(minLevel, alert_on_dashboard);
-    const sql = `UPDATE inventory_items SET name = $1, quantity = $2, unit = $3, min_stock_level = $4, category_id = $5, alert_on_dashboard = $6 WHERE id = $7 RETURNING *`;
-    const result = await pool.query(sql, [name, quantity || 0, unit, minLevel, category_id || null, alertFlag, id]);
-    if (result.rows.length === 0) {
+
+    await client.query('BEGIN');
+
+    // Pobierz aktualną ilość, by wiedzieć czy powstała różnica (korekta)
+    const currentResult = await client.query('SELECT quantity FROM inventory_items WHERE id = $1', [id]);
+    if (currentResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      client.release();
       return res.status(404).json({ error: 'Nie znaleziono przedmiotu.' });
     }
-    res.status(200).json(result.rows[0]);
+    const oldQty = parseFloat(currentResult.rows[0].quantity);
+
+    const updateSql = `
+      UPDATE inventory_items
+      SET name = $1, quantity = $2, unit = $3, min_stock_level = $4,
+          category_id = $5, alert_on_dashboard = $6
+      WHERE id = $7
+    `;
+    await client.query(updateSql, [name, newQty, unit, minLevel, category_id || null, alertFlag, id]);
+
+    // Jeśli ilość się zmieniła, zapisz korektę w historii
+    const diff = newQty - oldQty;
+    if (Math.abs(diff) > 0.0001) {
+      await client.query(
+        `INSERT INTO stock_history (item_id, change_quantity, operation_type, user_id) VALUES ($1, $2, 'adjustment', $3)`,
+        [id, diff, req.user.userId]
+      );
+    }
+
+    await client.query('COMMIT');
+
+    // Zwróć zaktualizowany obiekt z JOIN category_name
+    const resultWithCat = await client.query(
+      `SELECT i.*, c.name AS category_name FROM inventory_items i
+       LEFT JOIN inventory_categories c ON i.category_id = c.id
+       WHERE i.id = $1`,
+      [id]
+    );
+    res.status(200).json(resultWithCat.rows[0]);
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
     if (err.code === '23505') {
       return res.status(400).json({ error: 'Przedmiot o tej nazwie już istnieje w magazynie.' });
     }
     console.error(`Błąd w PUT /api/inventory/${req.params.id}:`, err);
     res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  } finally {
+    client.release();
   }
 });
 
@@ -3193,28 +3232,67 @@ app.post('/api/inventory/operation', authenticateToken, canEdit, async (req, res
 
     if (operationType === 'delivery' || operationType === 'withdrawal') {
       if (!quantity || quantity <= 0) throw new Error('Ilość musi być dodatnia.');
-      const changeQuantity = operationType === 'delivery' ? Math.abs(quantity) : -Math.abs(quantity);
-      await client.query(`UPDATE inventory_items SET quantity = quantity + $1, last_delivery_date = CASE WHEN $2 = 'delivery' THEN NOW() ELSE last_delivery_date END WHERE id = $3`, [
-        changeQuantity,
-        operationType,
-        itemId,
-      ]);
-      await client.query(`INSERT INTO stock_history (item_id, change_quantity, operation_type, user_id) VALUES ($1, $2, $3, $4)`, [itemId, changeQuantity, operationType, req.user.userId]);
+      const absQty = Math.abs(parseFloat(quantity));
+
+      if (operationType === 'withdrawal') {
+        // Blokada ujemnego stanu magazynowego
+        const current = await client.query('SELECT quantity, name FROM inventory_items WHERE id = $1', [itemId]);
+        if (current.rows.length === 0) throw new Error('Nie znaleziono przedmiotu.');
+        const currentQty = parseFloat(current.rows[0].quantity);
+        if (currentQty < absQty) {
+          throw new Error(
+            `Niewystarczający stan magazynowy. Dostępne: ${currentQty}, próba wydania: ${absQty}.`
+          );
+        }
+      }
+
+      const changeQuantity = operationType === 'delivery' ? absQty : -absQty;
+      await client.query(
+        `UPDATE inventory_items
+         SET quantity = quantity + $1,
+             last_delivery_date = CASE WHEN $2 = 'delivery' THEN NOW() ELSE last_delivery_date END
+         WHERE id = $3`,
+        [changeQuantity, operationType, itemId]
+      );
+      await client.query(
+        `INSERT INTO stock_history (item_id, change_quantity, operation_type, user_id) VALUES ($1, $2, $3, $4)`,
+        [itemId, changeQuantity, operationType, req.user.userId]
+      );
     } else if (operationType === 'toggle_ordered') {
-      const updateResult = await client.query(`UPDATE inventory_items SET is_ordered = NOT is_ordered WHERE id = $1 RETURNING is_ordered`, [itemId]);
+      const updateResult = await client.query(
+        `UPDATE inventory_items SET is_ordered = NOT is_ordered WHERE id = $1 RETURNING is_ordered`,
+        [itemId]
+      );
       const newStatus = updateResult.rows[0].is_ordered;
-      await client.query(`INSERT INTO stock_history (item_id, change_quantity, operation_type, user_id) VALUES ($1, $2, $3, $4)`, [itemId, 0, `status_changed_to_${newStatus}`, req.user.userId]);
+      await client.query(
+        `INSERT INTO stock_history (item_id, change_quantity, operation_type, user_id) VALUES ($1, $2, $3, $4)`,
+        [itemId, 0, `status_changed_to_${newStatus}`, req.user.userId]
+      );
     } else {
       throw new Error('Nieznany typ operacji.');
     }
 
     await client.query('COMMIT');
-    const updatedItem = await client.query('SELECT * FROM inventory_items WHERE id = $1', [itemId]);
+
+    // Zwróć obiekt z category_name przez JOIN
+    const updatedItem = await client.query(
+      `SELECT i.*, c.name AS category_name FROM inventory_items i
+       LEFT JOIN inventory_categories c ON i.category_id = c.id
+       WHERE i.id = $1`,
+      [itemId]
+    );
     res.status(200).json(updatedItem.rows[0]);
   } catch (err) {
-    await client.query('ROLLBACK');
+    await client.query('ROLLBACK').catch(() => {});
     console.error('Błąd w /api/inventory/operation:', err);
-    res.status(500).json({ error: 'Wystąpił błąd serwera podczas operacji magazynowej.' });
+    // Błędy logiczne (np. niewystarczający stan) zwracamy jako 400
+    const isBusinessError = err.message && (
+      err.message.includes('Niewystarczający') ||
+      err.message.includes('Ilość musi') ||
+      err.message.includes('Nie znaleziono') ||
+      err.message.includes('Nieznany typ')
+    );
+    res.status(isBusinessError ? 400 : 500).json({ error: err.message || 'Wystąpił błąd serwera podczas operacji magazynowej.' });
   } finally {
     client.release();
   }
