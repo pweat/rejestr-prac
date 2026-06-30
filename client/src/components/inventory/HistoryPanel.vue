@@ -46,17 +46,17 @@ watch(() => props.item, loadHistory, { immediate: true });
       <div class="modal-header">
         <div>
           <h3>Historia: {{ item.name }}</h3>
-          <span class="history-subtitle">Aktualna ilość: <strong>{{ item.quantity }} {{ item.unit }}</strong></span>
+          <span class="history-subtitle"
+            >Aktualna ilość: <strong>{{ item.quantity }} {{ item.unit }}</strong></span
+          >
         </div>
-        <button class="close-button" @click="emit('close')">&times;</button>
+        <button type="button" aria-label="Zamknij" class="close-button" @click="emit('close')">&times;</button>
       </div>
 
       <div class="modal-body">
         <div v-if="isLoading" class="modal-loading-spinner"><div class="spinner"></div></div>
 
-        <div v-else-if="!history.length" class="empty-history">
-          Brak zapisanych operacji dla tego przedmiotu.
-        </div>
+        <div v-else-if="!history.length" class="empty-history">Brak zapisanych operacji dla tego przedmiotu.</div>
 
         <div v-else class="history-list">
           <div
@@ -179,8 +179,12 @@ watch(() => props.item, loadHistory, { immediate: true });
   font-weight: 700;
   flex-shrink: 0;
 }
-.qty-positive { color: var(--green); }
-.qty-negative { color: var(--red); }
+.qty-positive {
+  color: var(--green);
+}
+.qty-negative {
+  color: var(--red);
+}
 
 .modal-lg {
   max-width: 700px;
