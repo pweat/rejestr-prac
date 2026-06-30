@@ -32,6 +32,9 @@ function getItemStatus(item) {
   return 'ok';
 }
 
+// Flaga zapobiega otwarciu dropdowna przy programatycznym focus (onMounted)
+let skipNextFocusOpen = false;
+
 function openDropdown() {
   isDropdownOpen.value = true;
   highlightedIndex.value = -1;
@@ -40,6 +43,14 @@ function openDropdown() {
 function closeDropdown() {
   isDropdownOpen.value = false;
   highlightedIndex.value = -1;
+}
+
+function handleSearchFocus() {
+  if (skipNextFocusOpen) {
+    skipNextFocusOpen = false;
+    return;
+  }
+  openDropdown();
 }
 
 function selectItem(item) {
@@ -56,6 +67,7 @@ function clearSelection() {
   selectedItem.value = null;
   searchText.value = '';
   quantity.value = '';
+  skipNextFocusOpen = true;
   nextTick(() => searchInputRef.value?.focus());
 }
 
@@ -124,6 +136,7 @@ async function submitOperation(type) {
 }
 
 function focusSearch() {
+  skipNextFocusOpen = true;
   searchInputRef.value?.focus();
 }
 
@@ -154,7 +167,7 @@ watch(searchText, (val) => {
             :placeholder="store.isAllItemsLoading ? 'Ładowanie...' : 'Wpisz nazwę przedmiotu...'"
             autocomplete="off"
             @input="onSearchInput"
-            @focus="openDropdown"
+            @focus="handleSearchFocus"
             @blur="setTimeout(closeDropdown, 150)"
             @keydown="onSearchKeydown"
           />
