@@ -61,18 +61,13 @@ async function handleDelete(cat) {
     <div class="modal-content">
       <div class="modal-header">
         <h3>Kategorie magazynu</h3>
-        <button class="close-button" @click="emit('close')">&times;</button>
+        <button type="button" aria-label="Zamknij" class="close-button" @click="emit('close')">&times;</button>
       </div>
 
       <div class="modal-body">
         <!-- Dodawanie nowej kategorii -->
         <form class="add-cat-form" @submit.prevent="handleAdd">
-          <input
-            v-model="newCategoryName"
-            type="text"
-            placeholder="Nazwa nowej kategorii…"
-            autofocus
-          />
+          <input v-model="newCategoryName" type="text" placeholder="Nazwa nowej kategorii…" autofocus />
           <button type="submit" class="zapisz" :disabled="isSaving">Dodaj</button>
         </form>
 
