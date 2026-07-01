@@ -1,0 +1,3 @@
+## 2026-07-01 - Icon-Only Buttons Lacking ARIA Labels and Type
+**Learning:** Modal close buttons (`&times;`) and inline list delete actions (`×`) across multiple views were implemented as generic `<button>` tags without `type="button"` or `aria-label` attributes. This breaks screen reader accessibility for Polish localization and poses a risk of accidental form submissions.
+**Action:** Added `type="button"` and localized `aria-label="Zamknij"` / `aria-label="Usuń wpis"` to all instances of `.close-button` and `.btn-del`. For future components, enforce explicit types and ARIA labels on all icon-only interactive elements.
