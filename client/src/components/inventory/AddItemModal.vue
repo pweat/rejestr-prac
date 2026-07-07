@@ -77,7 +77,7 @@ async function handleSubmit() {
     <div class="modal-content">
       <div class="modal-header">
         <h3>{{ isEditMode ? 'Edytuj przedmiot' : 'Dodaj nowy przedmiot' }}</h3>
-        <button class="close-button" @click="emit('close')">&times;</button>
+        <button type="button" aria-label="Zamknij" class="close-button" @click="emit('close')">&times;</button>
       </div>
 
       <form @submit.prevent="handleSubmit">
@@ -102,14 +102,7 @@ async function handleSubmit() {
           <div class="form-row-2">
             <div class="form-group">
               <label for="ai-min">Minimalny stan</label>
-              <input
-                id="ai-min"
-                v-model.number="form.min_stock_level"
-                type="number"
-                step="any"
-                min="0"
-                @input="onMinStockInput"
-              />
+              <input id="ai-min" v-model.number="form.min_stock_level" type="number" step="any" min="0" @input="onMinStockInput" />
               <small class="field-hint">0 = brak progu, brak alertów.</small>
             </div>
             <div class="form-group">
@@ -131,7 +124,7 @@ async function handleSubmit() {
 
         <div class="modal-actions">
           <button type="submit" class="zapisz" :disabled="isSaving">
-            {{ isSaving ? 'Zapisywanie…' : (isEditMode ? 'Zapisz zmiany' : 'Dodaj przedmiot') }}
+            {{ isSaving ? 'Zapisywanie…' : isEditMode ? 'Zapisz zmiany' : 'Dodaj przedmiot' }}
           </button>
           <button type="button" class="anuluj" @click="emit('close')">Anuluj</button>
         </div>
