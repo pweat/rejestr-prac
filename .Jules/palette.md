@@ -1,0 +1,3 @@
+## 2026-07-16 - Pagination Accessibility Patterns in Polish Locale
+**Learning:** Pagination controls often lack proper semantic structure and context for screen reader users, especially when only symbols like '«' and '»' are used. Polish localized navigation requires explicit `aria-label` attributes to clarify the purpose of page numbers and navigation buttons, as well as `aria-current="page"` to indicate the current page.
+**Action:** Use a `<nav aria-label="Nawigacja po stronach">` wrapper for pagination, provide descriptive `aria-label` attributes for previous/next buttons ('Poprzednia strona'/'Następna strona'), label individual pages ('Strona {page}'), correctly indicate the active page (`aria-current="page"`), and omit labels on decorative elements like ellipses.
