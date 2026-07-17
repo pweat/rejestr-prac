@@ -19,7 +19,9 @@ const userRole = getUserRole();
 
 // Wykrywanie szerokości ekranu do przełączania między tabelą a kartami
 const isMobile = ref(window.innerWidth <= 850);
-function onResize() { isMobile.value = window.innerWidth <= 850; }
+function onResize() {
+  isMobile.value = window.innerWidth <= 850;
+}
 
 // Stan modali
 const showAddModal = ref(false);
@@ -44,21 +46,19 @@ async function handleDelete(itemId) {
 
 // ── Wyszukiwanie z debounce ────────────────────────────────────────────────
 let searchTimeout = null;
-watch(() => store.searchQuery, () => {
-  clearTimeout(searchTimeout);
-  searchTimeout = setTimeout(() => {
-    store.currentPage = 1;
-    store.fetchItems();
-  }, 300);
-});
+watch(
+  () => store.searchQuery,
+  () => {
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => {
+      store.currentPage = 1;
+      store.fetchItems();
+    }, 300);
+  }
+);
 
 // ── Filtrowanie ────────────────────────────────────────────────────────────
-watch([
-  () => store.selectedCategoryId,
-  () => store.filterLowStock,
-  () => store.filterAlertOnly,
-  () => store.filterHideOrdered,
-], () => {
+watch([() => store.selectedCategoryId, () => store.filterLowStock, () => store.filterAlertOnly, () => store.filterHideOrdered], () => {
   store.currentPage = 1;
   store.fetchItems();
 });
@@ -94,10 +94,10 @@ const activeFiltersCount = computed(() => {
   <div class="container">
     <!-- Nagłówek -->
     <div class="header">
-      <h1>Magazyn <span class="item-count">({{ store.totalItems }})</span></h1>
-      <button v-if="userRole !== 'viewer'" class="add-new-btn" @click="showAddModal = true">
-        + Dodaj przedmiot
-      </button>
+      <h1>
+        Magazyn <span class="item-count">({{ store.totalItems }})</span>
+      </h1>
+      <button v-if="userRole !== 'viewer'" class="add-new-btn" @click="showAddModal = true">+ Dodaj przedmiot</button>
     </div>
 
     <!-- Pasek szybkich operacji -->
@@ -106,12 +106,7 @@ const activeFiltersCount = computed(() => {
     <!-- Filtrowanie i wyszukiwanie -->
     <div class="controls-bar">
       <div class="search-wrapper">
-        <input
-          v-model="store.searchQuery"
-          type="search"
-          placeholder="Szukaj po nazwie..."
-          class="search-input"
-        />
+        <input v-model="store.searchQuery" type="search" placeholder="Szukaj po nazwie..." class="search-input" />
       </div>
 
       <div class="filters-row">
@@ -136,58 +131,35 @@ const activeFiltersCount = computed(() => {
         </label>
 
         <!-- Reset filtrów -->
-        <button
-          v-if="activeFiltersCount > 0"
-          class="btn-reset-filters"
-          @click="store.resetFilters"
-          :title="`Wyczyść ${activeFiltersCount} aktywne filtry`"
-        >
+        <button v-if="activeFiltersCount > 0" class="btn-reset-filters" @click="store.resetFilters" :title="`Wyczyść ${activeFiltersCount} aktywne filtry`">
           × Resetuj ({{ activeFiltersCount }})
         </button>
 
         <!-- Zarządzaj kategoriami -->
-        <button class="btn-secondary manage-cat-btn" @click="showCategoryManager = true">
-          Kategorie
-        </button>
+        <button class="btn-secondary manage-cat-btn" @click="showCategoryManager = true">Kategorie</button>
       </div>
     </div>
 
     <!-- Lista przedmiotów — tabela na desktop, karty na mobile -->
-    <InventoryTable
-      v-if="!isMobile"
-      :user-role="userRole"
-      @edit="handleEdit"
-      @history="historyItem = $event"
-      @delete="handleDelete"
-    />
-    <InventoryCard
-      v-else
-      :user-role="userRole"
-      @edit="handleEdit"
-      @history="historyItem = $event"
-      @delete="handleDelete"
-    />
+    <InventoryTable v-if="!isMobile" :user-role="userRole" @edit="handleEdit" @history="historyItem = $event" @delete="handleDelete" />
+    <InventoryCard v-else :user-role="userRole" @edit="handleEdit" @history="historyItem = $event" @delete="handleDelete" />
   </div>
 
   <!-- Modal dodawania/edycji -->
   <AddItemModal
     v-if="showAddModal || editingItem"
     :item="editingItem"
-    @close="showAddModal = false; editingItem = null"
+    @close="
+      showAddModal = false;
+      editingItem = null;
+    "
   />
 
   <!-- Panel historii -->
-  <HistoryPanel
-    v-if="historyItem"
-    :item="historyItem"
-    @close="historyItem = null"
-  />
+  <HistoryPanel v-if="historyItem" :item="historyItem" @close="historyItem = null" />
 
   <!-- Zarządzanie kategoriami -->
-  <CategoryManager
-    v-if="showCategoryManager"
-    @close="showCategoryManager = false"
-  />
+  <CategoryManager v-if="showCategoryManager" @close="showCategoryManager = false" />
 </template>
 
 <style scoped>
@@ -215,7 +187,9 @@ const activeFiltersCount = computed(() => {
   font-size: 16px;
   border: 1px solid var(--border-color);
   border-radius: 8px;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
 }
 .search-input:focus {
   outline: none;

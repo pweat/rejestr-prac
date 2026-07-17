@@ -42,13 +42,7 @@ onMounted(syncFromModel);
       <button type="button" class="fmt-btn" title="Kursywa" @click="exec('italic')"><em>I</em></button>
       <button type="button" class="fmt-btn" title="Nowa linia" @click="insertLineBreak">↵</button>
     </div>
-    <div
-      ref="editorRef"
-      class="offer-item-name-field"
-      contenteditable="true"
-      @input="onInput"
-      @blur="onInput"
-    ></div>
+    <div ref="editorRef" class="offer-item-name-field" contenteditable="true" @input="onInput" @blur="onInput"></div>
   </div>
 </template>
 

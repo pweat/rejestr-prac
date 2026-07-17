@@ -87,13 +87,15 @@ async function submitCardOperation(item, type) {
       <div class="card-body">
         <div class="card-stat">
           <span class="stat-label">Stan</span>
-          <span class="stat-value"
+          <span
+            class="stat-value"
             :class="{
               'qty-ok': getItemStatus(item).cls === 'status-ok',
               'qty-low': getItemStatus(item).cls === 'status-low',
               'qty-out': getItemStatus(item).cls === 'status-out',
             }"
-          >{{ item.quantity }} {{ item.unit }}</span>
+            >{{ item.quantity }} {{ item.unit }}</span
+          >
         </div>
         <div v-if="item.min_stock_level > 0" class="card-stat">
           <span class="stat-label">Min</span>
@@ -135,27 +137,16 @@ async function submitCardOperation(item, type) {
       <div class="card-actions">
         <button class="btn-sm pokaż" @click="emit('history', item)">Historia</button>
         <button v-if="userRole !== 'viewer'" class="btn-sm edytuj" @click="emit('edit', item)">Edytuj</button>
-        <button
-          v-if="userRole !== 'viewer'"
-          class="btn-sm"
-          :class="item.is_ordered ? 'btn-ordered-active' : 'btn-ordered'"
-          @click="store.toggleOrdered(item)"
-        >
+        <button v-if="userRole !== 'viewer'" class="btn-sm" :class="item.is_ordered ? 'btn-ordered-active' : 'btn-ordered'" @click="store.toggleOrdered(item)">
           {{ item.is_ordered ? '✓ Zamówione' : 'Oznacz zamówione' }}
         </button>
         <button v-if="userRole === 'admin'" class="btn-sm usun" @click="emit('delete', item.id)">Usuń</button>
       </div>
     </div>
 
-    <PaginationControls
-      v-if="store.totalPages > 1"
-      :current-page="store.currentPage"
-      :total-pages="store.totalPages"
-      @page-changed="store.setPage"
-    />
+    <PaginationControls v-if="store.totalPages > 1" :current-page="store.currentPage" :total-pages="store.totalPages" @page-changed="store.setPage" />
   </div>
 </template>
-
 
 <style scoped>
 .cards-wrapper {
@@ -199,7 +190,9 @@ async function submitCardOperation(item, type) {
   background: #fff5f5;
 }
 
-.card-header { margin-bottom: 10px; }
+.card-header {
+  margin-bottom: 10px;
+}
 
 .card-title-row {
   display: flex;
@@ -230,9 +223,16 @@ async function submitCardOperation(item, type) {
   white-space: nowrap;
   flex-shrink: 0;
 }
-.status-ok { background-color: var(--green); }
-.status-low { background-color: #ffc107; color: #333; }
-.status-out { background-color: var(--red); }
+.status-ok {
+  background-color: var(--green);
+}
+.status-low {
+  background-color: #ffc107;
+  color: #333;
+}
+.status-out {
+  background-color: var(--red);
+}
 
 .card-body {
   display: flex;
@@ -260,9 +260,15 @@ async function submitCardOperation(item, type) {
 .date-value {
   font-size: 14px;
 }
-.qty-ok { color: var(--green); }
-.qty-low { color: #e69500; }
-.qty-out { color: var(--red); }
+.qty-ok {
+  color: var(--green);
+}
+.qty-low {
+  color: #e69500;
+}
+.qty-out {
+  color: var(--red);
+}
 
 .card-ops {
   margin-bottom: 10px;
@@ -291,9 +297,20 @@ async function submitCardOperation(item, type) {
   cursor: pointer;
   transition: all 0.15s;
 }
-.op-btn--delivery { background: var(--green); color: #fff; flex: 1; }
-.op-btn--withdrawal { background: var(--red); color: #fff; flex: 1; }
-.op-btn--cancel { background: var(--grey); color: #fff; }
+.op-btn--delivery {
+  background: var(--green);
+  color: #fff;
+  flex: 1;
+}
+.op-btn--withdrawal {
+  background: var(--red);
+  color: #fff;
+  flex: 1;
+}
+.op-btn--cancel {
+  background: var(--grey);
+  color: #fff;
+}
 .op-btn:hover:not(:disabled) {
   filter: brightness(1.1);
   transform: translateY(-1px);
@@ -316,9 +333,15 @@ async function submitCardOperation(item, type) {
   cursor: pointer;
   color: #fff;
 }
-.btn-sm.pokaż { background: #17a2b8; }
-.btn-sm.edytuj { background: var(--blue); }
-.btn-sm.usun { background: var(--red); }
+.btn-sm.pokaż {
+  background: #17a2b8;
+}
+.btn-sm.edytuj {
+  background: var(--blue);
+}
+.btn-sm.usun {
+  background: var(--red);
+}
 .btn-ordered {
   background: #fff;
   border: 1px solid var(--border-color) !important;
