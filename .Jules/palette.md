@@ -1,0 +1,3 @@
+## 2026-07-25 - Semantic Pagination Navigation
+**Learning:** Using <div> for pagination components prevents screen readers from understanding the component's purpose. Furthermore, icon-only next/prev buttons without aria-label are inaccessible to assistive technologies. Active pages should be marked with aria-current="page".
+**Action:** Replace <div> wrappers in pagination with <nav aria-label="Nawigacja po stronach">. Ensure next/previous buttons have Polish aria-label attributes ('Następna strona', 'Poprzednia strona'), set aria-current="page" on the currently active button, and dynamically assign aria-label to numbered page buttons.
