@@ -22,7 +22,7 @@ const { toasts, remove } = useToast();
           <template v-else>i</template>
         </span>
         <span class="toast-message">{{ toast.message }}</span>
-        <button class="toast-close" @click.stop="remove(toast.id)" aria-label="Zamknij">×</button>
+        <button type="button" class="toast-close" title="Zamknij" @click.stop="remove(toast.id)" aria-label="Zamknij">×</button>
       </div>
     </transition-group>
   </div>

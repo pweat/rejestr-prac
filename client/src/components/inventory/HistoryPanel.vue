@@ -48,7 +48,7 @@ watch(() => props.item, loadHistory, { immediate: true });
           <h3>Historia: {{ item.name }}</h3>
           <span class="history-subtitle">Aktualna ilość: <strong>{{ item.quantity }} {{ item.unit }}</strong></span>
         </div>
-        <button class="close-button" @click="emit('close')">&times;</button>
+        <button type="button" class="close-button" aria-label="Zamknij" title="Zamknij" @click="emit('close')">&times;</button>
       </div>
 
       <div class="modal-body">

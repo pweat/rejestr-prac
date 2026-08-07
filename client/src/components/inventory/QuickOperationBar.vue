@@ -176,13 +176,7 @@ watch(searchText, (val) => {
             @blur="onSearchBlur"
             @keydown="onSearchKeydown"
           />
-          <button
-            v-if="selectedItem"
-            type="button"
-            class="clear-btn"
-            @click="clearSelection"
-            title="Wyczyść wybór"
-          >×</button>
+          <button v-if="selectedItem" type="button" class="clear-btn" aria-label="Wyczyść wybór" title="Wyczyść wybór" @click="clearSelection">×</button>
         </div>
 
         <!-- Dropdown z wynikami -->
