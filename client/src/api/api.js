@@ -18,7 +18,7 @@ export async function authenticatedFetch(url, options = {}) {
 
   const response = await fetch(url, newOptions);
 
-  // Tylko wygaśnięcie sesji (401) powoduje wylogowanie
+  // Wygaśnięcie / brak sesji → wylogowanie i ekran logowania
   if (response.status === 401) {
     clearAuthData();
     window.location.href = '/login';

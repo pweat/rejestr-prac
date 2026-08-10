@@ -26,11 +26,38 @@ export function setToken(token) {
 }
 
 /**
- * Pobiera token uwierzytelniający z localStorage.
- * @returns {string|null} Zapisany token JWT lub null, jeśli nie istnieje.
+ * Sprawdza, czy podany token JWT jest ważny (istnieje i nie wygasł).
+ * @param {string|null} token
+ * @returns {boolean}
+ */
+function isTokenValid(token) {
+  if (!token) return false;
+
+  try {
+    const decoded = jwtDecode(token);
+    // exp jest w sekundach unix; brak exp traktujemy jako nieważny
+    if (!decoded.exp) return false;
+    return decoded.exp * 1000 > Date.now();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Pobiera ważny token uwierzytelniający z localStorage.
+ * Wygasły lub uszkodzony token jest usuwany.
+ * @returns {string|null} Token JWT lub null.
  */
 export function getToken() {
-  return localStorage.getItem(TOKEN_KEY);
+  const token = localStorage.getItem(TOKEN_KEY);
+  if (!token) return null;
+
+  if (!isTokenValid(token)) {
+    removeToken();
+    return null;
+  }
+
+  return token;
 }
 
 /**
@@ -46,7 +73,7 @@ export function removeToken() {
 
 /**
  * Reaktywna właściwość (computed property) Vue, która sprawdza,
- * czy token istnieje w localStorage. Zmienia swoją wartość automatycznie.
+ * czy użytkownik ma ważny (nieprzeterminowany) token.
  * @returns {boolean} `true` jeśli użytkownik jest uwierzytelniony, w przeciwnym razie `false`.
  */
 export const isAuthenticated = computed(() => !!getToken());

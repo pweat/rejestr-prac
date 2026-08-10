@@ -639,7 +639,9 @@ const authenticateToken = (req, res, next) => {
   if (token == null) return res.sendStatus(401); // Unauthorized
 
   jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) return res.sendStatus(403); // Forbidden
+    // Brak / nieważny / wygasły token = 401, żeby klient mógł przekierować na logowanie.
+    // 403 zostawiamy wyłącznie dla braku uprawnień (isAdmin / canEdit).
+    if (err) return res.sendStatus(401);
     req.user = user;
     next();
   });
@@ -900,7 +902,7 @@ app.post('/api/login', async (req, res) => {
       return res.status(401).json({ error: 'Nieprawidłowa nazwa użytkownika lub hasło.' });
     }
 
-    const token = jwt.sign({ userId: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '24h' });
+    const token = jwt.sign({ userId: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
     res.json({ token });
   } catch (err) {
     console.error('Błąd w /api/login:', err);
