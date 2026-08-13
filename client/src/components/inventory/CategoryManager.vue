@@ -61,7 +61,7 @@ async function handleDelete(cat) {
     <div class="modal-content">
       <div class="modal-header">
         <h3>Kategorie magazynu</h3>
-        <button class="close-button" @click="emit('close')">&times;</button>
+        <button type="button" class="close-button" @click="emit('close')" aria-label="Zamknij" title="Zamknij">&times;</button>
       </div>
 
       <div class="modal-body">

@@ -77,7 +77,7 @@ async function handleSubmit() {
     <div class="modal-content">
       <div class="modal-header">
         <h3>{{ isEditMode ? 'Edytuj przedmiot' : 'Dodaj nowy przedmiot' }}</h3>
-        <button class="close-button" @click="emit('close')">&times;</button>
+        <button type="button" class="close-button" @click="emit('close')" aria-label="Zamknij" title="Zamknij">&times;</button>
       </div>
 
       <form @submit.prevent="handleSubmit">
