@@ -1,0 +1,3 @@
+## 2024-03-05 - Accessible Pagination Component
+**Learning:** Found that the pagination component was missing key accessibility features like a `<nav>` wrapper, `aria-label` for icon-only buttons (`&laquo;` and `&raquo;`), and `aria-current` to indicate the active page. This makes it difficult for screen reader users to navigate between pages effectively.
+**Action:** Always wrap pagination controls in `<nav aria-label="Nawigacja po stronach">` and add explicit `aria-label` and `title` attributes to icon-only navigation buttons. Use `aria-current="page"` to clearly mark the currently active page.
