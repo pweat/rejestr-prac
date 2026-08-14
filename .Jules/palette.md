@@ -1,0 +1,3 @@
+## 2026-08-14 - [Pagination Accessibility]
+**Learning:** Pagination controls often lack semantic structure and context for screen readers. Using just `<div class="pagination-controls">` and basic buttons leaves visually impaired users without clues about what the buttons do, especially the `&laquo;` and `&raquo;` symbols.
+**Action:** Wrap pagination components in `<nav aria-label="Nawigacja po stronach">`. Ensure buttons have clear `aria-label` attributes (e.g., "Poprzednia strona", "Następna strona", "Strona X"). Use `aria-current="page"` to indicate the currently active page. Always ensure icon-only buttons have descriptive labels and interactive elements have `type="button"`.
