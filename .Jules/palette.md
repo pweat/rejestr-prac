@@ -1,0 +1,3 @@
+## $(date +%Y-%m-%d) - Add accessibility attributes to icon-only buttons
+**Learning:** Icon-only interactive elements, such as close buttons (`.close-button` with `&times;`) and delete buttons (`.btn-del` with `×`), must include descriptive `aria-label` and `title` attributes (e.g., `aria-label="Zamknij"`, `title="Zamknij"`) to ensure proper localization, accessibility for screen readers, and hover tooltips for sighted users. Additionally, they must include `type="button"` to prevent accidental form submissions when modals are embedded in or around `<form>` tags. The application's default and expected language is Polish.
+**Action:** When adding or reviewing icon-only buttons, ensure they have appropriate `aria-label`, `title`, and `type="button"` attributes in Polish.
