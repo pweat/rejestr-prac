@@ -1,0 +1,3 @@
+## $(date +%Y-%m-%d) - Add missing ARIA labels and title attributes to icon-only buttons
+**Learning:** The application uses several icon-only close (`&times;`) and delete (`×`) buttons without explicit `aria-label` or `title` attributes. This is a common accessibility issue that makes these controls difficult for screen reader users and users requiring tooltips.
+**Action:** Identified `.close-button` and `.btn-del` classes across multiple Vue components. Used a targeted sed replacement script to add `type="button"`, `aria-label="Zamknij"` / `"Usuń wpis"`, and `title="Zamknij"` / `"Usuń wpis"` to these buttons. This enhances both screen reader accessibility and visual tooltips without altering the design.
