@@ -1,0 +1,3 @@
+## 2026-07-09 - Pagination Accessibility in Polish Locale
+**Learning:** Pagination controls often rely on visual cues (like highlighted current page) and symbols (`&laquo;`) which screen readers cannot adequately parse. Proper semantic HTML (`<nav>`) and ARIA labels are essential to provide context.
+**Action:** Always wrap pagination controls in `<nav aria-label="...">`, use explicit `aria-label` for prev/next buttons (e.g. "Poprzednia strona"), indicate active state with `aria-current="page"`, and provide context to page numbers (using template literals like `Strona ${page}`). Ensure ellipsis markers have null labels to prevent awkward screen reader announcements.
