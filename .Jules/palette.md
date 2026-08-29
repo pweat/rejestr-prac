@@ -1,0 +1,3 @@
+## 2026-07-05 - Icon-only buttons lacking context
+**Learning:** Many modal close buttons (`&times;`) and inline delete buttons (`×`) across the application lacked `aria-label` attributes and explicit `type="button"` declarations. This poses accessibility issues for screen readers (which read "times" or nothing meaningful) and functional issues where buttons inside forms might accidentally trigger submit events.
+**Action:** Always add `type="button"` and descriptive `aria-label`s (e.g., `aria-label="Zamknij"` for close buttons, `aria-label="Usuń wpis"` for delete buttons) to icon-only buttons to ensure they are accessible and safe within forms.
