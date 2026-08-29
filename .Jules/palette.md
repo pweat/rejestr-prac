@@ -1,0 +1,3 @@
+## 2025-02-18 - Accessible Icon-only Buttons
+**Learning:** Across the app's components, icon-only buttons such as modal close controls (`.close-button` with `&times;`) and delete actions (`.btn-del` with `×`) lacked `aria-label` attributes and `type="button"`. This makes them inaccessible to screen readers (particularly in the Polish localization context) and risks accidental form submissions.
+**Action:** Ensure that any icon-only interactive element is explicitly marked with `type="button"` and includes a descriptive, localized `aria-label` (e.g., `aria-label="Zamknij"`, `aria-label="Usuń wpis"`).
