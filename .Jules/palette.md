@@ -1,0 +1,3 @@
+## 2026-06-29 - Icon-only Buttons Missing Accessibility Attributes
+**Learning:** The application uses icon-only buttons (like `×` and `&times;`) for destructive or closing actions without semantic types or ARIA labels. This causes screen readers to read out meaningless characters instead of the action, and risks accidental form submissions if placed inside a form.
+**Action:** Always ensure icon-only interactive elements, such as close (`.close-button`) and delete (`.btn-del`) buttons, include `type="button"` and a descriptive `aria-label` (e.g., `aria-label="Zamknij"` or `aria-label="Usuń wpis"`) to support Polish localization and screen reader accessibility.
