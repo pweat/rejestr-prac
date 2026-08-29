@@ -1,0 +1,3 @@
+## 2026-07-15 - Added ARIA labels and type="button" to icon-only buttons
+**Learning:** Icon-only interactive elements, such as close buttons (`.close-button` with `&times;`) and delete buttons (`.btn-del` with `×`), must include `type="button"` to prevent accidental form submissions, and descriptive `aria-label` attributes (e.g., `aria-label="Zamknij"` and `aria-label="Usuń wpis"`) to ensure proper Polish localization and accessibility for screen readers.
+**Action:** When adding icon-only buttons in Vue components, always include an `aria-label` attribute with a descriptive action in Polish and ensure `type="button"` is set to prevent unintended form submission.
