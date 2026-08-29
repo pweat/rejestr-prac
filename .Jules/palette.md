@@ -1,0 +1,3 @@
+## 2024-12-07 - Accessibility for Icon-only Close/Delete Buttons
+**Learning:** Icon-only buttons (like modal close buttons with &times; or delete buttons with ×) present accessibility issues for screen readers in this application, as they lack descriptive labels. Furthermore, these buttons inside forms without an explicit `type="button"` act as submit buttons by default, causing accidental form submissions when clicked.
+**Action:** Always add `type="button"` to non-submit buttons, particularly icon-only buttons like `.close-button` and `.btn-del`. Apply proper `aria-label` attributes (e.g., `aria-label="Zamknij"` and `aria-label="Usuń wpis"`) to provide clear context for Polish screen readers.
