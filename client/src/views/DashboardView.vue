@@ -275,13 +275,10 @@ async function confirmPostpone() {
   if (!postponeTarget.value?.schedule_id) return;
   scheduleActionLoading.value = true;
   try {
-    const response = await authenticatedFetch(
-      `${API_URL}/api/service-schedules/${postponeTarget.value.schedule_id}/postpone`,
-      {
-        method: 'POST',
-        body: JSON.stringify({ months: postponeMonths.value }),
-      }
-    );
+    const response = await authenticatedFetch(`${API_URL}/api/service-schedules/${postponeTarget.value.schedule_id}/postpone`, {
+      method: 'POST',
+      body: JSON.stringify({ months: postponeMonths.value }),
+    });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || 'Nie udało się odłożyć terminu.');
     toast.success(`Termin przesunięty o ${postponeMonths.value} mies.`);
@@ -381,7 +378,9 @@ onMounted(() => {
     <section class="dashboard-alerts">
       <div class="dashboard-widget">
         <div class="widget-title-row">
-          <h2 class="widget-title"><span class="icon">🔔</span> Powiadomienia Serwisowe <span v-if="!isLoading" class="widget-count">({{ serviceReminders.length }})</span></h2>
+          <h2 class="widget-title">
+            <span class="icon">🔔</span> Powiadomienia Serwisowe <span v-if="!isLoading" class="widget-count">({{ serviceReminders.length }})</span>
+          </h2>
           <RouterLink to="/zlecenia" class="widget-see-all">Zobacz wszystkie →</RouterLink>
         </div>
         <div v-if="isLoading" class="loading-container loading-container--compact">
@@ -416,7 +415,9 @@ onMounted(() => {
 
       <div class="dashboard-widget">
         <div class="widget-title-row">
-          <h2 class="widget-title"><span class="icon">🚗</span> Pojazdy <span v-if="!isLoading" class="widget-count">({{ vehicleReminders.length }})</span></h2>
+          <h2 class="widget-title">
+            <span class="icon">🚗</span> Pojazdy <span v-if="!isLoading" class="widget-count">({{ vehicleReminders.length }})</span>
+          </h2>
           <RouterLink to="/pojazdy" class="widget-see-all">Zobacz wszystkie →</RouterLink>
         </div>
         <div v-if="isLoading" class="loading-container loading-container--compact">
@@ -445,19 +446,16 @@ onMounted(() => {
 
       <div class="dashboard-widget">
         <div class="widget-title-row">
-          <h2 class="widget-title"><span class="icon">📦</span> Magazyn <span v-if="!isLoading" class="widget-count">({{ lowStockTotalCount }})</span></h2>
+          <h2 class="widget-title">
+            <span class="icon">📦</span> Magazyn <span v-if="!isLoading" class="widget-count">({{ lowStockTotalCount }})</span>
+          </h2>
           <RouterLink :to="inventoryAlertLink" class="widget-see-all">Przejdź do magazynu →</RouterLink>
         </div>
         <div v-if="isLoading" class="loading-container loading-container--compact">
           <div class="spinner"></div>
         </div>
         <div v-else-if="lowStockItems.length > 0" class="widget-body widget-body--scroll">
-          <div
-            v-for="item in lowStockItems"
-            :key="item.id"
-            class="alert-row alert-row--stock"
-            :class="{ 'alert-row--critical': item.is_critical || item.quantity <= 0 }"
-          >
+          <div v-for="item in lowStockItems" :key="item.id" class="alert-row alert-row--stock" :class="{ 'alert-row--critical': item.is_critical || item.quantity <= 0 }">
             <div class="alert-row-main">
               <strong class="alert-row-title">{{ item.name }}</strong>
               <span class="status-pill" :class="stockItemBadge(item).class">{{ stockItemBadge(item).text }}</span>
@@ -492,49 +490,25 @@ onMounted(() => {
       <template v-else-if="monthlyStats">
         <div class="finance-hero">
           <div class="finance-hero-grid">
-            <button
-              type="button"
-              class="finance-card finance-card--revenue"
-              :class="{ active: activeMetric === 'revenue' }"
-              @click="toggleMetric('revenue')"
-            >
+            <button type="button" class="finance-card finance-card--revenue" :class="{ active: activeMetric === 'revenue' }" @click="toggleMetric('revenue')">
               <span class="finance-card-label">Przychód</span>
               <strong class="finance-card-value">{{ formatCurrency(monthlyStats.totalRevenue) }}</strong>
             </button>
-            <button
-              type="button"
-              class="finance-card finance-card--costs"
-              :class="{ active: activeMetric === 'costs' }"
-              @click="toggleMetric('costs')"
-            >
+            <button type="button" class="finance-card finance-card--costs" :class="{ active: activeMetric === 'costs' }" @click="toggleMetric('costs')">
               <span class="finance-card-label">Wydatki</span>
               <strong class="finance-card-value">{{ formatCurrency(monthlyStats.totalCosts) }}</strong>
             </button>
-            <button
-              type="button"
-              class="finance-card finance-card--profit"
-              :class="{ active: activeMetric === 'profit' }"
-              @click="toggleMetric('profit')"
-            >
+            <button type="button" class="finance-card finance-card--profit" :class="{ active: activeMetric === 'profit' }" @click="toggleMetric('profit')">
               <span class="finance-card-label">Dochód miesiąca</span>
-              <strong
-                class="finance-card-value finance-card-value--profit"
-                :class="monthlyStats.totalProfit >= 0 ? 'profit-positive' : 'profit-negative'"
-              >
+              <strong class="finance-card-value finance-card-value--profit" :class="monthlyStats.totalProfit >= 0 ? 'profit-positive' : 'profit-negative'">
                 {{ formatCurrency(monthlyStats.totalProfit) }}
               </strong>
             </button>
           </div>
           <div class="finance-bar" v-if="financeShares.total > 0">
             <div class="finance-bar-track" aria-hidden="true">
-              <div
-                class="finance-bar-segment finance-bar-segment--revenue"
-                :style="{ width: financeShares.revenuePct + '%' }"
-              ></div>
-              <div
-                class="finance-bar-segment finance-bar-segment--costs"
-                :style="{ width: financeShares.costsPct + '%' }"
-              ></div>
+              <div class="finance-bar-segment finance-bar-segment--revenue" :style="{ width: financeShares.revenuePct + '%' }"></div>
+              <div class="finance-bar-segment finance-bar-segment--costs" :style="{ width: financeShares.costsPct + '%' }"></div>
             </div>
             <div class="finance-bar-legend">
               <span class="finance-bar-legend-item">
@@ -585,11 +559,7 @@ onMounted(() => {
             </div>
             <div class="stats-subtitle">Kategorie wydatków</div>
             <div v-if="expenseCategories.length" class="expense-bars">
-              <div
-                v-for="item in expenseCategories"
-                :key="item.key"
-                class="expense-bar"
-              >
+              <div v-for="item in expenseCategories" :key="item.key" class="expense-bar">
                 <div class="expense-bar-head">
                   <span class="expense-bar-label">{{ item.label }}</span>
                   <span class="expense-bar-value">
@@ -640,48 +610,23 @@ onMounted(() => {
         </div>
 
         <div class="ops-grid">
-          <button
-            type="button"
-            class="ops-card"
-            :class="{ active: activeMetric === 'meters' }"
-            @click="toggleMetric('meters')"
-          >
+          <button type="button" class="ops-card" :class="{ active: activeMetric === 'meters' }" @click="toggleMetric('meters')">
             <span class="ops-card-label">Metry</span>
             <strong class="ops-card-value">{{ monthlyStats.totalMeters || 0 }} m</strong>
           </button>
-          <button
-            type="button"
-            class="ops-card"
-            :class="{ active: activeMetric === 'well_drilling' }"
-            @click="toggleMetric('well_drilling')"
-          >
+          <button type="button" class="ops-card" :class="{ active: activeMetric === 'well_drilling' }" @click="toggleMetric('well_drilling')">
             <span class="ops-card-label">Studnie</span>
             <strong class="ops-card-value">{{ monthlyStats.jobCounts.well_drilling || 0 }}</strong>
           </button>
-          <button
-            type="button"
-            class="ops-card"
-            :class="{ active: activeMetric === 'connection' }"
-            @click="toggleMetric('connection')"
-          >
+          <button type="button" class="ops-card" :class="{ active: activeMetric === 'connection' }" @click="toggleMetric('connection')">
             <span class="ops-card-label">Podłączenia</span>
             <strong class="ops-card-value">{{ monthlyStats.jobCounts.connection || 0 }}</strong>
           </button>
-          <button
-            type="button"
-            class="ops-card"
-            :class="{ active: activeMetric === 'treatment_station' }"
-            @click="toggleMetric('treatment_station')"
-          >
+          <button type="button" class="ops-card" :class="{ active: activeMetric === 'treatment_station' }" @click="toggleMetric('treatment_station')">
             <span class="ops-card-label">Stacje</span>
             <strong class="ops-card-value">{{ monthlyStats.jobCounts.treatment_station || 0 }}</strong>
           </button>
-          <button
-            type="button"
-            class="ops-card"
-            :class="{ active: activeMetric === 'service' }"
-            @click="toggleMetric('service')"
-          >
+          <button type="button" class="ops-card" :class="{ active: activeMetric === 'service' }" @click="toggleMetric('service')">
             <span class="ops-card-label">Serwisy</span>
             <strong class="ops-card-value">{{ monthlyStats.jobCounts.service || 0 }}</strong>
           </button>
@@ -748,9 +693,7 @@ onMounted(() => {
     <div v-if="showPostponeModal" class="modal-backdrop" @click.self="showPostponeModal = false">
       <div class="modal-content modal-content--small">
         <h3>Odłóż termin serwisu</h3>
-        <p v-if="postponeTarget">
-          {{ postponeTarget.client_name }} — {{ postponeTarget.miejscowosc }}
-        </p>
+        <p v-if="postponeTarget">{{ postponeTarget.client_name }} — {{ postponeTarget.miejscowosc }}</p>
         <label>
           Przesuń o liczbę miesięcy:
           <input v-model.number="postponeMonths" type="number" min="1" max="60" step="1" />
@@ -1000,7 +943,10 @@ onMounted(() => {
   gap: 6px;
   cursor: pointer;
   text-align: left;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background-color 0.15s ease;
 }
 
 .finance-card:hover {
@@ -1115,7 +1061,10 @@ onMounted(() => {
   gap: 4px;
   cursor: pointer;
   text-align: left;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background-color 0.15s ease;
 }
 
 .ops-card:hover {

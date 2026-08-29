@@ -7,14 +7,7 @@ const { toasts, remove } = useToast();
 <template>
   <div class="toast-container" aria-live="polite">
     <transition-group name="toast" tag="div">
-      <div
-        v-for="toast in toasts"
-        :key="toast.id"
-        class="toast"
-        :class="`toast--${toast.type}`"
-        role="status"
-        @click="remove(toast.id)"
-      >
+      <div v-for="toast in toasts" :key="toast.id" class="toast" :class="`toast--${toast.type}`" role="status" @click="remove(toast.id)">
         <span class="toast-icon" aria-hidden="true">
           <template v-if="toast.type === 'success'">✓</template>
           <template v-else-if="toast.type === 'error'">!</template>
@@ -119,7 +112,9 @@ const { toasts, remove } = useToast();
 }
 .toast-enter-active,
 .toast-leave-active {
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
 }
 .toast-leave-to {
   opacity: 0;
