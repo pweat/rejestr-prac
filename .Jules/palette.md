@@ -1,0 +1,3 @@
+## 2026-04-29 - Semantic Pagination
+**Learning:** Generic wrapper elements (`<div>`) for pagination omit critical structural context for screen readers. Polish locale requires specific ARIA labels for pagination controls, including conditional logic to prevent screen readers from reading generic page labels for ellipsis indicators.
+**Action:** Replace `<div>` with `<nav aria-label="Nawigacja po stronach">` and add specific ARIA labels (`Poprzednia strona`, `Następna strona`, `Strona ${page}`) while ensuring `aria-current="page"` is used for active state and ellipsis buttons have their `aria-label` conditionally nullified to prevent confusing announcements.
