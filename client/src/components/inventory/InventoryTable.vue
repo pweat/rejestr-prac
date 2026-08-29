@@ -97,18 +97,10 @@ function getSortIcon(key) {
       <table>
         <thead>
           <tr>
-            <th @click="store.setSort('name')" class="sortable">
-              Nazwa{{ getSortIcon('name') }}
-            </th>
-            <th @click="store.setSort('quantity')" class="sortable qty-col">
-              Ilość{{ getSortIcon('quantity') }}
-            </th>
-            <th @click="store.setSort('unit')" class="sortable">
-              Jedn.{{ getSortIcon('unit') }}
-            </th>
-            <th @click="store.setSort('min_stock_level')" class="sortable">
-              Min{{ getSortIcon('min_stock_level') }}
-            </th>
+            <th @click="store.setSort('name')" class="sortable">Nazwa{{ getSortIcon('name') }}</th>
+            <th @click="store.setSort('quantity')" class="sortable qty-col">Ilość{{ getSortIcon('quantity') }}</th>
+            <th @click="store.setSort('unit')" class="sortable">Jedn.{{ getSortIcon('unit') }}</th>
+            <th @click="store.setSort('min_stock_level')" class="sortable">Min{{ getSortIcon('min_stock_level') }}</th>
             <th class="cat-col">Kategoria</th>
             <th>Ostatnia dostawa</th>
             <th>Status</th>
@@ -138,15 +130,7 @@ function getSortIcon(key) {
             <!-- Ilość — inline edycja -->
             <td data-label="Ilość" class="quantity-cell">
               <template v-if="editingQuantityId === item.id">
-                <input
-                  v-model="editingQuantityValue"
-                  type="number"
-                  step="any"
-                  class="inline-qty-input"
-                  @keydown="onQuantityKeydown($event, item)"
-                  @blur="confirmEditQuantity(item)"
-                  v-focus
-                />
+                <input v-model="editingQuantityValue" type="number" step="any" class="inline-qty-input" @keydown="onQuantityKeydown($event, item)" @blur="confirmEditQuantity(item)" v-focus />
               </template>
               <template v-else>
                 <span
@@ -158,7 +142,8 @@ function getSortIcon(key) {
                   }"
                   :title="userRole !== 'viewer' ? 'Kliknij, aby edytować ilość' : ''"
                   @click="startEditQuantity(item)"
-                >{{ item.quantity }}</span>
+                  >{{ item.quantity }}</span
+                >
               </template>
             </td>
 
@@ -185,13 +170,7 @@ function getSortIcon(key) {
               <span class="status-badge" :class="getItemStatus(item).cls">
                 {{ getItemStatus(item).text }}
               </span>
-              <button
-                v-if="userRole !== 'viewer'"
-                type="button"
-                class="btn-ordered-toggle"
-                :class="{ 'btn-ordered-toggle--active': item.is_ordered }"
-                @click="store.toggleOrdered(item)"
-              >
+              <button v-if="userRole !== 'viewer'" type="button" class="btn-ordered-toggle" :class="{ 'btn-ordered-toggle--active': item.is_ordered }" @click="store.toggleOrdered(item)">
                 {{ item.is_ordered ? '✓ Zamówione' : 'Zamów' }}
               </button>
             </td>
@@ -209,15 +188,9 @@ function getSortIcon(key) {
       </table>
     </div>
 
-    <PaginationControls
-      v-if="store.totalPages > 1"
-      :current-page="store.currentPage"
-      :total-pages="store.totalPages"
-      @page-changed="store.setPage"
-    />
+    <PaginationControls v-if="store.totalPages > 1" :current-page="store.currentPage" :total-pages="store.totalPages" @page-changed="store.setPage" />
   </div>
 </template>
-
 
 <style scoped>
 .table-and-pagination {
@@ -256,9 +229,16 @@ function getSortIcon(key) {
   color: #fff;
   white-space: nowrap;
 }
-.status-ok { background-color: var(--green); }
-.status-low { background-color: #ffc107; color: #333; }
-.status-out { background-color: var(--red); }
+.status-ok {
+  background-color: var(--green);
+}
+.status-low {
+  background-color: #ffc107;
+  color: #333;
+}
+.status-out {
+  background-color: var(--red);
+}
 
 /* Quantity cell */
 .quantity-cell {
@@ -275,9 +255,15 @@ function getSortIcon(key) {
 .qty-value:hover {
   background: rgba(0, 123, 255, 0.08);
 }
-.qty-ok { color: var(--green); }
-.qty-low { color: #e69500; }
-.qty-out { color: var(--red); }
+.qty-ok {
+  color: var(--green);
+}
+.qty-low {
+  color: #e69500;
+}
+.qty-out {
+  color: var(--red);
+}
 
 .inline-qty-input {
   width: 80px;
@@ -298,10 +284,15 @@ function getSortIcon(key) {
   font-size: 12px;
   color: #495057;
 }
-.no-cat { color: var(--grey); }
+.no-cat {
+  color: var(--grey);
+}
 
 /* Data */
-.date-text { font-size: 13px; color: var(--text-color-secondary); }
+.date-text {
+  font-size: 13px;
+  color: var(--text-color-secondary);
+}
 
 /* Ordered toggle */
 .btn-ordered-toggle {
@@ -327,12 +318,23 @@ function getSortIcon(key) {
 }
 
 /* Column widths */
-.qty-col { text-align: center; }
-.cat-col { min-width: 100px; }
-.date-col { white-space: nowrap; }
-.status-col { white-space: nowrap; }
+.qty-col {
+  text-align: center;
+}
+.cat-col {
+  min-width: 100px;
+}
+.date-col {
+  white-space: nowrap;
+}
+.status-col {
+  white-space: nowrap;
+}
 
 @media (max-width: 850px) {
-  .cat-col, .date-col { display: none; }
+  .cat-col,
+  .date-col {
+    display: none;
+  }
 }
 </style>

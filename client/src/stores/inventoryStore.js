@@ -29,9 +29,7 @@ export const useInventoryStore = defineStore('inventory', () => {
   const filterHideOrdered = ref(false);
 
   // ── Computed ──────────────────────────────────────────────────────────────
-  const hasActiveFilters = computed(
-    () => filterLowStock.value || filterAlertOnly.value || filterHideOrdered.value || selectedCategoryId.value
-  );
+  const hasActiveFilters = computed(() => filterLowStock.value || filterAlertOnly.value || filterHideOrdered.value || selectedCategoryId.value);
 
   // ── Pobieranie danych ─────────────────────────────────────────────────────
 

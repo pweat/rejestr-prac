@@ -21,9 +21,7 @@ defineExpose({ focusSearch });
 const filteredItems = computed(() => {
   const q = searchText.value.trim().toLowerCase();
   if (!q) return store.allItems.slice(0, 8);
-  return store.allItems
-    .filter((item) => item.name.toLowerCase().includes(q) || (item.category_name && item.category_name.toLowerCase().includes(q)))
-    .slice(0, 10);
+  return store.allItems.filter((item) => item.name.toLowerCase().includes(q) || (item.category_name && item.category_name.toLowerCase().includes(q))).slice(0, 10);
 });
 
 function getItemStatus(item) {
@@ -176,13 +174,7 @@ watch(searchText, (val) => {
             @blur="onSearchBlur"
             @keydown="onSearchKeydown"
           />
-          <button
-            v-if="selectedItem"
-            type="button"
-            class="clear-btn"
-            @click="clearSelection"
-            title="Wyczyść wybór"
-          >×</button>
+          <button v-if="selectedItem" type="button" class="clear-btn" @click="clearSelection" title="Wyczyść wybór">×</button>
         </div>
 
         <!-- Dropdown z wynikami -->
@@ -209,48 +201,19 @@ watch(searchText, (val) => {
       </div>
 
       <!-- Ilość -->
-      <input
-        ref="quantityInputRef"
-        v-model="quantity"
-        type="number"
-        class="qob-input qob-qty"
-        placeholder="Ilość"
-        min="0.01"
-        step="any"
-        inputmode="decimal"
-        @keydown="onQuantityKeydown"
-      />
+      <input ref="quantityInputRef" v-model="quantity" type="number" class="qob-input qob-qty" placeholder="Ilość" min="0.01" step="any" inputmode="decimal" @keydown="onQuantityKeydown" />
 
       <!-- Przyciski -->
-      <button
-        type="button"
-        class="qob-btn qob-btn--delivery"
-        :disabled="isSubmitting"
-        @click="submitOperation('delivery')"
-        title="Przyjęcie dostawy (Enter)"
-      >
-        + Dostawa
-      </button>
-      <button
-        type="button"
-        class="qob-btn qob-btn--withdrawal"
-        :disabled="isSubmitting"
-        @click="submitOperation('withdrawal')"
-        title="Wydanie z magazynu"
-      >
-        − Wydanie
-      </button>
+      <button type="button" class="qob-btn qob-btn--delivery" :disabled="isSubmitting" @click="submitOperation('delivery')" title="Przyjęcie dostawy (Enter)">+ Dostawa</button>
+      <button type="button" class="qob-btn qob-btn--withdrawal" :disabled="isSubmitting" @click="submitOperation('withdrawal')" title="Wydanie z magazynu">− Wydanie</button>
     </div>
 
     <!-- Podpowiedź dla wybranego przedmiotu -->
     <div v-if="selectedItem" class="qob-selected-hint">
-      Wybrany: <strong>{{ selectedItem.name }}</strong>
-      &nbsp;·&nbsp; Stan: <strong :class="`qty-${getItemStatus(selectedItem)}`">{{ selectedItem.quantity }} {{ selectedItem.unit }}</strong>
+      Wybrany: <strong>{{ selectedItem.name }}</strong> &nbsp;·&nbsp; Stan: <strong :class="`qty-${getItemStatus(selectedItem)}`">{{ selectedItem.quantity }} {{ selectedItem.unit }}</strong>
       <span v-if="selectedItem.min_stock_level > 0"> &nbsp;·&nbsp; Min: {{ selectedItem.min_stock_level }}</span>
     </div>
-    <div v-else class="qob-hint">
-      Wpisz nazwę, wybierz strzałkami lub kliknij → wpisz ilość → <kbd>Enter</kbd> = Dostawa
-    </div>
+    <div v-else class="qob-hint">Wpisz nazwę, wybierz strzałkami lub kliknij → wpisz ilość → <kbd>Enter</kbd> = Dostawa</div>
   </div>
 </template>
 
@@ -299,7 +262,9 @@ watch(searchText, (val) => {
   font-size: 15px;
   background: #fff;
   color: var(--text-color);
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
   width: 100%;
 }
 
