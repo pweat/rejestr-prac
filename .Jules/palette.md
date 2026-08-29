@@ -1,0 +1,3 @@
+## 2024-04-21 - Accessible Pagination in Polish Locale
+**Learning:** When adding ARIA labels to pagination controls that include an ellipsis ('...') for omitted pages, the ellipsis element must not receive a standard page label to prevent confusing screen reader announcements. Additionally, proper Polish translations like 'Nawigacja po stronach', 'Poprzednia strona', and 'Następna strona' ensure local screen reader compatibility.
+**Action:** Use conditional ARIA attributes (e.g., `:aria-label="page === '...' ? null : ..."` and `:aria-current="page === currentPage ? 'page' : null"`) when iterating over mixed pagination sequences, and consistently apply correct localized aria-labels to navigation regions.
