@@ -1,0 +1,3 @@
+## 2026-06-16 - Semantic Pagination with Polish Localization
+**Learning:** Found that the custom pagination component lacked basic screen-reader semantics (nav wrapper, aria-labels for next/prev arrows, and current page indication). When building pagination components, especially in non-English apps, explicit localized aria-labels for generic arrow icons and explicit `aria-current="page"` on active buttons are critical for accessibility.
+**Action:** Replaced the generic `<div>` wrapper with a semantic `<nav aria-label="Nawigacja po stronach">` and added explicit localized ARIA labels and `aria-current` states to pagination buttons in `PaginationControls.vue`.
