@@ -1,0 +1,3 @@
+## 2026-05-11 - Semantic and Accessible Pagination Controls
+**Learning:** Generic wrapper elements (`<div>`) and icon-only indicators (like &laquo;, &raquo;) in pagination controls provide poor context for screen readers. Explicit labels like "Poprzednia strona", "Następna strona", and "Strona ${page}" are required. Ellipsis elements ('...') must explicitly omit page labels to avoid screen reader confusion.
+**Action:** Replaced pagination `<div>` with a `<nav>` element and `aria-label="Nawigacja po stronach"`. Added descriptive `aria-label`s for next/prev buttons, specific page labels with `aria-current="page"` for the active state, and conditionally nulled `aria-label` for ellipsis elements.
