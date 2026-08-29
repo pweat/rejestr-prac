@@ -1,0 +1,3 @@
+## 2024-08-09 - Added ARIA labels to icon-only buttons
+**Learning:** Icon-only interactive elements, such as close buttons (`.close-button` with `&times;`) and delete buttons (`.btn-del` with `×`), must include `type="button"` to prevent accidental form submissions, and descriptive `aria-label` and `title` attributes (e.g., `aria-label="Zamknij"`, `title="Zamknij"` and `aria-label="Usuń wpis"`, `title="Usuń wpis"`) to ensure proper Polish localization, accessibility for screen readers, and hover tooltips for sighted users.
+**Action:** When adding or modifying icon-only buttons, always ensure they have a `type="button"`, an `aria-label`, and a `title` attribute in the correct language.
