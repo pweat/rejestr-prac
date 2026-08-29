@@ -1,0 +1,3 @@
+## 2026-05-10 - Accessible Pagination Navigation
+**Learning:** Pagination controls built with generic <div> tags and symbolic text (&laquo;) are opaque to screen readers in Polish localization. Properly semantic pagination requires <nav>, an explicit aria-label for the navigation region, distinct labels for previous/next actions, and aria-current="page" on the active item.
+**Action:** Always wrap pagination in <nav aria-label="Nawigacja po stronach">, apply clear aria-labels to iconic/symbolic buttons (e.g., 'Poprzednia strona', 'Następna strona'), and denote the current page programmatically with aria-current="page". Handle ellipsis carefully to avoid assigning page labels to non-page items.
