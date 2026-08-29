@@ -1,0 +1,3 @@
+## 2026-05-07 - Accessible Pagination Controls
+**Learning:** In custom Vue pagination components that use text markers like '...' for omitted pages, applying generic ARIA labels inside a v-for loop results in screen readers reading confusing text like "Strona ...". It is essential to selectively omit `aria-label` on non-interactive marker elements.
+**Action:** When adding localized ARIA labels to loop-generated elements (e.g., pagination buttons), always use conditional binding (`:aria-label="page === '...' ? null : 'Strona ' + page"`) to prevent applying interactive labels to static visual markers.
