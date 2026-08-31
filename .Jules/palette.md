@@ -1,0 +1,3 @@
+## 2024-05-18 - Icon-only Button Accessibility
+**Learning:** Icon-only buttons (like `.close-button` with `&times;` and `.btn-del` with `×`) lack semantic labeling and tooltips, which harms screen reader accessibility and makes them less intuitive for sighted users. In Polish-default interfaces, they need `aria-label` and `title` attributes with clear Polish translations, as well as `type="button"` to avoid implicit form submissions.
+**Action:** Add `aria-label="Zamknij"`, `title="Zamknij"`, and `type="button"` to `.close-button`s, and `aria-label="Usuń wpis"`, `title="Usuń wpis"`, and `type="button"` to `.btn-del`s.
