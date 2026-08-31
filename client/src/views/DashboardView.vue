@@ -242,6 +242,9 @@ function quickServiceLink(reminder) {
   if (reminder.miejscowosc && reminder.miejscowosc !== '—') {
     params.set('miejscowosc', reminder.miejscowosc);
   }
+  if (reminder.source_job_id) {
+    params.set('stationJobId', String(reminder.source_job_id));
+  }
   return `/zlecenia?${params.toString()}`;
 }
 

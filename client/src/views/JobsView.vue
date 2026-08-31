@@ -92,6 +92,8 @@ const showFilters = ref(false);
 
 // Klient z chip-filtra ?clientId=...
 const clientChipName = ref('');
+const clientTreatmentStations = ref([]);
+const isTreatmentStationsLoading = ref(false);
 
 // ================================================================================================
 // 🧮 WŁAŚCIWOŚCI OBLICZENIOWE (COMPUTED)
@@ -100,7 +102,7 @@ const wellDrillingProfit = computed(() => {
   const details = selectedJobDetails.value?.details;
   if (!details) return { revenue: 0, totalCost: 0, profit: 0 };
   const revenue = (parseFloat(details.ilosc_metrow) || 0) * (parseFloat(details.cena_za_metr) || 0);
-  const totalCost = (parseFloat(details.wyplaty) || 0) + (parseFloat(details.rury) || 0) + (parseFloat(details.inne_koszta) || 0);
+  const totalCost = (parseFloat(details.wyplaty) || 0) + (parseFloat(details.rury) || 0) + (parseFloat(details.inne_koszta) || 0) + (parseFloat(details.paliwo) || 0);
   return { revenue, totalCost, profit: revenue - totalCost };
 });
 
@@ -108,7 +110,7 @@ const connectionProfit = computed(() => {
   const details = selectedJobDetails.value?.details;
   if (!details) return { profit: 0, totalCost: 0 };
   const revenue = parseFloat(details.revenue) || 0;
-  const totalCost = (parseFloat(details.casing_cost) || 0) + (parseFloat(details.equipment_cost) || 0) + (parseFloat(details.labor_cost) || 0) + (parseFloat(details.wholesale_materials_cost) || 0);
+  const totalCost = (parseFloat(details.casing_cost) || 0) + (parseFloat(details.equipment_cost) || 0) + (parseFloat(details.labor_cost) || 0) + (parseFloat(details.wholesale_materials_cost) || 0) + (parseFloat(details.paliwo) || 0);
   return { profit: revenue - totalCost, totalCost };
 });
 
@@ -116,7 +118,7 @@ const stationProfit = computed(() => {
   const details = selectedJobDetails.value?.details;
   if (!details) return { profit: 0, totalCost: 0 };
   const revenue = parseFloat(details.revenue) || 0;
-  const totalCost = (parseFloat(details.equipment_cost) || 0) + (parseFloat(details.labor_cost) || 0) + (parseFloat(details.wholesale_materials_cost) || 0);
+  const totalCost = (parseFloat(details.equipment_cost) || 0) + (parseFloat(details.labor_cost) || 0) + (parseFloat(details.wholesale_materials_cost) || 0) + (parseFloat(details.paliwo) || 0);
   return { profit: revenue - totalCost, totalCost };
 });
 
@@ -124,7 +126,7 @@ const serviceProfit = computed(() => {
   const details = selectedJobDetails.value?.details;
   if (!details) return { profit: 0, totalCost: 0 };
   const revenue = details.is_warranty ? 0 : parseFloat(details.revenue) || 0;
-  const totalCost = parseFloat(details.labor_cost) || 0;
+  const totalCost = (parseFloat(details.labor_cost) || 0) + (parseFloat(details.materialy) || 0) + (parseFloat(details.paliwo) || 0);
   return { profit: revenue - totalCost, totalCost };
 });
 
@@ -180,6 +182,66 @@ async function fetchClientsForSelect() {
   } catch (error) {
     console.error('Błąd podczas pobierania klientów do formularza:', error);
   }
+}
+
+async function fetchClientTreatmentStations(clientId) {
+  if (!clientId) {
+    clientTreatmentStations.value = [];
+    return;
+  }
+  isTreatmentStationsLoading.value = true;
+  try {
+    const response = await authenticatedFetch(`${API_URL}/api/jobs/client/${clientId}/treatment-stations`);
+    if (!response.ok) throw new Error('Błąd pobierania stacji klienta');
+    clientTreatmentStations.value = await response.json();
+  } catch (error) {
+    console.error('Błąd podczas pobierania stacji uzdatniania:', error);
+    clientTreatmentStations.value = [];
+  } finally {
+    isTreatmentStationsLoading.value = false;
+  }
+}
+
+function formatStationOptionLabel(station) {
+  const parts = [station.miejscowosc || '—'];
+  if (station.station_model) parts.push(station.station_model);
+  parts.push(`co ${station.service_interval_months || 12} mies.`);
+  return parts.join(' · ');
+}
+
+const selectedTreatmentStation = computed(() => {
+  const stationJobId = newJobData.value.details?.treatment_station_job_id;
+  if (!stationJobId) return null;
+  return clientTreatmentStations.value.find((s) => s.job_id === stationJobId) || null;
+});
+
+const editedTreatmentStation = computed(() => {
+  const stationJobId = editedJobData.value?.details?.treatment_station_job_id;
+  if (!stationJobId) return null;
+  return clientTreatmentStations.value.find((s) => s.job_id === stationJobId) || null;
+});
+
+function onServiceStationSelect(stationJobId) {
+  if (!stationJobId) {
+    newJobData.value.details.treatment_station_job_id = null;
+    return;
+  }
+  const station = clientTreatmentStations.value.find((s) => s.job_id === stationJobId);
+  if (!station) return;
+  newJobData.value.details.treatment_station_job_id = station.job_id;
+  newJobData.value.miejscowosc = station.miejscowosc || '';
+  newJobData.value.details.reset_service_interval = true;
+}
+
+function onEditServiceStationSelect(stationJobId) {
+  if (!stationJobId) {
+    editedJobData.value.details.treatment_station_job_id = null;
+    return;
+  }
+  const station = clientTreatmentStations.value.find((s) => s.job_id === stationJobId);
+  if (!station) return;
+  editedJobData.value.details.treatment_station_job_id = station.job_id;
+  editedJobData.value.miejscowosc = station.miejscowosc || '';
 }
 
 async function fetchClientJobsPreview(clientId) {
@@ -326,6 +388,10 @@ function applyAddJobQueryParams() {
   if (route.query.miejscowosc) {
     newJobData.value.miejscowosc = String(route.query.miejscowosc);
   }
+  if (route.query.stationJobId) {
+    newJobData.value.details.treatment_station_job_id = Number(route.query.stationJobId) || null;
+    newJobData.value.details.reset_service_interval = route.query.resetInterval !== 'false';
+  }
 }
 
 function handleShowAddJobModal() {
@@ -358,6 +424,9 @@ async function handleShowEditModal(job) {
     const response = await authenticatedFetch(`${API_URL}/api/jobs/${job.id}`);
     if (!response.ok) throw new Error('Błąd pobierania danych do edycji');
     editedJobData.value = await response.json();
+    if (editedJobData.value.job_type === 'service' && editedJobData.value.client_id) {
+      await fetchClientTreatmentStations(editedJobData.value.client_id);
+    }
   } catch (error) {
     console.error('Błąd w handleShowEditModal:', error);
     toast.error(error.message);
@@ -433,8 +502,8 @@ watch(
 );
 
 watch(
-  () => [showAddJobModal.value, newJobData.value.clientId],
-  ([isOpen, clientId], [prevOpen, prevClientId]) => {
+  () => [showAddJobModal.value, newJobData.value.clientId, newJobData.value.jobType],
+  ([isOpen, clientId, jobType], [prevOpen, prevClientId]) => {
     if (!isOpen) {
       clientJobsPreview.value = [];
       clientJobsPreviewError.value = '';
@@ -442,6 +511,7 @@ watch(
       selectedClientPreviewJobDetails.value = null;
       clientPreviewDetailsError.value = '';
       isClientPreviewFullOpen.value = false;
+      clientTreatmentStations.value = [];
       return;
     }
     if (!prevOpen || clientId !== prevClientId) {
@@ -451,6 +521,19 @@ watch(
       isClientPreviewFullOpen.value = false;
     }
     fetchClientJobsPreview(clientId);
+    if (jobType === 'service' && clientId) {
+      fetchClientTreatmentStations(clientId).then(() => {
+        const stationJobId = newJobData.value.details?.treatment_station_job_id;
+        if (stationJobId) {
+          const station = clientTreatmentStations.value.find((s) => s.job_id === stationJobId);
+          if (station && !newJobData.value.miejscowosc) {
+            newJobData.value.miejscowosc = station.miejscowosc || '';
+          }
+        }
+      });
+    } else {
+      clientTreatmentStations.value = [];
+    }
   },
   { immediate: true }
 );
@@ -477,7 +560,7 @@ function handleKeydown(e) {
 }
 
 watch(
-  () => [route.query.action, route.query.clientId, route.query.jobType, route.query.miejscowosc],
+  () => [route.query.action, route.query.clientId, route.query.jobType, route.query.miejscowosc, route.query.stationJobId],
   () => {
     if (route.query.action === 'new') {
       applyAddJobQueryParams();
@@ -806,6 +889,7 @@ onBeforeUnmount(() => {
                 <div class="form-group"><label>Koszt: Rury</label><input type="number" step="any" v-model.number="newJobData.details.rury" /></div>
                 <div class="form-group"><label>Koszt: Wypłaty</label><input type="number" step="any" v-model.number="newJobData.details.wyplaty" /></div>
                 <div class="form-group"><label>Koszt: Inne</label><input type="number" step="any" v-model.number="newJobData.details.inne_koszta" /></div>
+                <div class="form-group"><label>Koszt: Paliwo</label><input type="number" step="any" v-model.number="newJobData.details.paliwo" /></div>
               </div>
               <div v-else-if="newJobData.jobType === 'connection'" class="form-grid">
                 <div class="form-group"><label>Miejscowość:</label><input type="text" v-model="newJobData.miejscowosc" /></div>
@@ -823,6 +907,7 @@ onBeforeUnmount(() => {
                 <div class="form-group"><label>Koszt osprzętu:</label><input type="number" step="any" v-model.number="newJobData.details.equipment_cost" /></div>
                 <div class="form-group"><label>Wypłaty:</label><input type="number" step="any" v-model.number="newJobData.details.labor_cost" /></div>
                 <div class="form-group"><label>Materiały z hurtowni:</label><input type="number" step="any" v-model.number="newJobData.details.wholesale_materials_cost" /></div>
+                <div class="form-group"><label>Paliwo:</label><input type="number" step="any" v-model.number="newJobData.details.paliwo" /></div>
               </div>
               <div v-else-if="newJobData.jobType === 'treatment_station'" class="form-grid">
                 <div class="form-group"><label>Miejscowość:</label><input type="text" v-model="newJobData.miejscowosc" /></div>
@@ -838,18 +923,52 @@ onBeforeUnmount(() => {
                 <div class="form-group"><label>Koszt osprzętu:</label><input type="number" step="any" v-model.number="newJobData.details.equipment_cost" /></div>
                 <div class="form-group"><label>Wypłaty:</label><input type="number" step="any" v-model.number="newJobData.details.labor_cost" /></div>
                 <div class="form-group"><label>Materiały z hurtowni:</label><input type="number" step="any" v-model.number="newJobData.details.wholesale_materials_cost" /></div>
+                <div class="form-group"><label>Paliwo:</label><input type="number" step="any" v-model.number="newJobData.details.paliwo" /></div>
               </div>
               <div v-else-if="newJobData.jobType === 'service'" class="form-grid">
-                <div class="form-group full-width"><label>Miejscowość:</label><input type="text" v-model="newJobData.miejscowosc" /></div>
+                <div v-if="clientTreatmentStations.length" class="form-group full-width">
+                  <label>Powiązana stacja uzdatniania:</label>
+                  <select
+                    :value="newJobData.details.treatment_station_job_id || ''"
+                    @change="onServiceStationSelect($event.target.value ? Number($event.target.value) : null)"
+                  >
+                    <option value="">— Wybierz stację (opcjonalnie) —</option>
+                    <option v-for="station in clientTreatmentStations" :key="station.job_id" :value="station.job_id">
+                      {{ formatStationOptionLabel(station) }}
+                    </option>
+                  </select>
+                  <small v-if="isTreatmentStationsLoading" class="field-hint">Ładowanie stacji…</small>
+                </div>
+                <div v-if="selectedTreatmentStation" class="form-group full-width station-schedule-info">
+                  <small>
+                    Interwał: co {{ selectedTreatmentStation.service_interval_months || 12 }} mies.
+                    <template v-if="selectedTreatmentStation.last_service_date">
+                      · Ostatni serwis: {{ formatDate(selectedTreatmentStation.last_service_date) }}
+                    </template>
+                    <template v-if="selectedTreatmentStation.next_service_due">
+                      · Następny termin: {{ formatDate(selectedTreatmentStation.next_service_due) }}
+                    </template>
+                  </small>
+                </div>
+                <div class="form-group full-width">
+                  <label>Miejscowość:</label>
+                  <input type="text" v-model="newJobData.miejscowosc" :readonly="!!selectedTreatmentStation" />
+                </div>
                 <div class="form-group full-width"><label>Opis wykonanych prac serwisowych:</label><textarea v-model="newJobData.details.description" rows="4"></textarea></div>
                 <div class="form-group checkbox-item full-width">
                   <input type="checkbox" id="is_warranty_add" v-model="newJobData.details.is_warranty" />
                   <label for="is_warranty_add">Serwis gwarancyjny (bezpłatny)</label>
                 </div>
+                <div v-if="selectedTreatmentStation || clientTreatmentStations.length" class="form-group checkbox-item full-width">
+                  <input type="checkbox" id="reset_interval_add" v-model="newJobData.details.reset_service_interval" />
+                  <label for="reset_interval_add">Resetuj interwał serwisowy od daty tego zlecenia</label>
+                </div>
                 <template v-if="!newJobData.details.is_warranty">
                   <div class="form-group"><label>Przychód:</label><input type="number" step="any" v-model.number="newJobData.details.revenue" /></div>
                 </template>
                 <div class="form-group"><label>Wypłaty:</label><input type="number" step="any" v-model.number="newJobData.details.labor_cost" /></div>
+                <div class="form-group"><label>Materiały:</label><input type="number" step="any" v-model.number="newJobData.details.materialy" /></div>
+                <div class="form-group"><label>Paliwo:</label><input type="number" step="any" v-model.number="newJobData.details.paliwo" /></div>
               </div>
             </div>
           </div>
@@ -912,6 +1031,7 @@ onBeforeUnmount(() => {
               <p><strong>Koszt rur:</strong> {{ selectedJobDetails.details.rury || '0' }} zł</p>
               <p><strong>Koszt wypłat:</strong> {{ selectedJobDetails.details.wyplaty || '0' }} zł</p>
               <p><strong>Inne koszta:</strong> {{ selectedJobDetails.details.inne_koszta || '0' }} zł</p>
+              <p><strong>Paliwo:</strong> {{ selectedJobDetails.details.paliwo || '0' }} zł</p>
               <p class="full-width-p total-cost-summary">
                 <strong>Suma Kosztów:</strong> <span>{{ wellDrillingProfit.totalCost?.toFixed(2) || '0.00' }} zł</span>
               </p>
@@ -944,6 +1064,7 @@ onBeforeUnmount(() => {
               <p><strong>Koszt osprzętu:</strong> {{ selectedJobDetails.details.equipment_cost || 0 }} zł</p>
               <p><strong>Wypłaty:</strong> {{ selectedJobDetails.details.labor_cost || 0 }} zł</p>
               <p><strong>Mat. z hurtowni:</strong> {{ selectedJobDetails.details.wholesale_materials_cost || 0 }} zł</p>
+              <p><strong>Paliwo:</strong> {{ selectedJobDetails.details.paliwo || 0 }} zł</p>
               <p class="full-width-p total-cost-summary">
                 <strong>Suma Kosztów:</strong> <span>{{ connectionProfit.totalCost?.toFixed(2) || '0.00' }} zł</span>
               </p>
@@ -974,6 +1095,7 @@ onBeforeUnmount(() => {
               <p><strong>Koszt osprzętu:</strong> {{ selectedJobDetails.details.equipment_cost || 0 }} zł</p>
               <p><strong>Wypłaty:</strong> {{ selectedJobDetails.details.labor_cost || 0 }} zł</p>
               <p><strong>Mat. z hurtowni:</strong> {{ selectedJobDetails.details.wholesale_materials_cost || 0 }} zł</p>
+              <p><strong>Paliwo:</strong> {{ selectedJobDetails.details.paliwo || 0 }} zł</p>
               <p class="full-width-p total-cost-summary">
                 <strong>Suma Kosztów:</strong> <span>{{ stationProfit.totalCost?.toFixed(2) || '0.00' }} zł</span>
               </p>
@@ -989,8 +1111,15 @@ onBeforeUnmount(() => {
               <p class="full-width-p"><strong>Opis wykonanych prac:</strong> {{ selectedJobDetails.details.description || '-' }}</p>
               <hr class="full-width-hr" />
               <p><strong>Serwis gwarancyjny:</strong> {{ selectedJobDetails.details.is_warranty ? 'Tak' : 'Nie' }}</p>
+              <p v-if="selectedJobDetails.details.treatment_station_job_id"><strong>Powiązana stacja:</strong> #{{ selectedJobDetails.details.treatment_station_job_id }}</p>
+              <p><strong>Reset interwału:</strong> {{ selectedJobDetails.details.reset_service_interval ? 'Tak' : 'Nie' }}</p>
               <p><strong>Przychód:</strong> {{ selectedJobDetails.details.is_warranty ? 0 : selectedJobDetails.details.revenue || 0 }} zł</p>
               <p><strong>Wypłaty:</strong> {{ selectedJobDetails.details.labor_cost || 0 }} zł</p>
+              <p><strong>Materiały:</strong> {{ selectedJobDetails.details.materialy || 0 }} zł</p>
+              <p><strong>Paliwo:</strong> {{ selectedJobDetails.details.paliwo || 0 }} zł</p>
+              <p class="full-width-p total-cost-summary">
+                <strong>Suma Kosztów:</strong> <span>{{ serviceProfit.totalCost?.toFixed(2) || '0.00' }} zł</span>
+              </p>
               <p class="full-width-p profit-summary">
                 <strong>Dochód:</strong> <span :class="serviceProfit.profit >= 0 ? 'profit-positive' : 'profit-negative'">{{ serviceProfit.profit?.toFixed(2) || '0.00' }} zł</span>
               </p>
@@ -1046,6 +1175,7 @@ onBeforeUnmount(() => {
                 <div class="form-group"><label>Koszt: Rury</label><input type="number" step="any" v-model.number="editedJobData.details.rury" /></div>
                 <div class="form-group"><label>Koszt: Wypłaty</label><input type="number" step="any" v-model.number="editedJobData.details.wyplaty" /></div>
                 <div class="form-group"><label>Koszt: Inne</label><input type="number" step="any" v-model.number="editedJobData.details.inne_koszta" /></div>
+                <div class="form-group"><label>Koszt: Paliwo</label><input type="number" step="any" v-model.number="editedJobData.details.paliwo" /></div>
               </div>
               <div v-else-if="editedJobData.job_type === 'connection'" class="form-grid">
                 <div class="form-group"><label>Miejscowość</label><input type="text" v-model="editedJobData.miejscowosc" /></div>
@@ -1063,6 +1193,7 @@ onBeforeUnmount(() => {
                 <div class="form-group"><label>Koszt osprzętu:</label><input type="number" step="any" v-model.number="editedJobData.details.equipment_cost" /></div>
                 <div class="form-group"><label>Wypłaty:</label><input type="number" step="any" v-model.number="editedJobData.details.labor_cost" /></div>
                 <div class="form-group"><label>Materiały z hurtowni:</label><input type="number" step="any" v-model.number="editedJobData.details.wholesale_materials_cost" /></div>
+                <div class="form-group"><label>Paliwo:</label><input type="number" step="any" v-model.number="editedJobData.details.paliwo" /></div>
               </div>
               <div v-else-if="editedJobData.job_type === 'treatment_station'" class="form-grid">
                 <div class="form-group"><label>Miejscowość</label><input type="text" v-model="editedJobData.miejscowosc" /></div>
@@ -1078,18 +1209,48 @@ onBeforeUnmount(() => {
                 <div class="form-group"><label>Koszt osprzętu:</label><input type="number" step="any" v-model.number="editedJobData.details.equipment_cost" /></div>
                 <div class="form-group"><label>Wypłaty:</label><input type="number" step="any" v-model.number="editedJobData.details.labor_cost" /></div>
                 <div class="form-group"><label>Materiały z hurtowni:</label><input type="number" step="any" v-model.number="editedJobData.details.wholesale_materials_cost" /></div>
+                <div class="form-group"><label>Paliwo:</label><input type="number" step="any" v-model.number="editedJobData.details.paliwo" /></div>
               </div>
               <div v-else-if="editedJobData.job_type === 'service'" class="form-grid">
-                <div class="form-group full-width"><label>Miejscowość</label><input type="text" v-model="editedJobData.miejscowosc" /></div>
+                <div v-if="clientTreatmentStations.length" class="form-group full-width">
+                  <label>Powiązana stacja uzdatniania:</label>
+                  <select
+                    :value="editedJobData.details.treatment_station_job_id || ''"
+                    @change="onEditServiceStationSelect($event.target.value ? Number($event.target.value) : null)"
+                  >
+                    <option value="">— Wybierz stację (opcjonalnie) —</option>
+                    <option v-for="station in clientTreatmentStations" :key="station.job_id" :value="station.job_id">
+                      {{ formatStationOptionLabel(station) }}
+                    </option>
+                  </select>
+                </div>
+                <div v-if="editedTreatmentStation" class="form-group full-width station-schedule-info">
+                  <small>
+                    Interwał: co {{ editedTreatmentStation.service_interval_months || 12 }} mies.
+                    <template v-if="editedTreatmentStation.last_service_date">
+                      · Ostatni serwis: {{ formatDate(editedTreatmentStation.last_service_date) }}
+                    </template>
+                    <template v-if="editedTreatmentStation.next_service_due">
+                      · Następny termin: {{ formatDate(editedTreatmentStation.next_service_due) }}
+                    </template>
+                  </small>
+                </div>
+                <div class="form-group full-width"><label>Miejscowość</label><input type="text" v-model="editedJobData.miejscowosc" :readonly="!!editedTreatmentStation" /></div>
                 <div class="form-group full-width"><label>Opis wykonanych prac serwisowych:</label><textarea v-model="editedJobData.details.description" rows="4"></textarea></div>
                 <div class="form-group checkbox-item full-width">
                   <input type="checkbox" id="is_warranty_edit" v-model="editedJobData.details.is_warranty" />
                   <label for="is_warranty_edit">Serwis gwarancyjny (bezpłatny)</label>
                 </div>
+                <div v-if="editedTreatmentStation || clientTreatmentStations.length" class="form-group checkbox-item full-width">
+                  <input type="checkbox" id="reset_interval_edit" v-model="editedJobData.details.reset_service_interval" />
+                  <label for="reset_interval_edit">Resetuj interwał serwisowy od daty tego zlecenia</label>
+                </div>
                 <template v-if="!editedJobData.details.is_warranty">
                   <div class="form-group"><label>Przychód:</label><input type="number" step="any" v-model.number="editedJobData.details.revenue" /></div>
                 </template>
                 <div class="form-group"><label>Wypłaty:</label><input type="number" step="any" v-model.number="editedJobData.details.labor_cost" /></div>
+                <div class="form-group"><label>Materiały:</label><input type="number" step="any" v-model.number="editedJobData.details.materialy" /></div>
+                <div class="form-group"><label>Paliwo:</label><input type="number" step="any" v-model.number="editedJobData.details.paliwo" /></div>
               </div>
             </div>
           </div>
@@ -1375,6 +1536,16 @@ button.karta {
 }
 .form-grid.two-col {
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+.station-schedule-info small {
+  color: var(--text-color-secondary);
+  line-height: 1.4;
+}
+.field-hint {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-color-secondary);
+  font-size: 12px;
 }
 .client-preview-card {
   border: 1px solid var(--border-color);

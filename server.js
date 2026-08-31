@@ -157,7 +157,8 @@ const initializeDatabase = async () => {
         cena_za_metr REAL DEFAULT 0,
         wyplaty REAL DEFAULT 0,
         rury REAL DEFAULT 0,
-        inne_koszta REAL DEFAULT 0
+        inne_koszta REAL DEFAULT 0,
+        paliwo REAL DEFAULT 0
       )`);
 
     // Tabela szczegółów dla podłączeń
@@ -178,7 +179,8 @@ const initializeDatabase = async () => {
         casing_cost REAL, 
         equipment_cost REAL, 
         labor_cost REAL, 
-        wholesale_materials_cost REAL
+        wholesale_materials_cost REAL,
+        paliwo REAL DEFAULT 0
       )`);
 
     // Tabela szczegółów dla stacji uzdatniania
@@ -197,7 +199,8 @@ const initializeDatabase = async () => {
         revenue REAL, 
         equipment_cost REAL, 
         labor_cost REAL, 
-        wholesale_materials_cost REAL
+        wholesale_materials_cost REAL,
+        paliwo REAL DEFAULT 0
       )`);
 
     // Tabela szczegółów dla serwisów
@@ -209,7 +212,11 @@ const initializeDatabase = async () => {
         description TEXT,
         is_warranty BOOLEAN DEFAULT true,
         revenue REAL DEFAULT 0,
-        labor_cost REAL DEFAULT 0
+        labor_cost REAL DEFAULT 0,
+        materialy REAL DEFAULT 0,
+        paliwo REAL DEFAULT 0,
+        treatment_station_job_id INTEGER REFERENCES jobs(id) ON DELETE SET NULL,
+        reset_service_interval BOOLEAN DEFAULT false
       )`);
 
     // Harmonogramy serwisowe per klient + lokalizacja
@@ -458,6 +465,31 @@ const initializeDatabase = async () => {
         table: 'inventory_items',
         column: 'alert_on_dashboard',
         query: 'ALTER TABLE inventory_items ADD COLUMN alert_on_dashboard BOOLEAN DEFAULT FALSE NOT NULL',
+      },
+      {
+        table: 'well_details',
+        column: 'paliwo',
+        query: 'ALTER TABLE well_details ADD COLUMN paliwo REAL DEFAULT 0',
+      },
+      {
+        table: 'connection_details',
+        column: 'paliwo',
+        query: 'ALTER TABLE connection_details ADD COLUMN paliwo REAL DEFAULT 0',
+      },
+      {
+        table: 'treatment_station_details',
+        column: 'paliwo',
+        query: 'ALTER TABLE treatment_station_details ADD COLUMN paliwo REAL DEFAULT 0',
+      },
+      {
+        table: 'service_details',
+        column: 'materialy',
+        query: 'ALTER TABLE service_details ADD COLUMN materialy REAL DEFAULT 0, ADD COLUMN paliwo REAL DEFAULT 0',
+      },
+      {
+        table: 'service_details',
+        column: 'treatment_station_job_id',
+        query: 'ALTER TABLE service_details ADD COLUMN treatment_station_job_id INTEGER REFERENCES jobs(id) ON DELETE SET NULL, ADD COLUMN reset_service_interval BOOLEAN DEFAULT false',
       },
     ];
 
@@ -716,6 +748,7 @@ function mapScheduleRow(row) {
     days_until_due: daysUntilDue,
     notes: row.notes,
     last_service_date_source: row.last_service_date_source,
+    source_job_id: row.source_job_id,
   };
 }
 
@@ -742,9 +775,13 @@ async function recalcLastServiceDateFromJobs(dbClient, clientId, miejscowoscKey)
     `
     SELECT MAX(j.job_date)::date AS last_date
     FROM jobs j
+    LEFT JOIN service_details sd ON sd.id = j.details_id AND j.job_type = 'service'
     WHERE j.client_id = $1
-      AND j.job_type IN ('treatment_station', 'service')
       AND LOWER(TRIM(COALESCE(j.miejscowosc, ''))) = $2
+      AND (
+        j.job_type = 'treatment_station'
+        OR (j.job_type = 'service' AND COALESCE(sd.reset_service_interval, false) = true)
+      )
     `,
     [clientId, miejscowoscKey]
   );
@@ -792,25 +829,74 @@ async function syncServiceScheduleFromJob(dbClient, jobRow) {
   }
 
   if (jobType === 'service') {
+    const serviceDetailsRes = await dbClient.query(
+      `SELECT treatment_station_job_id, reset_service_interval FROM service_details sd
+       JOIN jobs j ON j.details_id = sd.id WHERE j.id = $1`,
+      [jobId]
+    );
+    const serviceDetails = serviceDetailsRes.rows[0] || {};
+    const resetInterval = serviceDetails.reset_service_interval === true;
+    const linkedStationJobId = serviceDetails.treatment_station_job_id || null;
+
+    let interval = 12;
+    let notes = null;
+    let sourceJobId = linkedStationJobId || jobId;
+
+    if (linkedStationJobId) {
+      const stationRes = await dbClient.query(
+        `SELECT j.miejscowosc, tsd.service_interval_months, tsd.station_model, tsd.uv_lamp_model
+         FROM jobs j JOIN treatment_station_details tsd ON j.details_id = tsd.id
+         WHERE j.id = $1 AND j.job_type = 'treatment_station'`,
+        [linkedStationJobId]
+      );
+      if (stationRes.rows[0]) {
+        const station = stationRes.rows[0];
+        interval = parseInt(station.service_interval_months) || 12;
+        notes = [station.station_model, station.uv_lamp_model].filter(Boolean).join(' / ') || null;
+      }
+    }
+
     const existing = await dbClient.query(
       'SELECT id, last_service_date, last_service_date_source FROM service_schedules WHERE client_id = $1 AND miejscowosc_key = $2',
       [clientId, miejscowoscKey]
     );
 
     if (existing.rows.length === 0) {
+      if (!linkedStationJobId && !resetInterval) return;
       await dbClient.query(
         `
         INSERT INTO service_schedules (
           client_id, miejscowosc, miejscowosc_key, service_interval_months,
-          last_service_date, last_service_date_source, source_job_id, updated_at
-        ) VALUES ($1, $2, $3, 12, $4::date, 'job', $5, NOW())
+          last_service_date, last_service_date_source, notes, source_job_id, updated_at
+        ) VALUES ($1, $2, $3, $4, $5::date, 'job', $6, $7, NOW())
         `,
-        [clientId, miejscowoscDisplay, miejscowoscKey, jobDate, jobId]
+        [clientId, miejscowoscDisplay, miejscowoscKey, interval, resetInterval ? jobDate : null, notes, sourceJobId]
       );
       return;
     }
 
     const row = existing.rows[0];
+
+    if (resetInterval) {
+      await dbClient.query(
+        `
+        UPDATE service_schedules
+        SET
+          last_service_date = $1::date,
+          last_service_date_source = 'job',
+          service_interval_months = CASE WHEN $3::int IS NOT NULL THEN $3 ELSE service_interval_months END,
+          notes = COALESCE($4, notes),
+          source_job_id = COALESCE($5, source_job_id),
+          updated_at = NOW()
+        WHERE id = $2
+        `,
+        [jobDate, row.id, linkedStationJobId ? interval : null, notes, linkedStationJobId]
+      );
+      return;
+    }
+
+    if (row.last_service_date_source === 'manual') return;
+
     const lastFromJobs = await recalcLastServiceDateFromJobs(dbClient, clientId, miejscowoscKey);
     await dbClient.query(
       `
@@ -818,7 +904,7 @@ async function syncServiceScheduleFromJob(dbClient, jobRow) {
       SET last_service_date = $1, last_service_date_source = 'job', updated_at = NOW()
       WHERE id = $2
       `,
-      [lastFromJobs || jobDate, row.id]
+      [lastFromJobs, row.id]
     );
   }
 }
@@ -1972,8 +2058,8 @@ app.post('/api/jobs', authenticateToken, canEdit, async (req, res) => {
 
     if (jobType === 'well_drilling') {
       detailsTable = 'well_details';
-      detailsColumns = ['pracownicy', 'informacje', 'srednica', 'ilosc_metrow', 'lustro_statyczne', 'lustro_dynamiczne', 'wydajnosc', 'cena_za_metr', 'wyplaty', 'rury', 'inne_koszta'];
-      detailsValues = detailsColumns.map((col) => details[col] || null);
+      detailsColumns = ['pracownicy', 'informacje', 'srednica', 'ilosc_metrow', 'lustro_statyczne', 'lustro_dynamiczne', 'wydajnosc', 'cena_za_metr', 'wyplaty', 'rury', 'inne_koszta', 'paliwo'];
+      detailsValues = detailsColumns.map((col) => details[col] ?? null);
     } else if (jobType === 'connection') {
       detailsTable = 'connection_details';
       detailsColumns = [
@@ -1991,8 +2077,9 @@ app.post('/api/jobs', authenticateToken, canEdit, async (req, res) => {
         'equipment_cost',
         'labor_cost',
         'wholesale_materials_cost',
+        'paliwo',
       ];
-      detailsValues = detailsColumns.map((col) => details[col] || null);
+      detailsValues = detailsColumns.map((col) => details[col] ?? null);
     } else if (jobType === 'treatment_station') {
       detailsTable = 'treatment_station_details';
       detailsColumns = [
@@ -2007,8 +2094,9 @@ app.post('/api/jobs', authenticateToken, canEdit, async (req, res) => {
         'equipment_cost',
         'labor_cost',
         'wholesale_materials_cost',
+        'paliwo',
       ];
-      detailsValues = detailsColumns.map((col) => details[col] || null);
+      detailsValues = detailsColumns.map((col) => details[col] ?? null);
       // Poprawka dla domyślnej wartości interwału
       const intervalIndex = detailsColumns.indexOf('service_interval_months');
       if (intervalIndex !== -1) {
@@ -2016,9 +2104,18 @@ app.post('/api/jobs', authenticateToken, canEdit, async (req, res) => {
       }
     } else if (jobType === 'service') {
       detailsTable = 'service_details';
-      detailsColumns = ['description', 'is_warranty', 'revenue', 'labor_cost'];
-      const isWarranty = details.is_warranty === true; // <-- Poprawiona linia
-      detailsValues = [details.description || null, isWarranty, !isWarranty ? parseFloat(details.revenue) || 0 : 0, !isWarranty ? parseFloat(details.labor_cost) || 0 : 0];
+      detailsColumns = ['description', 'is_warranty', 'revenue', 'labor_cost', 'materialy', 'paliwo', 'treatment_station_job_id', 'reset_service_interval'];
+      const isWarranty = details.is_warranty === true;
+      detailsValues = [
+        details.description || null,
+        isWarranty,
+        !isWarranty ? parseFloat(details.revenue) || 0 : 0,
+        !isWarranty ? parseFloat(details.labor_cost) || 0 : 0,
+        parseFloat(details.materialy) || 0,
+        parseFloat(details.paliwo) || 0,
+        details.treatment_station_job_id ? parseInt(details.treatment_station_job_id, 10) : null,
+        details.reset_service_interval === true,
+      ];
     } else {
       throw new Error('Nieznany typ zlecenia.');
     }
@@ -2287,7 +2384,7 @@ app.put('/api/jobs/:id', authenticateToken, canEdit, async (req, res) => {
 
     if (job_type === 'well_drilling') {
       detailsTable = 'well_details';
-      detailsColumns = ['pracownicy', 'informacje', 'srednica', 'ilosc_metrow', 'lustro_statyczne', 'lustro_dynamiczne', 'wydajnosc', 'cena_za_metr', 'wyplaty', 'rury', 'inne_koszta'];
+      detailsColumns = ['pracownicy', 'informacje', 'srednica', 'ilosc_metrow', 'lustro_statyczne', 'lustro_dynamiczne', 'wydajnosc', 'cena_za_metr', 'wyplaty', 'rury', 'inne_koszta', 'paliwo'];
     } else if (job_type === 'connection') {
       detailsTable = 'connection_details';
       detailsColumns = [
@@ -2305,11 +2402,12 @@ app.put('/api/jobs/:id', authenticateToken, canEdit, async (req, res) => {
         'equipment_cost',
         'labor_cost',
         'wholesale_materials_cost',
+        'paliwo',
       ];
     }
     else if (job_type === 'service') {
       detailsTable = 'service_details';
-      detailsColumns = ['description', 'is_warranty', 'revenue', 'labor_cost'];
+      detailsColumns = ['description', 'is_warranty', 'revenue', 'labor_cost', 'materialy', 'paliwo', 'treatment_station_job_id', 'reset_service_interval'];
     } else if (job_type === 'treatment_station') {
       detailsTable = 'treatment_station_details';
       detailsColumns = [
@@ -2324,6 +2422,7 @@ app.put('/api/jobs/:id', authenticateToken, canEdit, async (req, res) => {
         'equipment_cost',
         'labor_cost',
         'wholesale_materials_cost',
+        'paliwo',
       ];
     }
 
@@ -2331,7 +2430,16 @@ app.put('/api/jobs/:id', authenticateToken, canEdit, async (req, res) => {
       let detailsValues;
       if (job_type === 'service') {
         const isWarrantyEdit = details.is_warranty === true;
-        detailsValues = [details.description || null, isWarrantyEdit, !isWarrantyEdit ? parseFloat(details.revenue) || 0 : 0, !isWarrantyEdit ? parseFloat(details.labor_cost) || 0 : 0];
+        detailsValues = [
+          details.description || null,
+          isWarrantyEdit,
+          !isWarrantyEdit ? parseFloat(details.revenue) || 0 : 0,
+          !isWarrantyEdit ? parseFloat(details.labor_cost) || 0 : 0,
+          parseFloat(details.materialy) || 0,
+          parseFloat(details.paliwo) || 0,
+          details.treatment_station_job_id ? parseInt(details.treatment_station_job_id, 10) : null,
+          details.reset_service_interval === true,
+        ];
       } else if (job_type === 'treatment_station') {
         detailsValues = detailsColumns.map((col) => {
           if (col === 'service_interval_months') return parseInt(details.service_interval_months) || 12;
@@ -2444,6 +2552,43 @@ app.get('/api/service-schedules/client/:clientId', authenticateToken, async (req
     res.json(result.rows.map(mapScheduleRow));
   } catch (err) {
     console.error('Błąd w GET /api/service-schedules/client/:clientId:', err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
+});
+
+/**
+ * @route GET /api/jobs/client/:clientId/treatment-stations
+ * @description Stacje uzdatniania klienta do powiązania z serwisem.
+ * @access Private
+ */
+app.get('/api/jobs/client/:clientId/treatment-stations', authenticateToken, async (req, res) => {
+  try {
+    const { clientId } = req.params;
+    const result = await pool.query(
+      `
+      SELECT
+        j.id AS job_id,
+        TO_CHAR(j.job_date, 'YYYY-MM-DD') AS job_date,
+        j.miejscowosc,
+        tsd.station_model,
+        tsd.uv_lamp_model,
+        tsd.service_interval_months,
+        ss.id AS schedule_id,
+        TO_CHAR(ss.last_service_date, 'YYYY-MM-DD') AS last_service_date,
+        TO_CHAR((ss.last_service_date + (ss.service_interval_months * INTERVAL '1 month')), 'YYYY-MM-DD') AS next_service_due
+      FROM jobs j
+      JOIN treatment_station_details tsd ON j.details_id = tsd.id
+      LEFT JOIN service_schedules ss
+        ON ss.client_id = j.client_id
+        AND ss.miejscowosc_key = LOWER(TRIM(COALESCE(j.miejscowosc, '')))
+      WHERE j.client_id = $1 AND j.job_type = 'treatment_station'
+      ORDER BY j.job_date DESC
+      `,
+      [clientId]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Błąd w GET /api/jobs/client/:clientId/treatment-stations:', err);
     res.status(500).json({ error: 'Wystąpił błąd serwera' });
   }
 });
@@ -2679,13 +2824,13 @@ app.get('/api/stats/monthly-summary', authenticateToken, async (req, res) => {
         COALESCE(SUM(revenue), 0) as total_revenue,
         COALESCE(SUM(total_cost), 0) as total_job_costs
       FROM (
-        SELECT cd.revenue, (COALESCE(cd.casing_cost,0) + COALESCE(cd.equipment_cost,0) + COALESCE(cd.labor_cost,0) + COALESCE(cd.wholesale_materials_cost,0)) as total_cost FROM jobs j JOIN connection_details cd ON j.details_id = cd.id WHERE j.job_type = 'connection' AND j.job_date >= $1 AND j.job_date <= $2
+        SELECT cd.revenue, (COALESCE(cd.casing_cost,0) + COALESCE(cd.equipment_cost,0) + COALESCE(cd.labor_cost,0) + COALESCE(cd.wholesale_materials_cost,0) + COALESCE(cd.paliwo,0)) as total_cost FROM jobs j JOIN connection_details cd ON j.details_id = cd.id WHERE j.job_type = 'connection' AND j.job_date >= $1 AND j.job_date <= $2
         UNION ALL
-        SELECT tsd.revenue, (COALESCE(tsd.equipment_cost,0) + COALESCE(tsd.labor_cost,0) + COALESCE(tsd.wholesale_materials_cost,0)) as total_cost FROM jobs j JOIN treatment_station_details tsd ON j.details_id = tsd.id WHERE j.job_type = 'treatment_station' AND j.job_date >= $1 AND j.job_date <= $2
+        SELECT tsd.revenue, (COALESCE(tsd.equipment_cost,0) + COALESCE(tsd.labor_cost,0) + COALESCE(tsd.wholesale_materials_cost,0) + COALESCE(tsd.paliwo,0)) as total_cost FROM jobs j JOIN treatment_station_details tsd ON j.details_id = tsd.id WHERE j.job_type = 'treatment_station' AND j.job_date >= $1 AND j.job_date <= $2
         UNION ALL
-        SELECT (COALESCE(wd.ilosc_metrow, 0) * COALESCE(wd.cena_za_metr, 0)) as revenue, (COALESCE(wd.wyplaty, 0) + COALESCE(wd.rury, 0) + COALESCE(wd.inne_koszta, 0)) as total_cost FROM jobs j JOIN well_details wd ON j.details_id = wd.id WHERE j.job_type = 'well_drilling' AND j.job_date >= $1 AND j.job_date <= $2
+        SELECT (COALESCE(wd.ilosc_metrow, 0) * COALESCE(wd.cena_za_metr, 0)) as revenue, (COALESCE(wd.wyplaty, 0) + COALESCE(wd.rury, 0) + COALESCE(wd.inne_koszta, 0) + COALESCE(wd.paliwo, 0)) as total_cost FROM jobs j JOIN well_details wd ON j.details_id = wd.id WHERE j.job_type = 'well_drilling' AND j.job_date >= $1 AND j.job_date <= $2
         UNION ALL
-        SELECT sd.revenue, COALESCE(sd.labor_cost, 0) as total_cost FROM jobs j JOIN service_details sd ON j.details_id = sd.id WHERE j.job_type = 'service' AND j.job_date >= $1 AND j.job_date <= $2 AND sd.is_warranty = false
+        SELECT sd.revenue, (COALESCE(sd.labor_cost, 0) + COALESCE(sd.materialy, 0) + COALESCE(sd.paliwo, 0)) as total_cost FROM jobs j JOIN service_details sd ON j.details_id = sd.id WHERE j.job_type = 'service' AND j.job_date >= $1 AND j.job_date <= $2 AND sd.is_warranty = false
       ) as job_finances;
     `;
     const jobFinanceResult = await pool.query(jobFinanceSql, [startDate, endDate]);
@@ -2740,22 +2885,22 @@ app.get('/api/stats/monthly-summary', authenticateToken, async (req, res) => {
         `
         SELECT job_type, COALESCE(SUM(total_cost), 0) AS total_cost
         FROM (
-          SELECT 'connection'::text AS job_type, (COALESCE(cd.casing_cost,0) + COALESCE(cd.equipment_cost,0) + COALESCE(cd.labor_cost,0) + COALESCE(cd.wholesale_materials_cost,0)) AS total_cost
+          SELECT 'connection'::text AS job_type, (COALESCE(cd.casing_cost,0) + COALESCE(cd.equipment_cost,0) + COALESCE(cd.labor_cost,0) + COALESCE(cd.wholesale_materials_cost,0) + COALESCE(cd.paliwo,0)) AS total_cost
           FROM jobs j
           JOIN connection_details cd ON j.details_id = cd.id
           WHERE j.job_type = 'connection' AND j.job_date >= $1 AND j.job_date <= $2
           UNION ALL
-          SELECT 'treatment_station'::text AS job_type, (COALESCE(tsd.equipment_cost,0) + COALESCE(tsd.labor_cost,0) + COALESCE(tsd.wholesale_materials_cost,0)) AS total_cost
+          SELECT 'treatment_station'::text AS job_type, (COALESCE(tsd.equipment_cost,0) + COALESCE(tsd.labor_cost,0) + COALESCE(tsd.wholesale_materials_cost,0) + COALESCE(tsd.paliwo,0)) AS total_cost
           FROM jobs j
           JOIN treatment_station_details tsd ON j.details_id = tsd.id
           WHERE j.job_type = 'treatment_station' AND j.job_date >= $1 AND j.job_date <= $2
           UNION ALL
-          SELECT 'well_drilling'::text AS job_type, (COALESCE(wd.wyplaty,0) + COALESCE(wd.rury,0) + COALESCE(wd.inne_koszta,0)) AS total_cost
+          SELECT 'well_drilling'::text AS job_type, (COALESCE(wd.wyplaty,0) + COALESCE(wd.rury,0) + COALESCE(wd.inne_koszta,0) + COALESCE(wd.paliwo,0)) AS total_cost
           FROM jobs j
           JOIN well_details wd ON j.details_id = wd.id
           WHERE j.job_type = 'well_drilling' AND j.job_date >= $1 AND j.job_date <= $2
           UNION ALL
-          SELECT 'service'::text AS job_type, COALESCE(sd.labor_cost,0) AS total_cost
+          SELECT 'service'::text AS job_type, (COALESCE(sd.labor_cost,0) + COALESCE(sd.materialy,0) + COALESCE(sd.paliwo,0)) AS total_cost
           FROM jobs j
           JOIN service_details sd ON j.details_id = sd.id
           WHERE j.job_type = 'service' AND j.job_date >= $1 AND j.job_date <= $2 AND sd.is_warranty = false
@@ -2779,6 +2924,11 @@ app.get('/api/stats/monthly-summary', authenticateToken, async (req, res) => {
           WHERE j.job_type = 'well_drilling' AND j.job_date >= $1 AND j.job_date <= $2
           UNION ALL
           SELECT 'well_other', 'Inne koszty (studnie)', COALESCE(wd.inne_koszta,0)
+          FROM jobs j
+          JOIN well_details wd ON j.details_id = wd.id
+          WHERE j.job_type = 'well_drilling' AND j.job_date >= $1 AND j.job_date <= $2
+          UNION ALL
+          SELECT 'fuel', 'Paliwo', COALESCE(wd.paliwo,0)
           FROM jobs j
           JOIN well_details wd ON j.details_id = wd.id
           WHERE j.job_type = 'well_drilling' AND j.job_date >= $1 AND j.job_date <= $2
@@ -2822,6 +2972,26 @@ app.get('/api/stats/monthly-summary', authenticateToken, async (req, res) => {
           FROM jobs j
           JOIN treatment_station_details tsd ON j.details_id = tsd.id
           WHERE j.job_type = 'treatment_station' AND j.job_date >= $1 AND j.job_date <= $2
+          UNION ALL
+          SELECT 'fuel', 'Paliwo', COALESCE(cd.paliwo,0)
+          FROM jobs j
+          JOIN connection_details cd ON j.details_id = cd.id
+          WHERE j.job_type = 'connection' AND j.job_date >= $1 AND j.job_date <= $2
+          UNION ALL
+          SELECT 'fuel', 'Paliwo', COALESCE(tsd.paliwo,0)
+          FROM jobs j
+          JOIN treatment_station_details tsd ON j.details_id = tsd.id
+          WHERE j.job_type = 'treatment_station' AND j.job_date >= $1 AND j.job_date <= $2
+          UNION ALL
+          SELECT 'service_materials', 'Materiały (serwis)', COALESCE(sd.materialy,0)
+          FROM jobs j
+          JOIN service_details sd ON j.details_id = sd.id
+          WHERE j.job_type = 'service' AND j.job_date >= $1 AND j.job_date <= $2 AND sd.is_warranty = false
+          UNION ALL
+          SELECT 'fuel', 'Paliwo', COALESCE(sd.paliwo,0)
+          FROM jobs j
+          JOIN service_details sd ON j.details_id = sd.id
+          WHERE j.job_type = 'service' AND j.job_date >= $1 AND j.job_date <= $2 AND sd.is_warranty = false
         ) cost_items
         GROUP BY category_key, category_label
       `,

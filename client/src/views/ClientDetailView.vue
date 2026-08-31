@@ -218,6 +218,9 @@ function quickServiceLink(schedule) {
   if (schedule.miejscowosc && schedule.miejscowosc !== '—') {
     params.set('miejscowosc', schedule.miejscowosc);
   }
+  if (schedule.source_job_id) {
+    params.set('stationJobId', String(schedule.source_job_id));
+  }
   return `/zlecenia?${params.toString()}`;
 }
 
