@@ -41,7 +41,7 @@ watch(() => props.item, loadHistory, { immediate: true });
 </script>
 
 <template>
-  <div class="modal-backdrop" @click.self="emit('close')">
+  <div class="modal-backdrop">
     <div class="modal-content modal-lg">
       <div class="modal-header">
         <div>

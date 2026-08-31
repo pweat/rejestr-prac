@@ -415,7 +415,7 @@ const summary = computed(() => data.value?.summary || null);
       </section>
     </template>
 
-    <div v-if="showAddScheduleModal" class="modal-backdrop" @click.self="showAddScheduleModal = false">
+    <div v-if="showAddScheduleModal" class="modal-backdrop">
       <div class="modal-box">
         <h3>Nowy harmonogram serwisowy</h3>
         <div class="form-grid">
@@ -431,7 +431,7 @@ const summary = computed(() => data.value?.summary || null);
       </div>
     </div>
 
-    <div v-if="showEditScheduleModal" class="modal-backdrop" @click.self="showEditScheduleModal = false">
+    <div v-if="showEditScheduleModal" class="modal-backdrop">
       <div class="modal-box">
         <h3>Edycja harmonogramu</h3>
         <div class="form-grid">

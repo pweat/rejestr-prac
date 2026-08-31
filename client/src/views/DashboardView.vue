@@ -748,7 +748,7 @@ onMounted(() => {
       </div>
     </section>
 
-    <div v-if="showPostponeModal" class="modal-backdrop" @click.self="showPostponeModal = false">
+    <div v-if="showPostponeModal" class="modal-backdrop">
       <div class="modal-content modal-content--small">
         <h3>Odłóż termin serwisu</h3>
         <p v-if="postponeTarget">

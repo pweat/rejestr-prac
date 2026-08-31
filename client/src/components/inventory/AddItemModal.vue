@@ -73,7 +73,7 @@ async function handleSubmit() {
 </script>
 
 <template>
-  <div class="modal-backdrop" @click.self="emit('close')">
+  <div class="modal-backdrop">
     <div class="modal-content">
       <div class="modal-header">
         <h3>{{ isEditMode ? 'Edytuj przedmiot' : 'Dodaj nowy przedmiot' }}</h3>

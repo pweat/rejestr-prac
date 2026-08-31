@@ -720,7 +720,7 @@ onBeforeUnmount(() => {
   </div>
 
   <!-- Modal: Dodaj zlecenie -->
-  <div v-if="showAddJobModal" class="modal-backdrop" @click.self="showAddJobModal = false">
+  <div v-if="showAddJobModal" class="modal-backdrop">
     <div class="modal-content">
       <div class="modal-header">
         <h3>Dodaj nowe zlecenie</h3>
@@ -985,7 +985,7 @@ onBeforeUnmount(() => {
   </div>
 
   <!-- Modal: Szczegóły -->
-  <div v-if="showDetailsModal" class="modal-backdrop" @click.self="showDetailsModal = false">
+  <div v-if="showDetailsModal" class="modal-backdrop">
     <div class="modal-content">
       <div class="modal-header">
         <h3>Szczegóły zlecenia #{{ selectedJobDetails?.id }}</h3>
@@ -1131,7 +1131,7 @@ onBeforeUnmount(() => {
   </div>
 
   <!-- Modal: Edytuj zlecenie -->
-  <div v-if="showEditJobModal" class="modal-backdrop" @click.self="showEditJobModal = false">
+  <div v-if="showEditJobModal" class="modal-backdrop">
     <div class="modal-content">
       <div class="modal-header">
         <h3>Edytuj zlecenie #{{ editedJobData?.id }}</h3>
