@@ -1,0 +1,3 @@
+## 2024-05-18 - Tooltips and ARIA on icon-only buttons
+**Learning:** Icon-only buttons used for closing modals (`&times;`) or deleting items (`×`) without text lack context for screen readers and can be difficult for sighted users to identify if conventions are unclear. Adding explicit `aria-label` and `title` attributes with Polish localization provides immediate accessibility benefits and helpful tooltips.
+**Action:** When adding or encountering icon-only interactive elements like `.close-button` or `.btn-del`, immediately include `type="button"`, a descriptive `aria-label`, and a corresponding `title` attribute.
