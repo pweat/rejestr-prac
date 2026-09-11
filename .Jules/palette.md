@@ -1,0 +1,3 @@
+## 2026-09-11 - Interactive Icon Accessibility
+**Learning:** I noticed multiple interactive elements, such as close modal buttons ('&times;') and delete entry buttons ('×'), are strictly icon-based. While visually recognizable, these elements lack proper `aria-label` and `title` attributes, severely impacting screen reader accessibility and hiding functionality context from sighted users lacking standard icon familiarity.
+**Action:** When implementing or modifying icon-only buttons, I must ensure they use semantic markup with `type="button"` (to prevent accidental form submissions) and include descriptive `aria-label` and `title` attributes in the expected locale (Polish).
