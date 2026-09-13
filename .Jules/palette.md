@@ -1,0 +1,3 @@
+## $(date +%Y-%m-%d) - Accessibility of Icon-Only Buttons
+**Learning:** Found multiple instances of icon-only buttons (`.close-button` with `&times;` and `.btn-del` with `×`) that lack `aria-label`, `title`, and `type="button"`. This makes them inaccessible to screen readers (which will just read "times" or nothing), unhelpful for sighted users who need hover tooltips, and potentially unsafe if they trigger accidental form submissions.
+**Action:** Always add `type="button"`, `aria-label` (e.g., "Zamknij", "Usuń wpis"), and `title` to icon-only buttons to ensure they are accessible, localized to Polish, and safe within forms.
