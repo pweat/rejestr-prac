@@ -1,0 +1,3 @@
+## 2026-09-20 - Missing ARIA labels and `type="button"` on icon-only buttons
+**Learning:** Several modal close buttons (`.close-button` with `&times;`) and list item delete buttons (`.btn-del` with `×`) were missing both `aria-label`/`title` attributes and `type="button"`. This causes accessibility issues for screen readers (which read "times" or nothing) and risks accidental form submission when placed within `<form>` tags.
+**Action:** Unconditionally add `type="button"`, `aria-label`, and `title` to all icon-only buttons (like `&times;` and `×`) across Vue components to ensure proper accessibility, hover tooltips, and prevent unintended form submissions.
