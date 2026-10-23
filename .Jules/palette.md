@@ -1,0 +1,3 @@
+## 2026-10-23 - Semantic Pagination Accessibility
+**Learning:** In Vue, pagination components often lack semantic structure (e.g., using `div` instead of `nav` with an `aria-label`) and dynamic active state indicators (`aria-current="page"`). Furthermore, dynamically rendering `aria-label` for page numbers and handling ellipsis (which shouldn't have one) can be elegantly solved by binding to `null` to remove the attribute entirely.
+**Action:** When implementing pagination, always use `<nav aria-label="...">`, apply `aria-current="page"` to the active page, provide explicit `aria-label`s for next/prev buttons, and pass `null` to dynamic attributes for non-interactive elements like ellipses to keep the DOM clean.
