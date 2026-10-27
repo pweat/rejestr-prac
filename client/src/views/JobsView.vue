@@ -110,7 +110,12 @@ const connectionProfit = computed(() => {
   const details = selectedJobDetails.value?.details;
   if (!details) return { profit: 0, totalCost: 0 };
   const revenue = parseFloat(details.revenue) || 0;
-  const totalCost = (parseFloat(details.casing_cost) || 0) + (parseFloat(details.equipment_cost) || 0) + (parseFloat(details.labor_cost) || 0) + (parseFloat(details.wholesale_materials_cost) || 0) + (parseFloat(details.paliwo) || 0);
+  const totalCost =
+    (parseFloat(details.casing_cost) || 0) +
+    (parseFloat(details.equipment_cost) || 0) +
+    (parseFloat(details.labor_cost) || 0) +
+    (parseFloat(details.wholesale_materials_cost) || 0) +
+    (parseFloat(details.paliwo) || 0);
   return { profit: revenue - totalCost, totalCost };
 });
 
@@ -306,10 +311,7 @@ async function handleAddJob() {
     toast.warn('Klient, data i typ zlecenia są wymagane.');
     return;
   }
-  if (
-    (newJobData.value.jobType === 'service' || newJobData.value.jobType === 'treatment_station') &&
-    !newJobData.value.miejscowosc?.trim()
-  ) {
+  if ((newJobData.value.jobType === 'service' || newJobData.value.jobType === 'treatment_station') && !newJobData.value.miejscowosc?.trim()) {
     toast.warn('Podaj miejscowość — harmonogram serwisowy jest przypisany do lokalizacji.');
     return;
   }
@@ -486,13 +488,17 @@ function clearClientFilter() {
 watch([currentPage, sortBy, sortOrder], fetchJobs);
 
 let searchTimeout = null;
-watch([searchQuery, selectedJobTypes, dateFrom, dateTo], () => {
-  clearTimeout(searchTimeout);
-  searchTimeout = setTimeout(() => {
-    currentPage.value = 1;
-    fetchJobs();
-  }, 300);
-}, { deep: true });
+watch(
+  [searchQuery, selectedJobTypes, dateFrom, dateTo],
+  () => {
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => {
+      currentPage.value = 1;
+      fetchJobs();
+    }, 300);
+  },
+  { deep: true }
+);
 
 watch(
   () => newJobData.value.jobType,
@@ -594,18 +600,8 @@ onBeforeUnmount(() => {
     <!-- Toolbar z wyszukiwarką i filtrami -->
     <div class="toolbar">
       <div class="toolbar-row">
-        <input
-          type="text"
-          class="search-input"
-          v-model="searchQuery"
-          placeholder="Szukaj po kliencie, telefonie, miejscowości..."
-        />
-        <button
-          type="button"
-          class="filters-toggle"
-          :class="{ active: showFilters }"
-          @click="showFilters = !showFilters"
-        >
+        <input type="text" class="search-input" v-model="searchQuery" placeholder="Szukaj po kliencie, telefonie, miejscowości..." />
+        <button type="button" class="filters-toggle" :class="{ active: showFilters }" @click="showFilters = !showFilters">
           {{ showFilters ? '▲ Ukryj filtry' : '▼ Filtry' }}
           <span v-if="selectedJobTypes.length || dateFrom || dateTo" class="filter-count">
             {{ (selectedJobTypes.length ? 1 : 0) + (dateFrom ? 1 : 0) + (dateTo ? 1 : 0) }}
@@ -642,14 +638,7 @@ onBeforeUnmount(() => {
       </transition>
 
       <div v-if="isAnyFilterActive" class="active-filters">
-        <span
-          v-if="route.query.clientId"
-          class="active-chip client-chip"
-          @click="clearClientFilter"
-          title="Usuń filtr klienta"
-        >
-          👤 {{ clientChipName || `Klient #${route.query.clientId}` }} ✕
-        </span>
+        <span v-if="route.query.clientId" class="active-chip client-chip" @click="clearClientFilter" title="Usuń filtr klienta"> 👤 {{ clientChipName || `Klient #${route.query.clientId}` }} ✕ </span>
         <button type="button" class="clear-btn" @click="clearAllFilters">Wyczyść filtry</button>
       </div>
     </div>
@@ -724,7 +713,7 @@ onBeforeUnmount(() => {
     <div class="modal-content">
       <div class="modal-header">
         <h3>Dodaj nowe zlecenie</h3>
-        <button class="close-button" @click="showAddJobModal = false">&times;</button>
+        <button type="button" class="close-button" @click="showAddJobModal = false" aria-label="Zamknij" title="Zamknij">&times;</button>
       </div>
       <form class="modal-body-form" @submit.prevent="handleAddJob">
         <div class="modal-body">
@@ -741,7 +730,8 @@ onBeforeUnmount(() => {
               >
                 <template #option="{ name, phone_number, last_miejscowosc }">
                   <div>
-                    <strong>{{ name || 'Brak nazwy' }}</strong><br />
+                    <strong>{{ name || 'Brak nazwy' }}</strong
+                    ><br />
                     <small>{{ phone_number }}</small>
                     <small v-if="last_miejscowosc"> • {{ last_miejscowosc }}</small>
                   </div>
@@ -765,12 +755,7 @@ onBeforeUnmount(() => {
               <div v-else-if="!clientJobsPreview.length" class="client-preview-state">Brak wcześniejszych zleceń dla tego klienta.</div>
               <ul v-else class="client-preview-list">
                 <li v-for="job in clientJobsPreview" :key="job.id">
-                  <button
-                    type="button"
-                    class="client-preview-item"
-                    :class="{ active: selectedClientPreviewJobId === job.id }"
-                    @click="handleSelectClientPreviewJob(job.id)"
-                  >
+                  <button type="button" class="client-preview-item" :class="{ active: selectedClientPreviewJobId === job.id }" @click="handleSelectClientPreviewJob(job.id)">
                     <span class="preview-item-date">{{ formatDate(job.job_date) }}</span>
                     <span class="preview-item-type">{{ translateJobType(job.job_type) }}</span>
                     <span class="preview-item-town">{{ job.miejscowosc || '-' }}</span>
@@ -915,7 +900,9 @@ onBeforeUnmount(() => {
                 <div class="form-group"><label>Model lampy UV:</label><input type="text" v-model="newJobData.details.uv_lamp_model" /></div>
                 <div class="form-group"><label>Filtr węglowy:</label><input type="text" v-model="newJobData.details.carbon_filter" /></div>
                 <div class="form-group"><label>Rodzaje złóż:</label><input type="text" v-model="newJobData.details.filter_types" /></div>
-                <div class="form-group"><label>Interwał serwisu (m-cy):</label><input type="number" step="1" v-model.number="newJobData.details.service_interval_months" placeholder="Domyślnie: 12" /></div>
+                <div class="form-group">
+                  <label>Interwał serwisu (m-cy):</label><input type="number" step="1" v-model.number="newJobData.details.service_interval_months" placeholder="Domyślnie: 12" />
+                </div>
                 <div class="form-group full-width"><label>Link do faktury za materiały:</label><input type="text" v-model="newJobData.details.materials_invoice_url" /></div>
                 <div class="form-group full-width"><label>Link do oferty dla klienta:</label><input type="text" v-model="newJobData.details.client_offer_url" /></div>
                 <hr class="full-width-hr" />
@@ -928,10 +915,7 @@ onBeforeUnmount(() => {
               <div v-else-if="newJobData.jobType === 'service'" class="form-grid">
                 <div v-if="clientTreatmentStations.length" class="form-group full-width">
                   <label>Powiązana stacja uzdatniania:</label>
-                  <select
-                    :value="newJobData.details.treatment_station_job_id || ''"
-                    @change="onServiceStationSelect($event.target.value ? Number($event.target.value) : null)"
-                  >
+                  <select :value="newJobData.details.treatment_station_job_id || ''" @change="onServiceStationSelect($event.target.value ? Number($event.target.value) : null)">
                     <option value="">— Wybierz stację (opcjonalnie) —</option>
                     <option v-for="station in clientTreatmentStations" :key="station.job_id" :value="station.job_id">
                       {{ formatStationOptionLabel(station) }}
@@ -942,12 +926,8 @@ onBeforeUnmount(() => {
                 <div v-if="selectedTreatmentStation" class="form-group full-width station-schedule-info">
                   <small>
                     Interwał: co {{ selectedTreatmentStation.service_interval_months || 12 }} mies.
-                    <template v-if="selectedTreatmentStation.last_service_date">
-                      · Ostatni serwis: {{ formatDate(selectedTreatmentStation.last_service_date) }}
-                    </template>
-                    <template v-if="selectedTreatmentStation.next_service_due">
-                      · Następny termin: {{ formatDate(selectedTreatmentStation.next_service_due) }}
-                    </template>
+                    <template v-if="selectedTreatmentStation.last_service_date"> · Ostatni serwis: {{ formatDate(selectedTreatmentStation.last_service_date) }} </template>
+                    <template v-if="selectedTreatmentStation.next_service_due"> · Następny termin: {{ formatDate(selectedTreatmentStation.next_service_due) }} </template>
                   </small>
                 </div>
                 <div class="form-group full-width">
@@ -989,7 +969,7 @@ onBeforeUnmount(() => {
     <div class="modal-content">
       <div class="modal-header">
         <h3>Szczegóły zlecenia #{{ selectedJobDetails?.id }}</h3>
-        <button class="close-button" @click="showDetailsModal = false">&times;</button>
+        <button type="button" class="close-button" @click="showDetailsModal = false" aria-label="Zamknij" title="Zamknij">&times;</button>
       </div>
       <div class="modal-body">
         <div v-if="isDetailsLoading" class="modal-loading-spinner"><div class="spinner"></div></div>
@@ -1000,9 +980,7 @@ onBeforeUnmount(() => {
             <p><strong>Telefon:</strong> {{ selectedJobDetails.client_phone }}</p>
             <p><strong>Adres:</strong> {{ selectedJobDetails.client_address || '-' }}</p>
             <p><strong>Notatki o kliencie:</strong> {{ selectedJobDetails.client_notes || '-' }}</p>
-            <RouterLink v-if="selectedJobDetails.client_id" :to="`/klienci/${selectedJobDetails.client_id}`" class="link">
-              → Karta klienta
-            </RouterLink>
+            <RouterLink v-if="selectedJobDetails.client_id" :to="`/klienci/${selectedJobDetails.client_id}`" class="link"> → Karta klienta </RouterLink>
           </div>
 
           <div class="details-section">
@@ -1052,11 +1030,13 @@ onBeforeUnmount(() => {
               <p><strong>Model hydroforu:</strong> {{ selectedJobDetails.details.hydrophore_model || '-' }}</p>
               <p class="full-width-p">
                 <strong>Faktura (materiały):</strong>
-                <a v-if="selectedJobDetails.details.materials_invoice_url" :href="selectedJobDetails.details.materials_invoice_url" target="_blank" rel="noopener noreferrer" class="link-btn">LINK</a><span v-else>-</span>
+                <a v-if="selectedJobDetails.details.materials_invoice_url" :href="selectedJobDetails.details.materials_invoice_url" target="_blank" rel="noopener noreferrer" class="link-btn">LINK</a
+                ><span v-else>-</span>
               </p>
               <p class="full-width-p">
                 <strong>Oferta (klient):</strong>
-                <a v-if="selectedJobDetails.details.client_offer_url" :href="selectedJobDetails.details.client_offer_url" target="_blank" rel="noopener noreferrer" class="link-btn">LINK</a><span v-else>-</span>
+                <a v-if="selectedJobDetails.details.client_offer_url" :href="selectedJobDetails.details.client_offer_url" target="_blank" rel="noopener noreferrer" class="link-btn">LINK</a
+                ><span v-else>-</span>
               </p>
               <hr class="full-width-hr" />
               <p><strong>Przychód:</strong> {{ selectedJobDetails.details.revenue || 0 }} zł</p>
@@ -1084,11 +1064,13 @@ onBeforeUnmount(() => {
               <p><strong>Interwał serwisu:</strong> {{ selectedJobDetails.details.service_interval_months || '12' }} mies.</p>
               <p class="full-width-p">
                 <strong>Faktura (materiały):</strong>
-                <a v-if="selectedJobDetails.details.materials_invoice_url" :href="selectedJobDetails.details.materials_invoice_url" target="_blank" rel="noopener noreferrer" class="link-btn">LINK</a><span v-else>-</span>
+                <a v-if="selectedJobDetails.details.materials_invoice_url" :href="selectedJobDetails.details.materials_invoice_url" target="_blank" rel="noopener noreferrer" class="link-btn">LINK</a
+                ><span v-else>-</span>
               </p>
               <p class="full-width-p">
                 <strong>Oferta (klient):</strong>
-                <a v-if="selectedJobDetails.details.client_offer_url" :href="selectedJobDetails.details.client_offer_url" target="_blank" rel="noopener noreferrer" class="link-btn">LINK</a><span v-else>-</span>
+                <a v-if="selectedJobDetails.details.client_offer_url" :href="selectedJobDetails.details.client_offer_url" target="_blank" rel="noopener noreferrer" class="link-btn">LINK</a
+                ><span v-else>-</span>
               </p>
               <hr class="full-width-hr" />
               <p><strong>Przychód:</strong> {{ selectedJobDetails.details.revenue || 0 }} zł</p>
@@ -1135,9 +1117,11 @@ onBeforeUnmount(() => {
     <div class="modal-content">
       <div class="modal-header">
         <h3>Edytuj zlecenie #{{ editedJobData?.id }}</h3>
-        <button class="close-button" @click="showEditJobModal = false">&times;</button>
+        <button type="button" class="close-button" @click="showEditJobModal = false" aria-label="Zamknij" title="Zamknij">&times;</button>
       </div>
-      <div v-if="isDetailsLoading" class="modal-body"><div class="modal-loading-spinner"><div class="spinner"></div></div></div>
+      <div v-if="isDetailsLoading" class="modal-body">
+        <div class="modal-loading-spinner"><div class="spinner"></div></div>
+      </div>
       <form v-else-if="editedJobData" class="modal-body-form" @submit.prevent="handleUpdateJob">
         <div class="modal-body">
           <div class="form-grid-single-col">
@@ -1155,7 +1139,9 @@ onBeforeUnmount(() => {
               </div>
               <div class="form-group readonly-block">
                 <label>Typ zlecenia:</label>
-                <div class="readonly-value"><strong>{{ translateJobType(editedJobData.job_type) }}</strong></div>
+                <div class="readonly-value">
+                  <strong>{{ translateJobType(editedJobData.job_type) }}</strong>
+                </div>
               </div>
             </div>
 
@@ -1214,10 +1200,7 @@ onBeforeUnmount(() => {
               <div v-else-if="editedJobData.job_type === 'service'" class="form-grid">
                 <div v-if="clientTreatmentStations.length" class="form-group full-width">
                   <label>Powiązana stacja uzdatniania:</label>
-                  <select
-                    :value="editedJobData.details.treatment_station_job_id || ''"
-                    @change="onEditServiceStationSelect($event.target.value ? Number($event.target.value) : null)"
-                  >
+                  <select :value="editedJobData.details.treatment_station_job_id || ''" @change="onEditServiceStationSelect($event.target.value ? Number($event.target.value) : null)">
                     <option value="">— Wybierz stację (opcjonalnie) —</option>
                     <option v-for="station in clientTreatmentStations" :key="station.job_id" :value="station.job_id">
                       {{ formatStationOptionLabel(station) }}
@@ -1227,12 +1210,8 @@ onBeforeUnmount(() => {
                 <div v-if="editedTreatmentStation" class="form-group full-width station-schedule-info">
                   <small>
                     Interwał: co {{ editedTreatmentStation.service_interval_months || 12 }} mies.
-                    <template v-if="editedTreatmentStation.last_service_date">
-                      · Ostatni serwis: {{ formatDate(editedTreatmentStation.last_service_date) }}
-                    </template>
-                    <template v-if="editedTreatmentStation.next_service_due">
-                      · Następny termin: {{ formatDate(editedTreatmentStation.next_service_due) }}
-                    </template>
+                    <template v-if="editedTreatmentStation.last_service_date"> · Ostatni serwis: {{ formatDate(editedTreatmentStation.last_service_date) }} </template>
+                    <template v-if="editedTreatmentStation.next_service_due"> · Następny termin: {{ formatDate(editedTreatmentStation.next_service_due) }} </template>
                   </small>
                 </div>
                 <div class="form-group full-width"><label>Miejscowość</label><input type="text" v-model="editedJobData.miejscowosc" :readonly="!!editedTreatmentStation" /></div>
