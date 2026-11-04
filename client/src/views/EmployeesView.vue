@@ -148,7 +148,7 @@ onMounted(fetchEmployees);
     <div class="modal-content">
       <div class="modal-header">
         <h3>Dodaj pracownika</h3>
-        <button class="close-button" @click="showAddModal = false">&times;</button>
+        <button type="button" class="close-button" aria-label="Zamknij" title="Zamknij" @click="showAddModal = false">&times;</button>
       </div>
       <form @submit.prevent="handleAddEmployee">
         <div class="form-grid-single-col">
@@ -172,7 +172,7 @@ onMounted(fetchEmployees);
     <div class="modal-content">
       <div class="modal-header">
         <h3>Edytuj pracownika</h3>
-        <button class="close-button" @click="showEditModal = false">&times;</button>
+        <button type="button" class="close-button" aria-label="Zamknij" title="Zamknij" @click="showEditModal = false">&times;</button>
       </div>
       <form v-if="editedEmployeeData" @submit.prevent="handleUpdateEmployee">
         <div class="form-grid-single-col">
