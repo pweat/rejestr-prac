@@ -82,6 +82,7 @@ const isClientPreviewDetailsLoading = ref(false);
 const clientPreviewDetailsError = ref('');
 const isClientPreviewFullOpen = ref(false);
 const editedJobData = ref(null);
+const editJobHadFuel = ref(false);
 const selectedJobDetails = ref(null);
 
 // Filtry
@@ -418,12 +419,14 @@ async function handleShowDetails(jobId) {
 
 async function handleShowEditModal(job) {
   editedJobData.value = null;
+  editJobHadFuel.value = false;
   isDetailsLoading.value = true;
   showEditJobModal.value = true;
   try {
     const response = await authenticatedFetch(`${API_URL}/api/jobs/${job.id}`);
     if (!response.ok) throw new Error('Błąd pobierania danych do edycji');
     editedJobData.value = await response.json();
+    editJobHadFuel.value = Number(editedJobData.value?.details?.paliwo) > 0;
     if (editedJobData.value.job_type === 'service' && editedJobData.value.client_id) {
       await fetchClientTreatmentStations(editedJobData.value.client_id);
     }
@@ -889,7 +892,6 @@ onBeforeUnmount(() => {
                 <div class="form-group"><label>Koszt: Rury</label><input type="number" step="any" v-model.number="newJobData.details.rury" /></div>
                 <div class="form-group"><label>Koszt: Wypłaty</label><input type="number" step="any" v-model.number="newJobData.details.wyplaty" /></div>
                 <div class="form-group"><label>Koszt: Inne</label><input type="number" step="any" v-model.number="newJobData.details.inne_koszta" /></div>
-                <div class="form-group"><label>Koszt: Paliwo</label><input type="number" step="any" v-model.number="newJobData.details.paliwo" /></div>
               </div>
               <div v-else-if="newJobData.jobType === 'connection'" class="form-grid">
                 <div class="form-group"><label>Miejscowość:</label><input type="text" v-model="newJobData.miejscowosc" /></div>
@@ -907,7 +909,6 @@ onBeforeUnmount(() => {
                 <div class="form-group"><label>Koszt osprzętu:</label><input type="number" step="any" v-model.number="newJobData.details.equipment_cost" /></div>
                 <div class="form-group"><label>Wypłaty:</label><input type="number" step="any" v-model.number="newJobData.details.labor_cost" /></div>
                 <div class="form-group"><label>Materiały z hurtowni:</label><input type="number" step="any" v-model.number="newJobData.details.wholesale_materials_cost" /></div>
-                <div class="form-group"><label>Paliwo:</label><input type="number" step="any" v-model.number="newJobData.details.paliwo" /></div>
               </div>
               <div v-else-if="newJobData.jobType === 'treatment_station'" class="form-grid">
                 <div class="form-group"><label>Miejscowość:</label><input type="text" v-model="newJobData.miejscowosc" /></div>
@@ -923,7 +924,6 @@ onBeforeUnmount(() => {
                 <div class="form-group"><label>Koszt osprzętu:</label><input type="number" step="any" v-model.number="newJobData.details.equipment_cost" /></div>
                 <div class="form-group"><label>Wypłaty:</label><input type="number" step="any" v-model.number="newJobData.details.labor_cost" /></div>
                 <div class="form-group"><label>Materiały z hurtowni:</label><input type="number" step="any" v-model.number="newJobData.details.wholesale_materials_cost" /></div>
-                <div class="form-group"><label>Paliwo:</label><input type="number" step="any" v-model.number="newJobData.details.paliwo" /></div>
               </div>
               <div v-else-if="newJobData.jobType === 'service'" class="form-grid">
                 <div v-if="clientTreatmentStations.length" class="form-group full-width">
@@ -968,7 +968,6 @@ onBeforeUnmount(() => {
                 </template>
                 <div class="form-group"><label>Wypłaty:</label><input type="number" step="any" v-model.number="newJobData.details.labor_cost" /></div>
                 <div class="form-group"><label>Materiały:</label><input type="number" step="any" v-model.number="newJobData.details.materialy" /></div>
-                <div class="form-group"><label>Paliwo:</label><input type="number" step="any" v-model.number="newJobData.details.paliwo" /></div>
               </div>
             </div>
           </div>
@@ -1031,7 +1030,7 @@ onBeforeUnmount(() => {
               <p><strong>Koszt rur:</strong> {{ selectedJobDetails.details.rury || '0' }} zł</p>
               <p><strong>Koszt wypłat:</strong> {{ selectedJobDetails.details.wyplaty || '0' }} zł</p>
               <p><strong>Inne koszta:</strong> {{ selectedJobDetails.details.inne_koszta || '0' }} zł</p>
-              <p><strong>Paliwo:</strong> {{ selectedJobDetails.details.paliwo || '0' }} zł</p>
+              <p v-if="Number(selectedJobDetails.details.paliwo) > 0"><strong>Paliwo:</strong> {{ selectedJobDetails.details.paliwo }} zł</p>
               <p class="full-width-p total-cost-summary">
                 <strong>Suma Kosztów:</strong> <span>{{ wellDrillingProfit.totalCost?.toFixed(2) || '0.00' }} zł</span>
               </p>
@@ -1064,7 +1063,7 @@ onBeforeUnmount(() => {
               <p><strong>Koszt osprzętu:</strong> {{ selectedJobDetails.details.equipment_cost || 0 }} zł</p>
               <p><strong>Wypłaty:</strong> {{ selectedJobDetails.details.labor_cost || 0 }} zł</p>
               <p><strong>Mat. z hurtowni:</strong> {{ selectedJobDetails.details.wholesale_materials_cost || 0 }} zł</p>
-              <p><strong>Paliwo:</strong> {{ selectedJobDetails.details.paliwo || 0 }} zł</p>
+              <p v-if="Number(selectedJobDetails.details.paliwo) > 0"><strong>Paliwo:</strong> {{ selectedJobDetails.details.paliwo }} zł</p>
               <p class="full-width-p total-cost-summary">
                 <strong>Suma Kosztów:</strong> <span>{{ connectionProfit.totalCost?.toFixed(2) || '0.00' }} zł</span>
               </p>
@@ -1095,7 +1094,7 @@ onBeforeUnmount(() => {
               <p><strong>Koszt osprzętu:</strong> {{ selectedJobDetails.details.equipment_cost || 0 }} zł</p>
               <p><strong>Wypłaty:</strong> {{ selectedJobDetails.details.labor_cost || 0 }} zł</p>
               <p><strong>Mat. z hurtowni:</strong> {{ selectedJobDetails.details.wholesale_materials_cost || 0 }} zł</p>
-              <p><strong>Paliwo:</strong> {{ selectedJobDetails.details.paliwo || 0 }} zł</p>
+              <p v-if="Number(selectedJobDetails.details.paliwo) > 0"><strong>Paliwo:</strong> {{ selectedJobDetails.details.paliwo }} zł</p>
               <p class="full-width-p total-cost-summary">
                 <strong>Suma Kosztów:</strong> <span>{{ stationProfit.totalCost?.toFixed(2) || '0.00' }} zł</span>
               </p>
@@ -1116,7 +1115,7 @@ onBeforeUnmount(() => {
               <p><strong>Przychód:</strong> {{ selectedJobDetails.details.is_warranty ? 0 : selectedJobDetails.details.revenue || 0 }} zł</p>
               <p><strong>Wypłaty:</strong> {{ selectedJobDetails.details.labor_cost || 0 }} zł</p>
               <p><strong>Materiały:</strong> {{ selectedJobDetails.details.materialy || 0 }} zł</p>
-              <p><strong>Paliwo:</strong> {{ selectedJobDetails.details.paliwo || 0 }} zł</p>
+              <p v-if="Number(selectedJobDetails.details.paliwo) > 0"><strong>Paliwo:</strong> {{ selectedJobDetails.details.paliwo }} zł</p>
               <p class="full-width-p total-cost-summary">
                 <strong>Suma Kosztów:</strong> <span>{{ serviceProfit.totalCost?.toFixed(2) || '0.00' }} zł</span>
               </p>
@@ -1175,7 +1174,7 @@ onBeforeUnmount(() => {
                 <div class="form-group"><label>Koszt: Rury</label><input type="number" step="any" v-model.number="editedJobData.details.rury" /></div>
                 <div class="form-group"><label>Koszt: Wypłaty</label><input type="number" step="any" v-model.number="editedJobData.details.wyplaty" /></div>
                 <div class="form-group"><label>Koszt: Inne</label><input type="number" step="any" v-model.number="editedJobData.details.inne_koszta" /></div>
-                <div class="form-group"><label>Koszt: Paliwo</label><input type="number" step="any" v-model.number="editedJobData.details.paliwo" /></div>
+                <div v-if="editJobHadFuel || Number(editedJobData.details.paliwo) > 0" class="form-group"><label>Koszt: Paliwo</label><input type="number" step="any" v-model.number="editedJobData.details.paliwo" /></div>
               </div>
               <div v-else-if="editedJobData.job_type === 'connection'" class="form-grid">
                 <div class="form-group"><label>Miejscowość</label><input type="text" v-model="editedJobData.miejscowosc" /></div>
@@ -1193,7 +1192,7 @@ onBeforeUnmount(() => {
                 <div class="form-group"><label>Koszt osprzętu:</label><input type="number" step="any" v-model.number="editedJobData.details.equipment_cost" /></div>
                 <div class="form-group"><label>Wypłaty:</label><input type="number" step="any" v-model.number="editedJobData.details.labor_cost" /></div>
                 <div class="form-group"><label>Materiały z hurtowni:</label><input type="number" step="any" v-model.number="editedJobData.details.wholesale_materials_cost" /></div>
-                <div class="form-group"><label>Paliwo:</label><input type="number" step="any" v-model.number="editedJobData.details.paliwo" /></div>
+                <div v-if="editJobHadFuel || Number(editedJobData.details.paliwo) > 0" class="form-group"><label>Paliwo:</label><input type="number" step="any" v-model.number="editedJobData.details.paliwo" /></div>
               </div>
               <div v-else-if="editedJobData.job_type === 'treatment_station'" class="form-grid">
                 <div class="form-group"><label>Miejscowość</label><input type="text" v-model="editedJobData.miejscowosc" /></div>
@@ -1209,7 +1208,7 @@ onBeforeUnmount(() => {
                 <div class="form-group"><label>Koszt osprzętu:</label><input type="number" step="any" v-model.number="editedJobData.details.equipment_cost" /></div>
                 <div class="form-group"><label>Wypłaty:</label><input type="number" step="any" v-model.number="editedJobData.details.labor_cost" /></div>
                 <div class="form-group"><label>Materiały z hurtowni:</label><input type="number" step="any" v-model.number="editedJobData.details.wholesale_materials_cost" /></div>
-                <div class="form-group"><label>Paliwo:</label><input type="number" step="any" v-model.number="editedJobData.details.paliwo" /></div>
+                <div v-if="editJobHadFuel || Number(editedJobData.details.paliwo) > 0" class="form-group"><label>Paliwo:</label><input type="number" step="any" v-model.number="editedJobData.details.paliwo" /></div>
               </div>
               <div v-else-if="editedJobData.job_type === 'service'" class="form-grid">
                 <div v-if="clientTreatmentStations.length" class="form-group full-width">
@@ -1250,7 +1249,7 @@ onBeforeUnmount(() => {
                 </template>
                 <div class="form-group"><label>Wypłaty:</label><input type="number" step="any" v-model.number="editedJobData.details.labor_cost" /></div>
                 <div class="form-group"><label>Materiały:</label><input type="number" step="any" v-model.number="editedJobData.details.materialy" /></div>
-                <div class="form-group"><label>Paliwo:</label><input type="number" step="any" v-model.number="editedJobData.details.paliwo" /></div>
+                <div v-if="editJobHadFuel || Number(editedJobData.details.paliwo) > 0" class="form-group"><label>Paliwo:</label><input type="number" step="any" v-model.number="editedJobData.details.paliwo" /></div>
               </div>
             </div>
           </div>

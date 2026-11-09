@@ -373,6 +373,15 @@ const initializeDatabase = async () => {
         UNIQUE (employee_id, week_start_date)
       )`);
 
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS monthly_expenses (
+        year INTEGER NOT NULL,
+        month INTEGER NOT NULL,
+        fuel_cost REAL NOT NULL DEFAULT 0,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (year, month)
+      )`);
+
     // --- KONIEC NOWYCH TABEL ---
 
     // --- TRIGGER (jeśli go tu nie było) ---
@@ -2791,6 +2800,39 @@ app.get('/api/service-reminders', authenticateToken, async (req, res) => {
 });
 
 /**
+ * @route PUT /api/stats/monthly-fuel
+ * @description Zapisuje miesięczny koszt paliwa dla danego roku i miesiąca.
+ * @access Private (Editor, Admin)
+ */
+app.put('/api/stats/monthly-fuel', authenticateToken, canEdit, async (req, res) => {
+  try {
+    const year = parseInt(req.body.year, 10);
+    const month = parseInt(req.body.month, 10);
+    const fuelCost = Math.max(0, parseFloat(req.body.fuelCost) || 0);
+
+    if (!year || !month || month < 1 || month > 12) {
+      return res.status(400).json({ error: 'Wymagany prawidłowy rok i miesiąc (1-12).' });
+    }
+
+    await pool.query(
+      `
+      INSERT INTO monthly_expenses (year, month, fuel_cost, updated_at)
+      VALUES ($1, $2, $3, NOW())
+      ON CONFLICT (year, month) DO UPDATE SET
+        fuel_cost = EXCLUDED.fuel_cost,
+        updated_at = NOW()
+      `,
+      [year, month, fuelCost]
+    );
+
+    res.json({ year, month, fuelCost });
+  } catch (err) {
+    console.error('Błąd w PUT /api/stats/monthly-fuel:', err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera podczas zapisywania kosztu paliwa.' });
+  }
+});
+
+/**
  * @route GET /api/stats/monthly-summary
  * @description Zwraca podsumowanie finansowe i operacyjne dla danego miesiąca.
  * @access Private
@@ -2847,9 +2889,16 @@ app.get('/api/stats/monthly-summary', authenticateToken, async (req, res) => {
     const hourlyCostsResult = await pool.query(hourlyCostsSql, [startDate]);
     const totalHourlyCostsPaid = parseFloat(hourlyCostsResult.rows[0].total_hourly_paid) || 0;
 
+    // 4b. Miesięczny koszt paliwa
+    const monthlyFuelRes = await pool.query(
+      'SELECT COALESCE(fuel_cost, 0) AS fuel_cost FROM monthly_expenses WHERE year = $1 AND month = $2',
+      [year, month]
+    );
+    const monthlyFuelCost = parseFloat(monthlyFuelRes.rows[0]?.fuel_cost) || 0;
+
     // 5. Obliczenie całości
     const totalRevenue = totalJobRevenue; // Przychód tylko ze zleceń
-    const totalCosts = totalJobCosts + totalHourlyCostsPaid; // Suma kosztów ze zleceń i wypłat godzinowych
+    const totalCosts = totalJobCosts + totalHourlyCostsPaid + monthlyFuelCost; // Suma kosztów ze zleceń, wypłat godzinowych i miesięcznego paliwa
     const totalProfit = totalRevenue - totalCosts;
 
     const [revenueByTypeResult, costsByTypeResult, costCategoriesResult, topWellsResult] = await Promise.all([
@@ -3044,8 +3093,20 @@ app.get('/api/stats/monthly-summary', authenticateToken, async (req, res) => {
         label: row.category_label,
         amount: parseFloat(row.total_amount) || 0,
       }))
-      .filter((item) => item.amount > 0)
-      .sort((a, b) => b.amount - a.amount);
+      .filter((item) => item.amount > 0);
+
+    if (monthlyFuelCost > 0) {
+      const existingFuelCat = costCategories.find((item) => item.key === 'fuel');
+      if (existingFuelCat) {
+        existingFuelCat.amount += monthlyFuelCost;
+      } else {
+        costCategories.push({
+          key: 'fuel',
+          label: 'Paliwo',
+          amount: monthlyFuelCost,
+        });
+      }
+    }
 
     if (totalHourlyCostsPaid > 0) {
       costCategories.push({
@@ -3054,6 +3115,8 @@ app.get('/api/stats/monthly-summary', authenticateToken, async (req, res) => {
         amount: totalHourlyCostsPaid,
       });
     }
+
+    costCategories.sort((a, b) => b.amount - a.amount);
 
     const categorizedCostsTotal = costCategories.reduce((sum, item) => sum + item.amount, 0);
     const normalizedCostCategories = costCategories.map((item) => ({
@@ -3079,6 +3142,7 @@ app.get('/api/stats/monthly-summary', authenticateToken, async (req, res) => {
       totalCosts: totalCosts,
       totalJobCosts: totalJobCosts, // Koszty tylko ze zleceń
       totalHourlyCostsPaid: totalHourlyCostsPaid, // Wypłaty godzinowe
+      monthlyFuelCost: monthlyFuelCost, // Miesięczny koszt paliwa
       breakdown: {
         period: { startDate, endDate },
         jobTypes: jobTypesBreakdown,
@@ -3095,6 +3159,7 @@ app.get('/api/stats/monthly-summary', authenticateToken, async (req, res) => {
           sources: [
             { key: 'job_costs', label: 'Koszty ze zleceń', amount: totalJobCosts },
             { key: 'weekly_settlements', label: 'Wypłaty tygodniowe', amount: totalHourlyCostsPaid },
+            { key: 'monthly_fuel', label: 'Paliwo (miesięczne)', amount: monthlyFuelCost },
           ],
           costCategories: normalizedCostCategories,
           byJobType: jobTypesBreakdown.map((item) => ({

@@ -51,6 +51,8 @@ const monthlyStats = ref(null);
 /** Aktualnie wybrany miesiąc w formacie YYYY-MM. */
 const selectedMonth = ref(new Date().toISOString().slice(0, 7));
 const activeMetric = ref(null);
+const monthlyFuelInput = ref(0);
+const isSavingMonthlyFuel = ref(false);
 
 // ================================================================================================
 // 🔄 FUNKCJE POBIERAJĄCE DANE (API)
@@ -309,11 +311,38 @@ async function getStatsForMonth() {
     const response = await authenticatedFetch(`${API_URL}/api/stats/monthly-summary?${params.toString()}`);
     if (!response.ok) throw new Error('Błąd pobierania statystyk');
     monthlyStats.value = await response.json();
+    monthlyFuelInput.value = Number(monthlyStats.value?.monthlyFuelCost) || 0;
   } catch (error) {
     console.error('Błąd podczas pobierania statystyk:', error);
     if (!handleAuthError(error)) {
       // alert('Nie udało się pobrać statystyk dla wybranego miesiąca.');
     }
+  }
+}
+
+async function saveMonthlyFuel() {
+  if (userRole === 'viewer' || isSavingMonthlyFuel.value) return;
+  const [yearStr, monthStr] = (selectedMonth.value || '').split('-');
+  const year = Number(yearStr);
+  const month = Number(monthStr);
+  if (!year || !month) return;
+
+  isSavingMonthlyFuel.value = true;
+  try {
+    const fuelCost = Math.max(0, Number(monthlyFuelInput.value) || 0);
+    const response = await authenticatedFetch(`${API_URL}/api/stats/monthly-fuel`, {
+      method: 'PUT',
+      body: JSON.stringify({ year, month, fuelCost }),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Nie udało się zapisać kosztu paliwa.');
+    toast.success('Zapisano miesięczny koszt paliwa.');
+    await getStatsForMonth();
+  } catch (error) {
+    console.error('Błąd zapisu kosztu paliwa:', error);
+    toast.error(error.message || 'Błąd zapisu kosztu paliwa.');
+  } finally {
+    isSavingMonthlyFuel.value = false;
   }
 }
 
@@ -484,9 +513,35 @@ onMounted(() => {
     <section class="dashboard-stats">
       <div class="stats-header">
         <h2 class="widget-title"><span class="icon">📊</span> Statystyki miesiąca</h2>
-        <div class="month-picker-inline">
-          <label for="month-picker">Miesiąc:</label>
-          <input type="month" id="month-picker" v-model="selectedMonth" />
+        <div class="stats-header-controls">
+          <div class="monthly-fuel-inline">
+            <label for="monthly-fuel-input">Paliwo (miesiąc):</label>
+            <template v-if="userRole !== 'viewer'">
+              <input
+                id="monthly-fuel-input"
+                type="number"
+                step="any"
+                min="0"
+                v-model.number="monthlyFuelInput"
+                placeholder="0.00"
+                @keydown.enter.prevent="saveMonthlyFuel"
+              />
+              <span class="fuel-unit">zł</span>
+              <button
+                type="button"
+                class="btn-mini"
+                :disabled="isSavingMonthlyFuel"
+                @click="saveMonthlyFuel"
+              >
+                {{ isSavingMonthlyFuel ? 'Zapisywanie…' : 'Zapisz' }}
+              </button>
+            </template>
+            <strong v-else class="fuel-readonly-value">{{ formatCurrency(monthlyStats?.monthlyFuelCost || 0) }}</strong>
+          </div>
+          <div class="month-picker-inline">
+            <label for="month-picker">Miesiąc:</label>
+            <input type="month" id="month-picker" v-model="selectedMonth" />
+          </div>
         </div>
       </div>
       <div v-if="isLoading" class="loading-container">
@@ -955,6 +1010,44 @@ onMounted(() => {
   margin: 0;
   border: none;
   padding: 0;
+}
+
+.stats-header-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.monthly-fuel-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.monthly-fuel-inline label {
+  font-weight: 600;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.monthly-fuel-inline input[type='number'] {
+  width: 110px;
+  font-size: 14px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background-color: var(--background-light);
+  color: var(--text-color);
+}
+
+.monthly-fuel-inline .fuel-unit {
+  font-size: 13px;
+  color: var(--grey);
+}
+
+.monthly-fuel-inline .fuel-readonly-value {
+  font-size: 14px;
 }
 
 .month-picker-inline {
