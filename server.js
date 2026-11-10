@@ -378,6 +378,10 @@ const initializeDatabase = async () => {
         year INTEGER NOT NULL,
         month INTEGER NOT NULL,
         fuel_cost REAL NOT NULL DEFAULT 0,
+        total_payroll REAL,
+        taxes_cost REAL NOT NULL DEFAULT 0,
+        other_costs REAL NOT NULL DEFAULT 0,
+        notes TEXT,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         PRIMARY KEY (year, month)
       )`);
@@ -499,6 +503,26 @@ const initializeDatabase = async () => {
         table: 'service_details',
         column: 'treatment_station_job_id',
         query: 'ALTER TABLE service_details ADD COLUMN treatment_station_job_id INTEGER REFERENCES jobs(id) ON DELETE SET NULL, ADD COLUMN reset_service_interval BOOLEAN DEFAULT false',
+      },
+      {
+        table: 'monthly_expenses',
+        column: 'total_payroll',
+        query: 'ALTER TABLE monthly_expenses ADD COLUMN total_payroll REAL',
+      },
+      {
+        table: 'monthly_expenses',
+        column: 'taxes_cost',
+        query: 'ALTER TABLE monthly_expenses ADD COLUMN taxes_cost REAL NOT NULL DEFAULT 0',
+      },
+      {
+        table: 'monthly_expenses',
+        column: 'other_costs',
+        query: 'ALTER TABLE monthly_expenses ADD COLUMN other_costs REAL NOT NULL DEFAULT 0',
+      },
+      {
+        table: 'monthly_expenses',
+        column: 'notes',
+        query: 'ALTER TABLE monthly_expenses ADD COLUMN notes TEXT',
       },
     ];
 
@@ -2833,6 +2857,201 @@ app.put('/api/stats/monthly-fuel', authenticateToken, canEdit, async (req, res) 
 });
 
 /**
+ * @route PUT /api/stats/monthly-payroll
+ * @description Zapisuje całkowite miesięczne wypłaty (za wszystko, w tym ze zleceń i godzin) dla danego roku i miesiąca.
+ * @access Private (Editor, Admin)
+ */
+app.put('/api/stats/monthly-payroll', authenticateToken, canEdit, async (req, res) => {
+  try {
+    const year = parseInt(req.body.year, 10);
+    const month = parseInt(req.body.month, 10);
+    const rawVal = req.body.totalPayroll;
+    const totalPayroll =
+      rawVal === null || rawVal === '' || rawVal === undefined
+        ? null
+        : Math.max(0, parseFloat(rawVal) || 0);
+
+    if (!year || !month || month < 1 || month > 12) {
+      return res.status(400).json({ error: 'Wymagany prawidłowy rok i miesiąc (1-12).' });
+    }
+
+    await pool.query(
+      `
+      INSERT INTO monthly_expenses (year, month, fuel_cost, total_payroll, updated_at)
+      VALUES ($1, $2, 0, $3, NOW())
+      ON CONFLICT (year, month) DO UPDATE SET
+        total_payroll = EXCLUDED.total_payroll,
+        updated_at = NOW()
+      `,
+      [year, month, totalPayroll]
+    );
+
+    res.json({ year, month, totalPayroll });
+  } catch (err) {
+    console.error('Błąd w PUT /api/stats/monthly-payroll:', err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera podczas zapisywania wypłat miesięcznych.' });
+  }
+});
+
+/**
+ * @route PUT /api/stats/monthly-taxes
+ * @description Zapisuje miesięczną kwotę podatków dla danego roku i miesiąca.
+ * @access Private (Editor, Admin)
+ */
+app.put('/api/stats/monthly-taxes', authenticateToken, canEdit, async (req, res) => {
+  try {
+    const year = parseInt(req.body.year, 10);
+    const month = parseInt(req.body.month, 10);
+    const taxesCost = Math.max(0, parseFloat(req.body.taxesCost) || 0);
+
+    if (!year || !month || month < 1 || month > 12) {
+      return res.status(400).json({ error: 'Wymagany prawidłowy rok i miesiąc (1-12).' });
+    }
+
+    await pool.query(
+      `
+      INSERT INTO monthly_expenses (year, month, fuel_cost, taxes_cost, updated_at)
+      VALUES ($1, $2, 0, $3, NOW())
+      ON CONFLICT (year, month) DO UPDATE SET
+        taxes_cost = EXCLUDED.taxes_cost,
+        updated_at = NOW()
+      `,
+      [year, month, taxesCost]
+    );
+
+    res.json({ year, month, taxesCost });
+  } catch (err) {
+    console.error('Błąd w PUT /api/stats/monthly-taxes:', err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera podczas zapisywania podatków miesięcznych.' });
+  }
+});
+
+/**
+ * @route PUT /api/stats/monthly-expenses
+ * @description Zapisuje komplet miesięcznych kosztów firmy (wypłaty razem, paliwo, podatki, inne koszty, notatka).
+ * @access Private (Editor, Admin)
+ */
+app.put('/api/stats/monthly-expenses', authenticateToken, canEdit, async (req, res) => {
+  try {
+    const year = parseInt(req.body.year, 10);
+    const month = parseInt(req.body.month, 10);
+
+    if (!year || !month || month < 1 || month > 12) {
+      return res.status(400).json({ error: 'Wymagany prawidłowy rok i miesiąc (1-12).' });
+    }
+
+    const rawPayroll = req.body.totalPayroll;
+    const totalPayroll =
+      rawPayroll === null || rawPayroll === '' || rawPayroll === undefined || parseFloat(rawPayroll) <= 0
+        ? null
+        : Math.max(0, parseFloat(rawPayroll) || 0);
+    const fuelCost = Math.max(0, parseFloat(req.body.fuelCost) || 0);
+    const taxesCost = Math.max(0, parseFloat(req.body.taxesCost) || 0);
+    const otherCosts = Math.max(0, parseFloat(req.body.otherCosts) || 0);
+    const notes = typeof req.body.notes === 'string' && req.body.notes.trim() ? req.body.notes.trim() : null;
+
+    await pool.query(
+      `
+      INSERT INTO monthly_expenses (year, month, fuel_cost, total_payroll, taxes_cost, other_costs, notes, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+      ON CONFLICT (year, month) DO UPDATE SET
+        fuel_cost = EXCLUDED.fuel_cost,
+        total_payroll = EXCLUDED.total_payroll,
+        taxes_cost = EXCLUDED.taxes_cost,
+        other_costs = EXCLUDED.other_costs,
+        notes = EXCLUDED.notes,
+        updated_at = NOW()
+      `,
+      [year, month, fuelCost, totalPayroll, taxesCost, otherCosts, notes]
+    );
+
+    res.json({ year, month, fuelCost, totalPayroll, taxesCost, otherCosts, notes });
+  } catch (err) {
+    console.error('Błąd w PUT /api/stats/monthly-expenses:', err);
+    res.status(500).json({ error: 'Wystąpił błąd serwera podczas zapisywania kosztów miesięcznych.' });
+  }
+});
+
+async function computeMonthBasicTotals(year, month) {
+  const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+  const nextMonthDate = new Date(Date.UTC(year, month, 1));
+  const endDate = new Date(nextMonthDate.getTime() - 1).toISOString().split('T')[0];
+
+  const [jobsCountResult, metersResult, jobFinanceResult, hourlyCostsResult, monthlyExpensesRes] = await Promise.all([
+    pool.query(`SELECT job_type, COUNT(id) as count FROM jobs WHERE job_date >= $1 AND job_date <= $2 GROUP BY job_type;`, [startDate, endDate]),
+    pool.query(`SELECT SUM(wd.ilosc_metrow) as total_meters FROM jobs j JOIN well_details wd ON j.details_id = wd.id WHERE j.job_type = 'well_drilling' AND j.job_date >= $1 AND j.job_date <= $2;`, [startDate, endDate]),
+    pool.query(
+      `
+      SELECT
+        COALESCE(SUM(revenue), 0) as total_revenue,
+        COALESCE(SUM(total_cost), 0) as total_job_costs,
+        COALESCE(SUM(labor_cost), 0) as total_job_labor_costs
+      FROM (
+        SELECT cd.revenue, (COALESCE(cd.casing_cost,0) + COALESCE(cd.equipment_cost,0) + COALESCE(cd.labor_cost,0) + COALESCE(cd.wholesale_materials_cost,0) + COALESCE(cd.paliwo,0)) as total_cost, COALESCE(cd.labor_cost, 0) as labor_cost FROM jobs j JOIN connection_details cd ON j.details_id = cd.id WHERE j.job_type = 'connection' AND j.job_date >= $1 AND j.job_date <= $2
+        UNION ALL
+        SELECT tsd.revenue, (COALESCE(tsd.equipment_cost,0) + COALESCE(tsd.labor_cost,0) + COALESCE(tsd.wholesale_materials_cost,0) + COALESCE(tsd.paliwo,0)) as total_cost, COALESCE(tsd.labor_cost, 0) as labor_cost FROM jobs j JOIN treatment_station_details tsd ON j.details_id = tsd.id WHERE j.job_type = 'treatment_station' AND j.job_date >= $1 AND j.job_date <= $2
+        UNION ALL
+        SELECT (COALESCE(wd.ilosc_metrow, 0) * COALESCE(wd.cena_za_metr, 0)) as revenue, (COALESCE(wd.wyplaty, 0) + COALESCE(wd.rury, 0) + COALESCE(wd.inne_koszta, 0) + COALESCE(wd.paliwo, 0)) as total_cost, COALESCE(wd.wyplaty, 0) as labor_cost FROM jobs j JOIN well_details wd ON j.details_id = wd.id WHERE j.job_type = 'well_drilling' AND j.job_date >= $1 AND j.job_date <= $2
+        UNION ALL
+        SELECT sd.revenue, (COALESCE(sd.labor_cost, 0) + COALESCE(sd.materialy, 0) + COALESCE(sd.paliwo, 0)) as total_cost, COALESCE(sd.labor_cost, 0) as labor_cost FROM jobs j JOIN service_details sd ON j.details_id = sd.id WHERE j.job_type = 'service' AND j.job_date >= $1 AND j.job_date <= $2 AND sd.is_warranty = false
+      ) as job_finances;
+      `,
+      [startDate, endDate]
+    ),
+    pool.query(
+      `
+      SELECT COALESCE(SUM(amount_paid_this_week), 0) as total_hourly_paid
+      FROM weekly_settlements
+      WHERE week_start_date >= date_trunc('month', $1::date) AND week_start_date < date_trunc('month', $1::date) + interval '1 month';
+      `,
+      [startDate]
+    ),
+    pool.query(
+      'SELECT COALESCE(fuel_cost, 0) AS fuel_cost, total_payroll, COALESCE(taxes_cost, 0) AS taxes_cost, COALESCE(other_costs, 0) AS other_costs FROM monthly_expenses WHERE year = $1 AND month = $2',
+      [year, month]
+    ),
+  ]);
+
+  const jobCounts = { well_drilling: 0, connection: 0, treatment_station: 0, service: 0 };
+  jobsCountResult.rows.forEach((row) => {
+    if (Object.prototype.hasOwnProperty.call(jobCounts, row.job_type)) jobCounts[row.job_type] = parseInt(row.count, 10) || 0;
+  });
+  const totalJobsCount = Object.values(jobCounts).reduce((sum, c) => sum + c, 0);
+  const totalMeters = parseFloat(metersResult.rows[0]?.total_meters) || 0;
+  const totalJobRevenue = parseFloat(jobFinanceResult.rows[0]?.total_revenue) || 0;
+  const totalJobCosts = parseFloat(jobFinanceResult.rows[0]?.total_job_costs) || 0;
+  const totalJobLaborCosts = parseFloat(jobFinanceResult.rows[0]?.total_job_labor_costs) || 0;
+  const totalHourlyCostsPaid = parseFloat(hourlyCostsResult.rows[0]?.total_hourly_paid) || 0;
+
+  const monthlyRow = monthlyExpensesRes.rows[0] || {};
+  const monthlyFuelCost = parseFloat(monthlyRow.fuel_cost) || 0;
+  const monthlyTaxesCost = parseFloat(monthlyRow.taxes_cost) || 0;
+  const monthlyOtherCosts = parseFloat(monthlyRow.other_costs) || 0;
+  const hasManualTotalPayroll =
+    monthlyRow.total_payroll !== null &&
+    monthlyRow.total_payroll !== undefined &&
+    parseFloat(monthlyRow.total_payroll) > 0;
+  const monthlyTotalPayroll = hasManualTotalPayroll ? parseFloat(monthlyRow.total_payroll) || 0 : null;
+  const extraPayrollCosts = hasManualTotalPayroll
+    ? Math.max(0, monthlyTotalPayroll - totalJobLaborCosts)
+    : totalHourlyCostsPaid;
+
+  const totalRevenue = totalJobRevenue;
+  const totalCosts = totalJobCosts + extraPayrollCosts + monthlyFuelCost + monthlyTaxesCost + monthlyOtherCosts;
+  const totalProfit = totalRevenue - totalCosts;
+
+  return {
+    year,
+    month,
+    totalRevenue,
+    totalCosts,
+    totalProfit,
+    totalMeters,
+    totalJobsCount,
+  };
+}
+
+/**
  * @route GET /api/stats/monthly-summary
  * @description Zwraca podsumowanie finansowe i operacyjne dla danego miesiąca.
  * @access Private
@@ -2864,20 +3083,23 @@ app.get('/api/stats/monthly-summary', authenticateToken, async (req, res) => {
     const jobFinanceSql = `
       SELECT
         COALESCE(SUM(revenue), 0) as total_revenue,
-        COALESCE(SUM(total_cost), 0) as total_job_costs
+        COALESCE(SUM(total_cost), 0) as total_job_costs,
+        COALESCE(SUM(labor_cost), 0) as total_job_labor_costs
       FROM (
-        SELECT cd.revenue, (COALESCE(cd.casing_cost,0) + COALESCE(cd.equipment_cost,0) + COALESCE(cd.labor_cost,0) + COALESCE(cd.wholesale_materials_cost,0) + COALESCE(cd.paliwo,0)) as total_cost FROM jobs j JOIN connection_details cd ON j.details_id = cd.id WHERE j.job_type = 'connection' AND j.job_date >= $1 AND j.job_date <= $2
+        SELECT cd.revenue, (COALESCE(cd.casing_cost,0) + COALESCE(cd.equipment_cost,0) + COALESCE(cd.labor_cost,0) + COALESCE(cd.wholesale_materials_cost,0) + COALESCE(cd.paliwo,0)) as total_cost, COALESCE(cd.labor_cost, 0) as labor_cost FROM jobs j JOIN connection_details cd ON j.details_id = cd.id WHERE j.job_type = 'connection' AND j.job_date >= $1 AND j.job_date <= $2
         UNION ALL
-        SELECT tsd.revenue, (COALESCE(tsd.equipment_cost,0) + COALESCE(tsd.labor_cost,0) + COALESCE(tsd.wholesale_materials_cost,0) + COALESCE(tsd.paliwo,0)) as total_cost FROM jobs j JOIN treatment_station_details tsd ON j.details_id = tsd.id WHERE j.job_type = 'treatment_station' AND j.job_date >= $1 AND j.job_date <= $2
+        SELECT tsd.revenue, (COALESCE(tsd.equipment_cost,0) + COALESCE(tsd.labor_cost,0) + COALESCE(tsd.wholesale_materials_cost,0) + COALESCE(tsd.paliwo,0)) as total_cost, COALESCE(tsd.labor_cost, 0) as labor_cost FROM jobs j JOIN treatment_station_details tsd ON j.details_id = tsd.id WHERE j.job_type = 'treatment_station' AND j.job_date >= $1 AND j.job_date <= $2
         UNION ALL
-        SELECT (COALESCE(wd.ilosc_metrow, 0) * COALESCE(wd.cena_za_metr, 0)) as revenue, (COALESCE(wd.wyplaty, 0) + COALESCE(wd.rury, 0) + COALESCE(wd.inne_koszta, 0) + COALESCE(wd.paliwo, 0)) as total_cost FROM jobs j JOIN well_details wd ON j.details_id = wd.id WHERE j.job_type = 'well_drilling' AND j.job_date >= $1 AND j.job_date <= $2
+        SELECT (COALESCE(wd.ilosc_metrow, 0) * COALESCE(wd.cena_za_metr, 0)) as revenue, (COALESCE(wd.wyplaty, 0) + COALESCE(wd.rury, 0) + COALESCE(wd.inne_koszta, 0) + COALESCE(wd.paliwo, 0)) as total_cost, COALESCE(wd.wyplaty, 0) as labor_cost FROM jobs j JOIN well_details wd ON j.details_id = wd.id WHERE j.job_type = 'well_drilling' AND j.job_date >= $1 AND j.job_date <= $2
         UNION ALL
-        SELECT sd.revenue, (COALESCE(sd.labor_cost, 0) + COALESCE(sd.materialy, 0) + COALESCE(sd.paliwo, 0)) as total_cost FROM jobs j JOIN service_details sd ON j.details_id = sd.id WHERE j.job_type = 'service' AND j.job_date >= $1 AND j.job_date <= $2 AND sd.is_warranty = false
+        SELECT sd.revenue, (COALESCE(sd.labor_cost, 0) + COALESCE(sd.materialy, 0) + COALESCE(sd.paliwo, 0)) as total_cost, COALESCE(sd.labor_cost, 0) as labor_cost FROM jobs j JOIN service_details sd ON j.details_id = sd.id WHERE j.job_type = 'service' AND j.job_date >= $1 AND j.job_date <= $2 AND sd.is_warranty = false
       ) as job_finances;
     `;
     const jobFinanceResult = await pool.query(jobFinanceSql, [startDate, endDate]);
     const totalJobRevenue = parseFloat(jobFinanceResult.rows[0].total_revenue) || 0;
     const totalJobCosts = parseFloat(jobFinanceResult.rows[0].total_job_costs) || 0;
+    const totalJobLaborCosts = parseFloat(jobFinanceResult.rows[0].total_job_labor_costs) || 0;
+    const totalJobNonLaborCosts = Math.max(0, totalJobCosts - totalJobLaborCosts);
 
     // 4. Sumowanie KOSZTÓW PRACY GODZINOWEJ z rozliczeń
     const hourlyCostsSql = `
@@ -2889,19 +3111,41 @@ app.get('/api/stats/monthly-summary', authenticateToken, async (req, res) => {
     const hourlyCostsResult = await pool.query(hourlyCostsSql, [startDate]);
     const totalHourlyCostsPaid = parseFloat(hourlyCostsResult.rows[0].total_hourly_paid) || 0;
 
-    // 4b. Miesięczny koszt paliwa
-    const monthlyFuelRes = await pool.query(
-      'SELECT COALESCE(fuel_cost, 0) AS fuel_cost FROM monthly_expenses WHERE year = $1 AND month = $2',
+    // 4b. Miesięczny koszt paliwa, podatków, innych kosztów firmy i całkowite wypłaty miesięczne
+    const monthlyExpensesRes = await pool.query(
+      'SELECT COALESCE(fuel_cost, 0) AS fuel_cost, total_payroll, COALESCE(taxes_cost, 0) AS taxes_cost, COALESCE(other_costs, 0) AS other_costs, notes FROM monthly_expenses WHERE year = $1 AND month = $2',
       [year, month]
     );
-    const monthlyFuelCost = parseFloat(monthlyFuelRes.rows[0]?.fuel_cost) || 0;
+    const monthlyRow = monthlyExpensesRes.rows[0] || {};
+    const monthlyFuelCost = parseFloat(monthlyRow.fuel_cost) || 0;
+    const monthlyTaxesCost = parseFloat(monthlyRow.taxes_cost) || 0;
+    const monthlyOtherCosts = parseFloat(monthlyRow.other_costs) || 0;
+    const monthlyNotes = monthlyRow.notes || '';
+    const hasManualTotalPayroll =
+      monthlyRow.total_payroll !== null &&
+      monthlyRow.total_payroll !== undefined &&
+      parseFloat(monthlyRow.total_payroll) > 0;
+    const monthlyTotalPayroll = hasManualTotalPayroll ? parseFloat(monthlyRow.total_payroll) || 0 : null;
+
+    // Logika wypłat bez dublowania:
+    // Jeśli wpisano "Wypłaty (razem)" > 0 w pulpicie, np. 14 000 zł, a ze zleceń wyszło 6 000 zł,
+    // to całkowite wypłaty wynoszą max(14 000, 6 000) = 14 000 zł, z czego 6 000 zł to wypłaty ze zleceń,
+    // a 8 000 zł to pozostałe wypłaty (godziny itp.).
+    const extraPayrollCosts = hasManualTotalPayroll
+      ? Math.max(0, monthlyTotalPayroll - totalJobLaborCosts)
+      : totalHourlyCostsPaid;
+    const effectiveTotalPayroll = totalJobLaborCosts + extraPayrollCosts;
 
     // 5. Obliczenie całości
     const totalRevenue = totalJobRevenue; // Przychód tylko ze zleceń
-    const totalCosts = totalJobCosts + totalHourlyCostsPaid + monthlyFuelCost; // Suma kosztów ze zleceń, wypłat godzinowych i miesięcznego paliwa
+    const totalCosts = totalJobCosts + extraPayrollCosts + monthlyFuelCost + monthlyTaxesCost + monthlyOtherCosts; // Koszty zleceń + nadwyżka wypłat ponad zlecenia + miesięczne paliwo + podatki + inne koszty firmy
     const totalProfit = totalRevenue - totalCosts;
 
-    const [revenueByTypeResult, costsByTypeResult, costCategoriesResult, topWellsResult] = await Promise.all([
+    // Poprzedni miesiąc do porównania MoM
+    const prevYear = month === 1 ? year - 1 : year;
+    const prevMonth = month === 1 ? 12 : month - 1;
+
+    const [revenueByTypeResult, costsByTypeResult, costCategoriesResult, topWellsResult, serviceBreakdownResult, wellMetricsResult, prevMonthTotals] = await Promise.all([
       pool.query(
         `
         SELECT job_type, COALESCE(SUM(revenue), 0) AS total_revenue
@@ -3064,6 +3308,34 @@ app.get('/api/stats/monthly-summary', authenticateToken, async (req, res) => {
       `,
         [startDate, endDate]
       ),
+      pool.query(
+        `
+        SELECT
+          COUNT(*) FILTER (WHERE COALESCE(sd.is_warranty, false) = false)::int AS paid_count,
+          COUNT(*) FILTER (WHERE COALESCE(sd.is_warranty, false) = true)::int AS warranty_count,
+          COALESCE(SUM(CASE WHEN COALESCE(sd.is_warranty, false) = false THEN COALESCE(sd.revenue, 0) ELSE 0 END), 0) AS paid_revenue,
+          COALESCE(SUM(CASE WHEN COALESCE(sd.is_warranty, false) = false THEN COALESCE(sd.labor_cost,0) + COALESCE(sd.materialy,0) + COALESCE(sd.paliwo,0) ELSE 0 END), 0) AS paid_costs,
+          COALESCE(SUM(CASE WHEN COALESCE(sd.is_warranty, false) = true THEN COALESCE(sd.labor_cost,0) + COALESCE(sd.materialy,0) + COALESCE(sd.paliwo,0) ELSE 0 END), 0) AS warranty_costs
+        FROM jobs j
+        JOIN service_details sd ON j.details_id = sd.id
+        WHERE j.job_type = 'service' AND j.job_date >= $1 AND j.job_date <= $2
+        `,
+        [startDate, endDate]
+      ),
+      pool.query(
+        `
+        SELECT
+          COALESCE(SUM(COALESCE(wd.ilosc_metrow, 0) * COALESCE(wd.cena_za_metr, 0)), 0) AS well_revenue,
+          COALESCE(SUM(COALESCE(wd.wyplaty,0) + COALESCE(wd.rury,0) + COALESCE(wd.inne_koszta,0) + COALESCE(wd.paliwo,0)), 0) AS well_costs,
+          COALESCE(SUM(COALESCE(wd.ilosc_metrow, 0)), 0) AS well_meters,
+          COALESCE(AVG(NULLIF(wd.cena_za_metr, 0)), 0) AS avg_price_per_meter
+        FROM jobs j
+        JOIN well_details wd ON j.details_id = wd.id
+        WHERE j.job_type = 'well_drilling' AND j.job_date >= $1 AND j.job_date <= $2
+        `,
+        [startDate, endDate]
+      ),
+      computeMonthBasicTotals(prevYear, prevMonth),
     ]);
 
     const jobTypeLabelMap = {
@@ -3108,11 +3380,29 @@ app.get('/api/stats/monthly-summary', authenticateToken, async (req, res) => {
       }
     }
 
-    if (totalHourlyCostsPaid > 0) {
+    if (monthlyTaxesCost > 0) {
+      costCategories.push({
+        key: 'taxes',
+        label: 'Podatki',
+        amount: monthlyTaxesCost,
+      });
+    }
+
+    if (monthlyOtherCosts > 0) {
+      costCategories.push({
+        key: 'other_monthly',
+        label: 'Inne koszty firmy',
+        amount: monthlyOtherCosts,
+      });
+    }
+
+    if (extraPayrollCosts > 0) {
       costCategories.push({
         key: 'weekly_settlements',
-        label: 'Wypłaty tygodniowe pracowników',
-        amount: totalHourlyCostsPaid,
+        label: hasManualTotalPayroll
+          ? 'Wypłaty pozostałe (godziny i inne poza zleceniami)'
+          : 'Wypłaty tygodniowe pracowników',
+        amount: extraPayrollCosts,
       });
     }
 
@@ -3134,15 +3424,86 @@ app.get('/api/stats/monthly-summary', authenticateToken, async (req, res) => {
       estimatedRevenue: (parseFloat(row.meters) || 0) * (parseFloat(row.price_per_meter) || 0),
     }));
 
+    const serviceRow = serviceBreakdownResult.rows[0] || {};
+    const serviceBreakdown = {
+      paidCount: parseInt(serviceRow.paid_count, 10) || 0,
+      warrantyCount: parseInt(serviceRow.warranty_count, 10) || 0,
+      paidRevenue: parseFloat(serviceRow.paid_revenue) || 0,
+      paidCosts: parseFloat(serviceRow.paid_costs) || 0,
+      warrantyCosts: parseFloat(serviceRow.warranty_costs) || 0,
+    };
+
+    const wellMetricsRow = wellMetricsResult.rows[0] || {};
+    const wellRevenue = parseFloat(wellMetricsRow.well_revenue) || 0;
+    const wellCosts = parseFloat(wellMetricsRow.well_costs) || 0;
+    const wellMeters = parseFloat(wellMetricsRow.well_meters) || 0;
+    const wellProfit = wellRevenue - wellCosts;
+    const avgPricePerMeter = parseFloat(wellMetricsRow.avg_price_per_meter) || 0;
+    const avgCostPerMeter = wellMeters > 0 ? wellCosts / wellMeters : 0;
+    const wellProfitPerMeter = wellMeters > 0 ? wellProfit / wellMeters : 0;
+
+    const totalJobsCount = Object.values(jobCounts).reduce((sum, c) => sum + c, 0);
+    const profitMarginPercent = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
+    const avgProfitPerJob = totalJobsCount > 0 ? totalProfit / totalJobsCount : 0;
+
+    const pctDelta = (current, previous) => {
+      if (!previous && !current) return 0;
+      if (!previous) return current > 0 ? 100 : current < 0 ? -100 : 0;
+      return ((current - previous) / Math.abs(previous)) * 100;
+    };
+
+    const comparison = {
+      prevRevenue: prevMonthTotals.totalRevenue,
+      prevCosts: prevMonthTotals.totalCosts,
+      prevProfit: prevMonthTotals.totalProfit,
+      prevMeters: prevMonthTotals.totalMeters,
+      prevJobsCount: prevMonthTotals.totalJobsCount,
+      revenueDelta: totalRevenue - prevMonthTotals.totalRevenue,
+      costsDelta: totalCosts - prevMonthTotals.totalCosts,
+      profitDelta: totalProfit - prevMonthTotals.totalProfit,
+      metersDelta: totalMeters - prevMonthTotals.totalMeters,
+      revenueDeltaPct: pctDelta(totalRevenue, prevMonthTotals.totalRevenue),
+      costsDeltaPct: pctDelta(totalCosts, prevMonthTotals.totalCosts),
+      profitDeltaPct: pctDelta(totalProfit, prevMonthTotals.totalProfit),
+      metersDeltaPct: pctDelta(totalMeters, prevMonthTotals.totalMeters),
+    };
+
+    const byJobType = jobTypesBreakdown.map((item) => ({
+      key: item.key,
+      label: item.label,
+      count: item.count,
+      revenue: item.revenue,
+      costs: item.costs,
+      profit: item.profit,
+      marginPercent: item.revenue > 0 ? (item.profit / item.revenue) * 100 : 0,
+      avgProfitPerJob: item.count > 0 ? item.profit / item.count : 0,
+    }));
+
     res.json({
       jobCounts,
       totalMeters,
-      totalProfit: totalProfit,
-      totalRevenue: totalRevenue,
-      totalCosts: totalCosts,
-      totalJobCosts: totalJobCosts, // Koszty tylko ze zleceń
-      totalHourlyCostsPaid: totalHourlyCostsPaid, // Wypłaty godzinowe
-      monthlyFuelCost: monthlyFuelCost, // Miesięczny koszt paliwa
+      totalProfit,
+      totalRevenue,
+      totalCosts,
+      totalJobCosts,
+      totalJobLaborCosts,
+      totalJobNonLaborCosts,
+      totalHourlyCostsPaid,
+      monthlyTotalPayroll,
+      effectiveTotalPayroll,
+      extraPayrollCosts,
+      monthlyFuelCost,
+      monthlyTaxesCost,
+      monthlyOtherCosts,
+      monthlyNotes,
+      kpis: {
+        profitMarginPercent,
+        totalJobsCount,
+        avgProfitPerJob,
+        wellProfitPerMeter,
+        serviceBreakdown,
+      },
+      comparison,
       breakdown: {
         period: { startDate, endDate },
         jobTypes: jobTypesBreakdown,
@@ -3150,25 +3511,37 @@ app.get('/api/stats/monthly-summary', authenticateToken, async (req, res) => {
           totalMeters,
           wellJobsCount: jobCounts.well_drilling || 0,
           avgMetersPerWell: (jobCounts.well_drilling || 0) > 0 ? totalMeters / jobCounts.well_drilling : 0,
+          avgPricePerMeter,
+          avgCostPerMeter,
+          wellProfitPerMeter,
           topWells,
         },
         financials: {
           totalRevenue,
           totalCosts,
           totalProfit,
+          payrollSummary: {
+            hasManualTotalPayroll,
+            monthlyTotalPayroll: monthlyTotalPayroll || 0,
+            effectiveTotalPayroll,
+            jobLaborCosts: totalJobLaborCosts,
+            extraPayrollCosts,
+          },
           sources: [
-            { key: 'job_costs', label: 'Koszty ze zleceń', amount: totalJobCosts },
-            { key: 'weekly_settlements', label: 'Wypłaty tygodniowe', amount: totalHourlyCostsPaid },
+            { key: 'job_non_labor', label: 'Materiały i osprzęt (zlecenia)', amount: totalJobNonLaborCosts },
+            { key: 'job_labor', label: 'Wypłaty ze zleceń', amount: totalJobLaborCosts },
+            {
+              key: 'extra_payroll',
+              label: hasManualTotalPayroll ? 'Wypłaty pozostałe (godziny itp.)' : 'Wypłaty tygodniowe',
+              amount: extraPayrollCosts,
+            },
+            { key: 'total_payroll_info', label: 'Wypłaty łącznie (w tym ze zleceń)', amount: effectiveTotalPayroll, isSummary: true },
             { key: 'monthly_fuel', label: 'Paliwo (miesięczne)', amount: monthlyFuelCost },
+            { key: 'monthly_taxes', label: 'Podatki (miesięczne)', amount: monthlyTaxesCost },
+            { key: 'monthly_other', label: 'Inne koszty firmy (miesięczne)', amount: monthlyOtherCosts },
           ],
           costCategories: normalizedCostCategories,
-          byJobType: jobTypesBreakdown.map((item) => ({
-            key: item.key,
-            label: item.label,
-            revenue: item.revenue,
-            costs: item.costs,
-            profit: item.profit,
-          })),
+          byJobType,
         },
       },
     });

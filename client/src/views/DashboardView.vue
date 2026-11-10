@@ -51,8 +51,18 @@ const monthlyStats = ref(null);
 /** Aktualnie wybrany miesiąc w formacie YYYY-MM. */
 const selectedMonth = ref(new Date().toISOString().slice(0, 7));
 const activeMetric = ref(null);
-const monthlyFuelInput = ref(0);
-const isSavingMonthlyFuel = ref(false);
+const showMonthlyCostsPanel = ref(false);
+const isSavingMonthlyExpenses = ref(false);
+const monthlyExpensesForm = ref({
+  totalPayroll: '',
+  fuelCost: 0,
+  taxesCost: 0,
+  otherCosts: 0,
+  notes: '',
+});
+
+const currentMonthValue = computed(() => new Date().toISOString().slice(0, 7));
+const isCurrentMonthSelected = computed(() => selectedMonth.value === currentMonthValue.value);
 
 // ================================================================================================
 // 🔄 FUNKCJE POBIERAJĄCE DANE (API)
@@ -304,6 +314,19 @@ async function confirmPostpone() {
 /**
  * Pobiera statystyki dla wybranego miesiąca (`selectedMonth`).
  */
+function syncMonthlyExpensesFormFromStats() {
+  const stats = monthlyStats.value;
+  const rawPayroll = stats?.monthlyTotalPayroll;
+  monthlyExpensesForm.value = {
+    totalPayroll:
+      rawPayroll !== null && rawPayroll !== undefined && Number(rawPayroll) > 0 ? Number(rawPayroll) : '',
+    fuelCost: Number(stats?.monthlyFuelCost) || 0,
+    taxesCost: Number(stats?.monthlyTaxesCost) || 0,
+    otherCosts: Number(stats?.monthlyOtherCosts) || 0,
+    notes: stats?.monthlyNotes || '',
+  };
+}
+
 async function getStatsForMonth() {
   try {
     const [year, month] = selectedMonth.value.split('-');
@@ -311,7 +334,7 @@ async function getStatsForMonth() {
     const response = await authenticatedFetch(`${API_URL}/api/stats/monthly-summary?${params.toString()}`);
     if (!response.ok) throw new Error('Błąd pobierania statystyk');
     monthlyStats.value = await response.json();
-    monthlyFuelInput.value = Number(monthlyStats.value?.monthlyFuelCost) || 0;
+    syncMonthlyExpensesFormFromStats();
   } catch (error) {
     console.error('Błąd podczas pobierania statystyk:', error);
     if (!handleAuthError(error)) {
@@ -320,29 +343,77 @@ async function getStatsForMonth() {
   }
 }
 
-async function saveMonthlyFuel() {
-  if (userRole === 'viewer' || isSavingMonthlyFuel.value) return;
+function shiftSelectedMonth(deltaMonths) {
+  const [yearStr, monthStr] = (selectedMonth.value || '').split('-');
+  let year = Number(yearStr);
+  let month = Number(monthStr);
+  if (!year || !month) return;
+  month += deltaMonths;
+  while (month < 1) {
+    month += 12;
+    year -= 1;
+  }
+  while (month > 12) {
+    month -= 12;
+    year += 1;
+  }
+  selectedMonth.value = `${year}-${String(month).padStart(2, '0')}`;
+}
+
+function goToCurrentMonth() {
+  selectedMonth.value = currentMonthValue.value;
+}
+
+function formatDeltaPct(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || Math.abs(number) < 0.05) return '0%';
+  const rounded = Math.round(number);
+  return `${rounded > 0 ? '+' : ''}${rounded}%`;
+}
+
+function deltaClass(value) {
+  const number = Number(value) || 0;
+  if (number > 0.5) return 'delta-positive';
+  if (number < -0.5) return 'delta-negative';
+  return 'delta-neutral';
+}
+
+async function saveMonthlyExpenses() {
+  if (userRole === 'viewer' || isSavingMonthlyExpenses.value) return;
   const [yearStr, monthStr] = (selectedMonth.value || '').split('-');
   const year = Number(yearStr);
   const month = Number(monthStr);
   if (!year || !month) return;
 
-  isSavingMonthlyFuel.value = true;
+  isSavingMonthlyExpenses.value = true;
   try {
-    const fuelCost = Math.max(0, Number(monthlyFuelInput.value) || 0);
-    const response = await authenticatedFetch(`${API_URL}/api/stats/monthly-fuel`, {
+    const rawPayroll = monthlyExpensesForm.value.totalPayroll;
+    const totalPayroll =
+      rawPayroll === '' || rawPayroll === null || rawPayroll === undefined || Number(rawPayroll) <= 0
+        ? null
+        : Math.max(0, Number(rawPayroll) || 0);
+    const payload = {
+      year,
+      month,
+      totalPayroll,
+      fuelCost: Math.max(0, Number(monthlyExpensesForm.value.fuelCost) || 0),
+      taxesCost: Math.max(0, Number(monthlyExpensesForm.value.taxesCost) || 0),
+      otherCosts: Math.max(0, Number(monthlyExpensesForm.value.otherCosts) || 0),
+      notes: monthlyExpensesForm.value.notes || '',
+    };
+    const response = await authenticatedFetch(`${API_URL}/api/stats/monthly-expenses`, {
       method: 'PUT',
-      body: JSON.stringify({ year, month, fuelCost }),
+      body: JSON.stringify(payload),
     });
     const result = await response.json();
-    if (!response.ok) throw new Error(result.error || 'Nie udało się zapisać kosztu paliwa.');
-    toast.success('Zapisano miesięczny koszt paliwa.');
+    if (!response.ok) throw new Error(result.error || 'Nie udało się zapisać kosztów miesiąca.');
+    toast.success('Zapisano koszty miesiąca.');
     await getStatsForMonth();
   } catch (error) {
-    console.error('Błąd zapisu kosztu paliwa:', error);
-    toast.error(error.message || 'Błąd zapisu kosztu paliwa.');
+    console.error('Błąd zapisu kosztów miesiąca:', error);
+    toast.error(error.message || 'Błąd zapisu kosztów miesiąca.');
   } finally {
-    isSavingMonthlyFuel.value = false;
+    isSavingMonthlyExpenses.value = false;
   }
 }
 
@@ -514,36 +585,105 @@ onMounted(() => {
       <div class="stats-header">
         <h2 class="widget-title"><span class="icon">📊</span> Statystyki miesiąca</h2>
         <div class="stats-header-controls">
-          <div class="monthly-fuel-inline">
-            <label for="monthly-fuel-input">Paliwo (miesiąc):</label>
-            <template v-if="userRole !== 'viewer'">
-              <input
-                id="monthly-fuel-input"
-                type="number"
-                step="any"
-                min="0"
-                v-model.number="monthlyFuelInput"
-                placeholder="0.00"
-                @keydown.enter.prevent="saveMonthlyFuel"
-              />
-              <span class="fuel-unit">zł</span>
-              <button
-                type="button"
-                class="btn-mini"
-                :disabled="isSavingMonthlyFuel"
-                @click="saveMonthlyFuel"
-              >
-                {{ isSavingMonthlyFuel ? 'Zapisywanie…' : 'Zapisz' }}
-              </button>
-            </template>
-            <strong v-else class="fuel-readonly-value">{{ formatCurrency(monthlyStats?.monthlyFuelCost || 0) }}</strong>
+          <div class="month-nav">
+            <button type="button" class="btn-mini btn-mini--secondary" title="Poprzedni miesiąc" @click="shiftSelectedMonth(-1)">◀</button>
+            <input type="month" id="month-picker" v-model="selectedMonth" aria-label="Wybierz miesiąc" />
+            <button type="button" class="btn-mini btn-mini--secondary" title="Następny miesiąc" @click="shiftSelectedMonth(1)">▶</button>
+            <button
+              v-if="!isCurrentMonthSelected"
+              type="button"
+              class="btn-mini"
+              @click="goToCurrentMonth"
+            >
+              Bieżący
+            </button>
           </div>
-          <div class="month-picker-inline">
-            <label for="month-picker">Miesiąc:</label>
-            <input type="month" id="month-picker" v-model="selectedMonth" />
-          </div>
+          <button
+            type="button"
+            class="btn-mini btn-mini--secondary"
+            :class="{ active: showMonthlyCostsPanel }"
+            @click="showMonthlyCostsPanel = !showMonthlyCostsPanel"
+          >
+            Koszty miesięczne firmy
+          </button>
         </div>
       </div>
+
+      <div v-if="showMonthlyCostsPanel" class="monthly-costs-panel" @keydown.enter.prevent="saveMonthlyExpenses">
+        <div class="monthly-costs-grid">
+          <label class="monthly-cost-field">
+            <span title="Całkowite wypłaty za ten miesiąc (zawierają już wypłaty ze zleceń — nie będą dublowane)">Wypłaty razem</span>
+            <template v-if="userRole !== 'viewer'">
+              <div class="monthly-cost-input-row">
+                <input
+                  type="number"
+                  step="any"
+                  min="0"
+                  v-model.number="monthlyExpensesForm.totalPayroll"
+                  :placeholder="formatCurrency(monthlyStats?.totalJobLaborCosts || 0)"
+                />
+                <span class="fuel-unit">zł</span>
+              </div>
+            </template>
+            <strong v-else>{{ formatCurrency(monthlyStats?.effectiveTotalPayroll || 0) }}</strong>
+            <small v-if="monthlyStats" class="payroll-sub-hint">
+              ze zleceń: {{ formatCurrency(monthlyStats.totalJobLaborCosts || 0) }}
+            </small>
+          </label>
+          <label class="monthly-cost-field">
+            <span>Paliwo</span>
+            <template v-if="userRole !== 'viewer'">
+              <div class="monthly-cost-input-row">
+                <input type="number" step="any" min="0" v-model.number="monthlyExpensesForm.fuelCost" placeholder="0.00" />
+                <span class="fuel-unit">zł</span>
+              </div>
+            </template>
+            <strong v-else>{{ formatCurrency(monthlyStats?.monthlyFuelCost || 0) }}</strong>
+          </label>
+          <label class="monthly-cost-field">
+            <span>Podatki</span>
+            <template v-if="userRole !== 'viewer'">
+              <div class="monthly-cost-input-row">
+                <input type="number" step="any" min="0" v-model.number="monthlyExpensesForm.taxesCost" placeholder="0.00" />
+                <span class="fuel-unit">zł</span>
+              </div>
+            </template>
+            <strong v-else>{{ formatCurrency(monthlyStats?.monthlyTaxesCost || 0) }}</strong>
+          </label>
+          <label class="monthly-cost-field">
+            <span>Inne koszty firmy</span>
+            <template v-if="userRole !== 'viewer'">
+              <div class="monthly-cost-input-row">
+                <input type="number" step="any" min="0" v-model.number="monthlyExpensesForm.otherCosts" placeholder="0.00" />
+                <span class="fuel-unit">zł</span>
+              </div>
+            </template>
+            <strong v-else>{{ formatCurrency(monthlyStats?.monthlyOtherCosts || 0) }}</strong>
+          </label>
+        </div>
+        <label class="monthly-cost-notes">
+          <span>Notatka do miesiąca</span>
+          <textarea
+            v-if="userRole !== 'viewer'"
+            v-model="monthlyExpensesForm.notes"
+            rows="2"
+            maxlength="1000"
+            placeholder="np. księgowość, leasing, naprawy…"
+          ></textarea>
+          <p v-else class="monthly-notes-readonly">{{ monthlyStats?.monthlyNotes || 'Brak notatki.' }}</p>
+        </label>
+        <div v-if="userRole !== 'viewer'" class="monthly-costs-actions">
+          <button
+            type="button"
+            class="btn-mini"
+            :disabled="isSavingMonthlyExpenses"
+            @click="saveMonthlyExpenses"
+          >
+            {{ isSavingMonthlyExpenses ? 'Zapisywanie…' : 'Zapisz koszty miesiąca' }}
+          </button>
+        </div>
+      </div>
+
       <div v-if="isLoading" class="loading-container">
         <div class="spinner"></div>
       </div>
@@ -558,6 +698,14 @@ onMounted(() => {
             >
               <span class="finance-card-label">Przychód</span>
               <strong class="finance-card-value">{{ formatCurrency(monthlyStats.totalRevenue) }}</strong>
+              <span
+                v-if="monthlyStats.comparison"
+                class="mom-badge"
+                :class="deltaClass(monthlyStats.comparison.revenueDeltaPct)"
+                :title="`Poprzedni miesiąc: ${formatCurrency(monthlyStats.comparison.prevRevenue)}`"
+              >
+                {{ formatDeltaPct(monthlyStats.comparison.revenueDeltaPct) }} vs poprz. mies.
+              </span>
             </button>
             <button
               type="button"
@@ -567,6 +715,14 @@ onMounted(() => {
             >
               <span class="finance-card-label">Wydatki</span>
               <strong class="finance-card-value">{{ formatCurrency(monthlyStats.totalCosts) }}</strong>
+              <span
+                v-if="monthlyStats.comparison"
+                class="mom-badge"
+                :class="deltaClass(monthlyStats.comparison.costsDeltaPct)"
+                :title="`Poprzedni miesiąc: ${formatCurrency(monthlyStats.comparison.prevCosts)}`"
+              >
+                {{ formatDeltaPct(monthlyStats.comparison.costsDeltaPct) }} vs poprz. mies.
+              </span>
             </button>
             <button
               type="button"
@@ -581,6 +737,22 @@ onMounted(() => {
               >
                 {{ formatCurrency(monthlyStats.totalProfit) }}
               </strong>
+              <div class="finance-card-meta">
+                <span
+                  v-if="monthlyStats.comparison"
+                  class="mom-badge"
+                  :class="deltaClass(monthlyStats.comparison.profitDeltaPct)"
+                  :title="`Poprzedni miesiąc: ${formatCurrency(monthlyStats.comparison.prevProfit)}`"
+                >
+                  {{ formatDeltaPct(monthlyStats.comparison.profitDeltaPct) }} vs poprz. mies.
+                </span>
+                <span v-if="monthlyStats.kpis" class="kpi-chip">
+                  Marża: {{ (monthlyStats.kpis.profitMarginPercent || 0).toFixed(1) }}%
+                </span>
+                <span v-if="monthlyStats.kpis" class="kpi-chip">
+                  Śr. / zlecenie: {{ formatCurrency(monthlyStats.kpis.avgProfitPerJob) }}
+                </span>
+              </div>
             </button>
           </div>
           <div class="finance-bar" v-if="financeShares.total > 0">
@@ -635,9 +807,27 @@ onMounted(() => {
           </div>
 
           <div v-else-if="activeMetric === 'costs'" class="stats-drilldown-content">
+            <div v-if="monthlyStats.breakdown.financials.payrollSummary" class="payroll-breakdown-banner">
+              <div class="payroll-breakdown-item">
+                <span>Wypłaty łącznie (wliczone w wydatki):</span>
+                <strong>{{ formatCurrency(monthlyStats.breakdown.financials.payrollSummary.effectiveTotalPayroll) }}</strong>
+              </div>
+              <div class="payroll-breakdown-item">
+                <span>w tym wypłaty ze zleceń:</span>
+                <strong>{{ formatCurrency(monthlyStats.breakdown.financials.payrollSummary.jobLaborCosts) }}</strong>
+              </div>
+              <div class="payroll-breakdown-item">
+                <span>w tym pozostałe (godziny i inne):</span>
+                <strong>{{ formatCurrency(monthlyStats.breakdown.financials.payrollSummary.extraPayrollCosts) }}</strong>
+              </div>
+            </div>
             <div class="stats-subtitle">Źródła kosztów</div>
             <div class="stats-mini-grid">
-              <div v-for="source in monthlyStats.breakdown.financials.sources" :key="source.key">
+              <div
+                v-for="source in monthlyStats.breakdown.financials.sources"
+                :key="source.key"
+                :class="{ 'source-summary-item': source.isSummary }"
+              >
                 <strong>{{ source.label }}:</strong> {{ formatCurrency(source.amount) }}
               </div>
             </div>
@@ -668,6 +858,20 @@ onMounted(() => {
           </div>
 
           <div v-else-if="activeMetric === 'profit'" class="stats-drilldown-content">
+            <div class="kpi-strip" v-if="monthlyStats.kpis">
+              <div class="kpi-strip-item">
+                <span>Marża dochodu</span>
+                <strong>{{ (monthlyStats.kpis.profitMarginPercent || 0).toFixed(1) }}%</strong>
+              </div>
+              <div class="kpi-strip-item">
+                <span>Średni dochód na zlecenie</span>
+                <strong>{{ formatCurrency(monthlyStats.kpis.avgProfitPerJob) }}</strong>
+              </div>
+              <div class="kpi-strip-item">
+                <span>Dochód z 1 m odwiertu</span>
+                <strong>{{ formatCurrency(monthlyStats.kpis.wellProfitPerMeter) }}</strong>
+              </div>
+            </div>
             <div class="stats-mini-grid">
               <div><strong>Przychód:</strong> {{ formatCurrency(monthlyStats.totalRevenue) }}</div>
               <div><strong>Wydatki:</strong> {{ formatCurrency(monthlyStats.totalCosts) }}</div>
@@ -679,17 +883,23 @@ onMounted(() => {
                 <thead>
                   <tr>
                     <th>Typ</th>
+                    <th>Liczba</th>
                     <th>Przychód</th>
                     <th>Koszty</th>
                     <th>Dochód</th>
+                    <th>Marża %</th>
+                    <th>Śr. dochód / szt.</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr v-for="item in monthlyStats.breakdown.financials.byJobType" :key="`profit-${item.key}`">
                     <td>{{ item.label }}</td>
+                    <td>{{ item.count || 0 }}</td>
                     <td>{{ formatCurrency(item.revenue) }}</td>
                     <td>{{ formatCurrency(item.costs) }}</td>
                     <td>{{ formatCurrency(item.profit) }}</td>
+                    <td>{{ (item.marginPercent || 0).toFixed(1) }}%</td>
+                    <td>{{ formatCurrency(item.avgProfitPerJob) }}</td>
                   </tr>
                 </tbody>
               </table>
@@ -706,6 +916,14 @@ onMounted(() => {
           >
             <span class="ops-card-label">Metry</span>
             <strong class="ops-card-value">{{ monthlyStats.totalMeters || 0 }} m</strong>
+            <span
+              v-if="monthlyStats.comparison"
+              class="mom-badge"
+              :class="deltaClass(monthlyStats.comparison.metersDeltaPct)"
+              :title="`Poprzedni miesiąc: ${monthlyStats.comparison.prevMeters || 0} m`"
+            >
+              {{ formatDeltaPct(monthlyStats.comparison.metersDeltaPct) }} vs poprz. mies.
+            </span>
           </button>
           <button
             type="button"
@@ -756,6 +974,9 @@ onMounted(() => {
               <div><strong>Suma metrów:</strong> {{ monthlyStats.breakdown.meters.totalMeters || 0 }} m</div>
               <div><strong>Liczba studni:</strong> {{ monthlyStats.breakdown.meters.wellJobsCount || 0 }}</div>
               <div><strong>Średnio / studnię:</strong> {{ (monthlyStats.breakdown.meters.avgMetersPerWell || 0).toFixed(2) }} m</div>
+              <div><strong>Śr. cena / m:</strong> {{ formatCurrency(monthlyStats.breakdown.meters.avgPricePerMeter) }}</div>
+              <div><strong>Śr. koszt / m:</strong> {{ formatCurrency(monthlyStats.breakdown.meters.avgCostPerMeter) }}</div>
+              <div><strong>Śr. dochód / m:</strong> {{ formatCurrency(monthlyStats.breakdown.meters.wellProfitPerMeter) }}</div>
             </div>
             <div class="stats-subtitle">Największe realizacje studni w miesiącu</div>
             <div v-if="monthlyStats.breakdown.meters.topWells?.length" class="stats-table-wrap">
@@ -781,6 +1002,27 @@ onMounted(() => {
               </table>
             </div>
             <p v-else class="empty-message">Brak odwiertów w tym miesiącu.</p>
+          </div>
+
+          <div v-else-if="activeMetric === 'service'" class="stats-drilldown-content">
+            <div class="stats-mini-grid" v-if="monthlyStats.kpis?.serviceBreakdown">
+              <div><strong>Serwisy płatne:</strong> {{ monthlyStats.kpis.serviceBreakdown.paidCount }}</div>
+              <div><strong>Przychód (płatne):</strong> {{ formatCurrency(monthlyStats.kpis.serviceBreakdown.paidRevenue) }}</div>
+              <div><strong>Koszty (płatne):</strong> {{ formatCurrency(monthlyStats.kpis.serviceBreakdown.paidCosts) }}</div>
+              <div><strong>Serwisy gwarancyjne (bezpłatne):</strong> {{ monthlyStats.kpis.serviceBreakdown.warrantyCount }}</div>
+              <div><strong>Koszty gwarancyjne:</strong> {{ formatCurrency(monthlyStats.kpis.serviceBreakdown.warrantyCosts) }}</div>
+            </div>
+            <template v-if="activeJobTypeBreakdown()">
+              <div class="stats-mini-grid">
+                <div><strong>Liczba zleceń łącznie:</strong> {{ activeJobTypeBreakdown().count }}</div>
+                <div><strong>Udział w miesiącu:</strong> {{ (activeJobTypeBreakdown().sharePercent || 0).toFixed(1) }}%</div>
+                <div><strong>Przychód:</strong> {{ formatCurrency(activeJobTypeBreakdown().revenue) }}</div>
+                <div><strong>Koszty:</strong> {{ formatCurrency(activeJobTypeBreakdown().costs) }}</div>
+                <div><strong>Dochód:</strong> {{ formatCurrency(activeJobTypeBreakdown().profit) }}</div>
+              </div>
+              <RouterLink :to="jobsLinkForMonth(activeMetric)" class="widget-see-all">Przejdź do listy zleceń tego typu →</RouterLink>
+            </template>
+            <p v-else class="empty-message">Brak danych dla wybranego typu zlecenia.</p>
           </div>
 
           <div v-else class="stats-drilldown-content">
@@ -1016,23 +1258,16 @@ onMounted(() => {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 16px;
+  gap: 12px;
 }
 
-.monthly-fuel-inline {
+.month-nav {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.monthly-fuel-inline label {
-  font-weight: 600;
-  font-size: 14px;
-  white-space: nowrap;
-}
-
-.monthly-fuel-inline input[type='number'] {
-  width: 110px;
+.month-nav input[type='month'] {
   font-size: 14px;
   padding: 6px 10px;
   border: 1px solid var(--border-color);
@@ -1041,33 +1276,193 @@ onMounted(() => {
   color: var(--text-color);
 }
 
-.monthly-fuel-inline .fuel-unit {
+.btn-mini.active {
+  border-color: var(--blue);
+  background: #eef6ff;
+  color: var(--blue);
+}
+
+.monthly-costs-panel {
+  margin: 0 0 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.monthly-costs-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.monthly-cost-field,
+.monthly-cost-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   font-size: 13px;
+  font-weight: 600;
+  color: var(--text-color);
+}
+
+.monthly-cost-input-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.monthly-cost-field input,
+.monthly-cost-notes textarea {
+  width: 100%;
+  font-size: 14px;
+  font-weight: 400;
+  padding: 7px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background-color: var(--background-light);
+  color: var(--text-color);
+  box-sizing: border-box;
+}
+
+.monthly-cost-notes textarea {
+  resize: vertical;
+  min-height: 56px;
+}
+
+.monthly-cost-field .fuel-unit {
+  font-size: 13px;
+  font-weight: 400;
   color: var(--grey);
 }
 
-.monthly-fuel-inline .fuel-readonly-value {
-  font-size: 14px;
+.monthly-notes-readonly {
+  margin: 0;
+  font-weight: 400;
+  color: var(--grey);
 }
 
-.month-picker-inline {
+.monthly-costs-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.payroll-sub-hint {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--grey);
+}
+
+.payroll-breakdown-banner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  background: #f0f7ff;
+  border: 1px solid #cfe2ff;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.payroll-breakdown-item {
   display: flex;
   align-items: center;
+  gap: 6px;
+}
+
+.source-summary-item {
+  background: #eef6ff;
+  border-color: #b6d4fe;
+}
+
+.mom-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  margin-top: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.delta-positive {
+  background: #e8f8ef;
+  color: #146c43;
+}
+
+.delta-negative {
+  background: #fdecec;
+  color: #b02a37;
+}
+
+.delta-neutral {
+  background: #eef1f4;
+  color: #5c6770;
+}
+
+.finance-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.kpi-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #eef6ff;
+  color: #0b5ed7;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
+  margin-bottom: 12px;
 }
 
-.month-picker-inline label {
-  font-weight: 600;
-  font-size: 14px;
-}
-
-.month-picker-inline input[type='month'] {
-  font-size: 14px;
-  padding: 6px 10px;
+.kpi-strip-item {
+  background: #f8fafc;
   border: 1px solid var(--border-color);
-  border-radius: 6px;
-  background-color: var(--background-light);
-  color: var(--text-color);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.kpi-strip-item span {
+  font-size: 12px;
+  color: var(--grey);
+  font-weight: 600;
+}
+
+.kpi-strip-item strong {
+  font-size: 16px;
+}
+
+@media (max-width: 900px) {
+  .monthly-costs-grid,
+  .kpi-strip {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .monthly-costs-grid,
+  .kpi-strip {
+    grid-template-columns: 1fr;
+  }
 }
 
 .finance-hero {
