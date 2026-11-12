@@ -50,7 +50,6 @@ const monthlyStats = ref(null);
 
 /** Aktualnie wybrany miesiąc w formacie YYYY-MM. */
 const selectedMonth = ref(new Date().toISOString().slice(0, 7));
-const activeMetric = ref(null);
 const showMonthlyCostsPanel = ref(false);
 const isSavingMonthlyExpenses = ref(false);
 const monthlyExpensesForm = ref({
@@ -149,25 +148,6 @@ function formatCurrency(value) {
   return `${number.toFixed(2)} zł`;
 }
 
-function metricLabel(metric) {
-  const labels = {
-    meters: 'Suma metrów',
-    well_drilling: 'Studnie',
-    connection: 'Podłączenia',
-    treatment_station: 'Stacje',
-    service: 'Serwisy',
-    revenue: 'Przychód',
-    costs: 'Wydatki',
-    profit: 'Dochód',
-  };
-  return labels[metric] || 'Szczegóły';
-}
-
-function toggleMetric(metric) {
-  if (!monthlyStats.value) return;
-  activeMetric.value = activeMetric.value === metric ? null : metric;
-}
-
 function monthDateRange() {
   const [yearStr, monthStr] = (selectedMonth.value || '').split('-');
   const year = Number(yearStr);
@@ -188,38 +168,12 @@ function jobsLinkForMonth(jobType) {
   return `/zlecenia?${params.toString()}`;
 }
 
-function activeJobTypeBreakdown() {
-  const type = activeMetric.value;
-  if (!type || !monthlyStats.value?.breakdown?.jobTypes) return null;
-  return monthlyStats.value.breakdown.jobTypes.find((item) => item.key === type) || null;
-}
-
-const FINANCE_METRICS = ['revenue', 'costs', 'profit'];
-const OPS_METRICS = ['meters', 'well_drilling', 'connection', 'treatment_station', 'service'];
-
-function isFinanceMetric(metric) {
-  return FINANCE_METRICS.includes(metric);
-}
-
-function isOpsMetric(metric) {
-  return OPS_METRICS.includes(metric);
-}
-
 function formatPercent(value) {
   const number = Number(value);
   if (!Number.isFinite(number) || number <= 0) return '0%';
   if (number < 1) return '<1%';
   return `${Math.round(number)}%`;
 }
-
-const financeShares = computed(() => {
-  const revenue = Math.max(0, Number(monthlyStats.value?.totalRevenue) || 0);
-  const costs = Math.max(0, Number(monthlyStats.value?.totalCosts) || 0);
-  const total = revenue + costs;
-  if (total <= 0) return { total: 0, revenuePct: 0, costsPct: 0 };
-  const revenuePct = (revenue / total) * 100;
-  return { total, revenuePct, costsPct: 100 - revenuePct };
-});
 
 const expenseCategories = computed(() => {
   const list = monthlyStats.value?.breakdown?.financials?.costCategories || [];
@@ -371,12 +325,29 @@ function formatDeltaPct(value) {
   return `${rounded > 0 ? '+' : ''}${rounded}%`;
 }
 
-function deltaClass(value) {
+function momArrow(value) {
   const number = Number(value) || 0;
+  if (number > 0.5) return '↑';
+  if (number < -0.5) return '↓';
+  return '→';
+}
+
+function deltaClass(value, invert = false) {
+  let number = Number(value) || 0;
+  if (invert) number = -number;
   if (number > 0.5) return 'delta-positive';
   if (number < -0.5) return 'delta-negative';
   return 'delta-neutral';
 }
+
+const marginComparison = computed(() => {
+  const comparison = monthlyStats.value?.comparison;
+  const current = Number(monthlyStats.value?.kpis?.profitMarginPercent);
+  const prevRevenue = Number(comparison?.prevRevenue) || 0;
+  if (!comparison || !Number.isFinite(current) || prevRevenue <= 0) return null;
+  const previous = (Number(comparison.prevProfit) / prevRevenue) * 100;
+  return { previous, delta: current - previous };
+});
 
 async function saveMonthlyExpenses() {
   if (userRole === 'viewer' || isSavingMonthlyExpenses.value) return;
@@ -463,7 +434,6 @@ const handleAuthError = (error) => {
  * Obserwuje zmianę wybranego miesiąca i automatycznie pobiera nowe statystyki.
  */
 watch(selectedMonth, () => {
-  activeMetric.value = null;
   getStatsForMonth();
 });
 
@@ -598,16 +568,25 @@ onMounted(() => {
               Bieżący
             </button>
           </div>
-          <button
-            type="button"
-            class="btn-mini btn-mini--secondary"
-            :class="{ active: showMonthlyCostsPanel }"
-            @click="showMonthlyCostsPanel = !showMonthlyCostsPanel"
-          >
-            Koszty miesięczne firmy
-          </button>
+          <div class="costs-toggle">
+            <button
+              type="button"
+              class="btn-mini btn-mini--secondary"
+              :class="{ active: showMonthlyCostsPanel }"
+              @click="showMonthlyCostsPanel = !showMonthlyCostsPanel"
+            >
+              Koszty firmy
+            </button>
+            <p v-if="monthlyStats" class="costs-summary-line">
+              Wypłaty {{ formatCurrency(monthlyStats.effectiveTotalPayroll || 0) }}
+              · Paliwo {{ formatCurrency(monthlyStats.monthlyFuelCost || 0) }}
+              · Podatki {{ formatCurrency(monthlyStats.monthlyTaxesCost || 0) }}
+              · Inne {{ formatCurrency(monthlyStats.monthlyOtherCosts || 0) }}
+            </p>
+          </div>
         </div>
       </div>
+      <p v-if="monthlyStats?.monthlyNotes" class="stats-month-note">{{ monthlyStats.monthlyNotes }}</p>
 
       <div v-if="showMonthlyCostsPanel" class="monthly-costs-panel" @keydown.enter.prevent="saveMonthlyExpenses">
         <div class="monthly-costs-grid">
@@ -688,156 +667,109 @@ onMounted(() => {
         <div class="spinner"></div>
       </div>
       <template v-else-if="monthlyStats">
-        <div class="finance-hero">
-          <div class="finance-hero-grid">
-            <button
-              type="button"
-              class="finance-card finance-card--revenue"
-              :class="{ active: activeMetric === 'revenue' }"
-              @click="toggleMetric('revenue')"
+        <div class="result-grid">
+          <div class="result-tile result-tile--profit">
+            <span class="result-label">Dochód</span>
+            <strong
+              class="result-value"
+              :class="monthlyStats.totalProfit >= 0 ? 'profit-positive' : 'profit-negative'"
             >
-              <span class="finance-card-label">Przychód</span>
-              <strong class="finance-card-value">{{ formatCurrency(monthlyStats.totalRevenue) }}</strong>
-              <span
-                v-if="monthlyStats.comparison"
-                class="mom-badge"
-                :class="deltaClass(monthlyStats.comparison.revenueDeltaPct)"
-                :title="`Poprzedni miesiąc: ${formatCurrency(monthlyStats.comparison.prevRevenue)}`"
-              >
-                {{ formatDeltaPct(monthlyStats.comparison.revenueDeltaPct) }} vs poprz. mies.
-              </span>
-            </button>
-            <button
-              type="button"
-              class="finance-card finance-card--costs"
-              :class="{ active: activeMetric === 'costs' }"
-              @click="toggleMetric('costs')"
+              {{ formatCurrency(monthlyStats.totalProfit) }}
+            </strong>
+            <span
+              v-if="monthlyStats.comparison"
+              class="mom-line"
+              :class="deltaClass(monthlyStats.comparison.profitDeltaPct)"
             >
-              <span class="finance-card-label">Wydatki</span>
-              <strong class="finance-card-value">{{ formatCurrency(monthlyStats.totalCosts) }}</strong>
-              <span
-                v-if="monthlyStats.comparison"
-                class="mom-badge"
-                :class="deltaClass(monthlyStats.comparison.costsDeltaPct)"
-                :title="`Poprzedni miesiąc: ${formatCurrency(monthlyStats.comparison.prevCosts)}`"
-              >
-                {{ formatDeltaPct(monthlyStats.comparison.costsDeltaPct) }} vs poprz. mies.
-              </span>
-            </button>
-            <button
-              type="button"
-              class="finance-card finance-card--profit"
-              :class="{ active: activeMetric === 'profit' }"
-              @click="toggleMetric('profit')"
-            >
-              <span class="finance-card-label">Dochód miesiąca</span>
-              <strong
-                class="finance-card-value finance-card-value--profit"
-                :class="monthlyStats.totalProfit >= 0 ? 'profit-positive' : 'profit-negative'"
-              >
-                {{ formatCurrency(monthlyStats.totalProfit) }}
-              </strong>
-              <div class="finance-card-meta">
-                <span
-                  v-if="monthlyStats.comparison"
-                  class="mom-badge"
-                  :class="deltaClass(monthlyStats.comparison.profitDeltaPct)"
-                  :title="`Poprzedni miesiąc: ${formatCurrency(monthlyStats.comparison.prevProfit)}`"
-                >
-                  {{ formatDeltaPct(monthlyStats.comparison.profitDeltaPct) }} vs poprz. mies.
-                </span>
-                <span v-if="monthlyStats.kpis" class="kpi-chip">
-                  Marża: {{ (monthlyStats.kpis.profitMarginPercent || 0).toFixed(1) }}%
-                </span>
-                <span v-if="monthlyStats.kpis" class="kpi-chip">
-                  Śr. / zlecenie: {{ formatCurrency(monthlyStats.kpis.avgProfitPerJob) }}
-                </span>
-              </div>
-            </button>
+              {{ momArrow(monthlyStats.comparison.profitDeltaPct) }}
+              {{ formatDeltaPct(monthlyStats.comparison.profitDeltaPct) }}
+              · było {{ formatCurrency(monthlyStats.comparison.prevProfit) }}
+            </span>
           </div>
-          <div class="finance-bar" v-if="financeShares.total > 0">
-            <div class="finance-bar-track" aria-hidden="true">
-              <div
-                class="finance-bar-segment finance-bar-segment--revenue"
-                :style="{ width: financeShares.revenuePct + '%' }"
-              ></div>
-              <div
-                class="finance-bar-segment finance-bar-segment--costs"
-                :style="{ width: financeShares.costsPct + '%' }"
-              ></div>
-            </div>
-            <div class="finance-bar-legend">
-              <span class="finance-bar-legend-item">
-                <span class="finance-bar-dot finance-bar-dot--revenue"></span>
-                Przychód · {{ formatPercent(financeShares.revenuePct) }}
-              </span>
-              <span class="finance-bar-legend-item">
-                <span class="finance-bar-dot finance-bar-dot--costs"></span>
-                Wydatki · {{ formatPercent(financeShares.costsPct) }}
-              </span>
-            </div>
+          <div class="result-tile">
+            <span class="result-label">Marża</span>
+            <strong class="result-value">{{ (monthlyStats.kpis?.profitMarginPercent || 0).toFixed(1) }}%</strong>
+            <span
+              v-if="marginComparison"
+              class="mom-line"
+              :class="deltaClass(marginComparison.delta)"
+            >
+              {{ momArrow(marginComparison.delta) }}
+              {{ marginComparison.delta > 0 ? '+' : '' }}{{ marginComparison.delta.toFixed(1) }} pp
+              · było {{ marginComparison.previous.toFixed(1) }}%
+            </span>
           </div>
-          <p v-else class="finance-bar-empty">Brak ruchu finansowego w wybranym miesiącu.</p>
+          <div class="result-tile">
+            <span class="result-label">Przychód</span>
+            <strong class="result-value">{{ formatCurrency(monthlyStats.totalRevenue) }}</strong>
+            <span
+              v-if="monthlyStats.comparison"
+              class="mom-line"
+              :class="deltaClass(monthlyStats.comparison.revenueDeltaPct)"
+            >
+              {{ momArrow(monthlyStats.comparison.revenueDeltaPct) }}
+              {{ formatDeltaPct(monthlyStats.comparison.revenueDeltaPct) }}
+              · było {{ formatCurrency(monthlyStats.comparison.prevRevenue) }}
+            </span>
+          </div>
+          <div class="result-tile">
+            <span class="result-label">Wydatki</span>
+            <strong class="result-value">{{ formatCurrency(monthlyStats.totalCosts) }}</strong>
+            <span
+              v-if="monthlyStats.comparison"
+              class="mom-line"
+              :class="deltaClass(monthlyStats.comparison.costsDeltaPct, true)"
+            >
+              {{ momArrow(monthlyStats.comparison.costsDeltaPct) }}
+              {{ formatDeltaPct(monthlyStats.comparison.costsDeltaPct) }}
+              · było {{ formatCurrency(monthlyStats.comparison.prevCosts) }}
+            </span>
+          </div>
         </div>
+        <p class="result-caption">Dochód to przychód minus wydatki. Marża to dochód podzielony przez przychód.</p>
 
-        <div v-if="isFinanceMetric(activeMetric) && monthlyStats.breakdown" class="stats-drilldown-panel">
-          <div class="stats-drilldown-header">
-            <h3>{{ metricLabel(activeMetric) }} — szczegóły</h3>
-            <button type="button" class="btn-mini btn-mini--secondary" @click="activeMetric = null">Zamknij</button>
-          </div>
-
-          <div v-if="activeMetric === 'revenue'" class="stats-drilldown-content">
-            <div class="stats-subtitle">Przychód według typu zlecenia</div>
+        <div class="analysis-grid">
+          <section class="stats-block">
+            <h3 class="stats-block-title">Według typu zlecenia</h3>
             <div class="stats-table-wrap">
               <table class="stats-table">
                 <thead>
                   <tr>
                     <th>Typ</th>
-                    <th>Przychód</th>
+                    <th class="num">Liczba</th>
+                    <th class="num">Przychód</th>
+                    <th class="num">Koszty</th>
+                    <th class="num">Dochód</th>
+                    <th class="num">Marża</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="item in monthlyStats.breakdown.financials.byJobType" :key="`rev-${item.key}`">
-                    <td>{{ item.label }}</td>
-                    <td>{{ formatCurrency(item.revenue) }}</td>
+                  <tr v-for="item in monthlyStats.breakdown?.financials?.byJobType || []" :key="item.key">
+                    <td>
+                      <RouterLink :to="jobsLinkForMonth(item.key)" class="job-type-link">{{ item.label }}</RouterLink>
+                    </td>
+                    <td class="num">{{ item.count || 0 }}</td>
+                    <td class="num">{{ formatCurrency(item.revenue) }}</td>
+                    <td class="num">{{ formatCurrency(item.costs) }}</td>
+                    <td class="num" :class="(item.profit || 0) >= 0 ? 'profit-positive' : 'profit-negative'">
+                      {{ formatCurrency(item.profit) }}
+                    </td>
+                    <td class="num">{{ (item.marginPercent || 0).toFixed(1) }}%</td>
                   </tr>
                 </tbody>
               </table>
             </div>
-          </div>
+          </section>
 
-          <div v-else-if="activeMetric === 'costs'" class="stats-drilldown-content">
-            <div v-if="monthlyStats.breakdown.financials.payrollSummary" class="payroll-breakdown-banner">
-              <div class="payroll-breakdown-item">
-                <span>Wypłaty łącznie (wliczone w wydatki):</span>
-                <strong>{{ formatCurrency(monthlyStats.breakdown.financials.payrollSummary.effectiveTotalPayroll) }}</strong>
-              </div>
-              <div class="payroll-breakdown-item">
-                <span>w tym wypłaty ze zleceń:</span>
-                <strong>{{ formatCurrency(monthlyStats.breakdown.financials.payrollSummary.jobLaborCosts) }}</strong>
-              </div>
-              <div class="payroll-breakdown-item">
-                <span>w tym pozostałe (godziny i inne):</span>
-                <strong>{{ formatCurrency(monthlyStats.breakdown.financials.payrollSummary.extraPayrollCosts) }}</strong>
-              </div>
+          <section class="stats-block">
+            <h3 class="stats-block-title">Wydatki</h3>
+            <div v-if="monthlyStats.breakdown?.financials?.payrollSummary" class="payroll-line">
+              <span>Łącznie <strong>{{ formatCurrency(monthlyStats.breakdown.financials.payrollSummary.effectiveTotalPayroll) }}</strong></span>
+              <span>Ze zleceń <strong>{{ formatCurrency(monthlyStats.breakdown.financials.payrollSummary.jobLaborCosts) }}</strong></span>
+              <span>Pozostałe <strong>{{ formatCurrency(monthlyStats.breakdown.financials.payrollSummary.extraPayrollCosts) }}</strong></span>
             </div>
-            <div class="stats-subtitle">Źródła kosztów</div>
-            <div class="stats-mini-grid">
-              <div
-                v-for="source in monthlyStats.breakdown.financials.sources"
-                :key="source.key"
-                :class="{ 'source-summary-item': source.isSummary }"
-              >
-                <strong>{{ source.label }}:</strong> {{ formatCurrency(source.amount) }}
-              </div>
-            </div>
-            <div class="stats-subtitle">Kategorie wydatków</div>
             <div v-if="expenseCategories.length" class="expense-bars">
-              <div
-                v-for="item in expenseCategories"
-                :key="item.key"
-                class="expense-bar"
-              >
+              <div v-for="item in expenseCategories" :key="item.key" class="expense-bar">
                 <div class="expense-bar-head">
                   <span class="expense-bar-label">{{ item.label }}</span>
                   <span class="expense-bar-value">
@@ -854,140 +786,87 @@ onMounted(() => {
                 </div>
               </div>
             </div>
-            <p v-else class="empty-message">Brak wydatków w tym miesiącu.</p>
-          </div>
+            <p v-else class="stats-empty">Brak wydatków w tym miesiącu.</p>
+          </section>
+        </div>
 
-          <div v-else-if="activeMetric === 'profit'" class="stats-drilldown-content">
-            <div class="kpi-strip" v-if="monthlyStats.kpis">
-              <div class="kpi-strip-item">
-                <span>Marża dochodu</span>
-                <strong>{{ (monthlyStats.kpis.profitMarginPercent || 0).toFixed(1) }}%</strong>
-              </div>
-              <div class="kpi-strip-item">
-                <span>Średni dochód na zlecenie</span>
-                <strong>{{ formatCurrency(monthlyStats.kpis.avgProfitPerJob) }}</strong>
-              </div>
-              <div class="kpi-strip-item">
-                <span>Dochód z 1 m odwiertu</span>
-                <strong>{{ formatCurrency(monthlyStats.kpis.wellProfitPerMeter) }}</strong>
-              </div>
+        <section class="stats-block realization">
+          <h3 class="stats-block-title">Realizacja</h3>
+          <div class="realization-grid">
+            <div class="realization-card">
+              <h4>Metry</h4>
+              <strong class="realization-value">{{ monthlyStats.breakdown?.meters?.totalMeters || monthlyStats.totalMeters || 0 }} m</strong>
+              <span
+                v-if="monthlyStats.comparison"
+                class="mom-line"
+                :class="deltaClass(monthlyStats.comparison.metersDeltaPct)"
+              >
+                {{ momArrow(monthlyStats.comparison.metersDeltaPct) }}
+                {{ formatDeltaPct(monthlyStats.comparison.metersDeltaPct) }}
+                · było {{ monthlyStats.comparison.prevMeters || 0 }} m
+              </span>
+              <dl class="metric-list">
+                <div>
+                  <dt>Średnio / studnię</dt>
+                  <dd>{{ (monthlyStats.breakdown?.meters?.avgMetersPerWell || 0).toFixed(2) }} m</dd>
+                </div>
+                <div>
+                  <dt>Cena / m</dt>
+                  <dd>{{ formatCurrency(monthlyStats.breakdown?.meters?.avgPricePerMeter) }}</dd>
+                </div>
+                <div>
+                  <dt>Koszt / m</dt>
+                  <dd>{{ formatCurrency(monthlyStats.breakdown?.meters?.avgCostPerMeter) }}</dd>
+                </div>
+                <div>
+                  <dt>Dochód / m</dt>
+                  <dd>{{ formatCurrency(monthlyStats.breakdown?.meters?.wellProfitPerMeter) }}</dd>
+                </div>
+              </dl>
             </div>
-            <div class="stats-mini-grid">
-              <div><strong>Przychód:</strong> {{ formatCurrency(monthlyStats.totalRevenue) }}</div>
-              <div><strong>Wydatki:</strong> {{ formatCurrency(monthlyStats.totalCosts) }}</div>
-              <div><strong>Dochód:</strong> {{ formatCurrency(monthlyStats.totalProfit) }}</div>
+            <div class="realization-card" v-if="monthlyStats.kpis?.serviceBreakdown">
+              <h4>Serwisy</h4>
+              <dl class="metric-list">
+                <div>
+                  <dt>Płatne</dt>
+                  <dd>{{ monthlyStats.kpis.serviceBreakdown.paidCount }}</dd>
+                </div>
+                <div>
+                  <dt>Przychód płatnych</dt>
+                  <dd>{{ formatCurrency(monthlyStats.kpis.serviceBreakdown.paidRevenue) }}</dd>
+                </div>
+                <div>
+                  <dt>Koszt płatnych</dt>
+                  <dd>{{ formatCurrency(monthlyStats.kpis.serviceBreakdown.paidCosts) }}</dd>
+                </div>
+                <div>
+                  <dt>Gwarancyjne</dt>
+                  <dd>{{ monthlyStats.kpis.serviceBreakdown.warrantyCount }}</dd>
+                </div>
+                <div>
+                  <dt>Koszt gwarancyjnych</dt>
+                  <dd>{{ formatCurrency(monthlyStats.kpis.serviceBreakdown.warrantyCosts) }}</dd>
+                </div>
+              </dl>
+              <RouterLink :to="jobsLinkForMonth('service')" class="quiet-link">Lista serwisów</RouterLink>
             </div>
-            <div class="stats-subtitle">Dochód według typu zlecenia</div>
+          </div>
+          <p class="job-count-links">
+            <RouterLink :to="jobsLinkForMonth('well_drilling')" class="quiet-link">Studnie · {{ monthlyStats.jobCounts.well_drilling || 0 }}</RouterLink>
+            <RouterLink :to="jobsLinkForMonth('connection')" class="quiet-link">Podłączenia · {{ monthlyStats.jobCounts.connection || 0 }}</RouterLink>
+            <RouterLink :to="jobsLinkForMonth('treatment_station')" class="quiet-link">Stacje · {{ monthlyStats.jobCounts.treatment_station || 0 }}</RouterLink>
+          </p>
+          <div v-if="monthlyStats.breakdown?.meters?.topWells?.length" class="top-wells">
+            <h4 class="stats-block-subtitle">Największe odwierty</h4>
             <div class="stats-table-wrap">
-              <table class="stats-table">
-                <thead>
-                  <tr>
-                    <th>Typ</th>
-                    <th>Liczba</th>
-                    <th>Przychód</th>
-                    <th>Koszty</th>
-                    <th>Dochód</th>
-                    <th>Marża %</th>
-                    <th>Śr. dochód / szt.</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="item in monthlyStats.breakdown.financials.byJobType" :key="`profit-${item.key}`">
-                    <td>{{ item.label }}</td>
-                    <td>{{ item.count || 0 }}</td>
-                    <td>{{ formatCurrency(item.revenue) }}</td>
-                    <td>{{ formatCurrency(item.costs) }}</td>
-                    <td>{{ formatCurrency(item.profit) }}</td>
-                    <td>{{ (item.marginPercent || 0).toFixed(1) }}%</td>
-                    <td>{{ formatCurrency(item.avgProfitPerJob) }}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-
-        <div class="ops-grid">
-          <button
-            type="button"
-            class="ops-card"
-            :class="{ active: activeMetric === 'meters' }"
-            @click="toggleMetric('meters')"
-          >
-            <span class="ops-card-label">Metry</span>
-            <strong class="ops-card-value">{{ monthlyStats.totalMeters || 0 }} m</strong>
-            <span
-              v-if="monthlyStats.comparison"
-              class="mom-badge"
-              :class="deltaClass(monthlyStats.comparison.metersDeltaPct)"
-              :title="`Poprzedni miesiąc: ${monthlyStats.comparison.prevMeters || 0} m`"
-            >
-              {{ formatDeltaPct(monthlyStats.comparison.metersDeltaPct) }} vs poprz. mies.
-            </span>
-          </button>
-          <button
-            type="button"
-            class="ops-card"
-            :class="{ active: activeMetric === 'well_drilling' }"
-            @click="toggleMetric('well_drilling')"
-          >
-            <span class="ops-card-label">Studnie</span>
-            <strong class="ops-card-value">{{ monthlyStats.jobCounts.well_drilling || 0 }}</strong>
-          </button>
-          <button
-            type="button"
-            class="ops-card"
-            :class="{ active: activeMetric === 'connection' }"
-            @click="toggleMetric('connection')"
-          >
-            <span class="ops-card-label">Podłączenia</span>
-            <strong class="ops-card-value">{{ monthlyStats.jobCounts.connection || 0 }}</strong>
-          </button>
-          <button
-            type="button"
-            class="ops-card"
-            :class="{ active: activeMetric === 'treatment_station' }"
-            @click="toggleMetric('treatment_station')"
-          >
-            <span class="ops-card-label">Stacje</span>
-            <strong class="ops-card-value">{{ monthlyStats.jobCounts.treatment_station || 0 }}</strong>
-          </button>
-          <button
-            type="button"
-            class="ops-card"
-            :class="{ active: activeMetric === 'service' }"
-            @click="toggleMetric('service')"
-          >
-            <span class="ops-card-label">Serwisy</span>
-            <strong class="ops-card-value">{{ monthlyStats.jobCounts.service || 0 }}</strong>
-          </button>
-        </div>
-
-        <div v-if="isOpsMetric(activeMetric) && monthlyStats.breakdown" class="stats-drilldown-panel">
-          <div class="stats-drilldown-header">
-            <h3>{{ metricLabel(activeMetric) }} — szczegóły</h3>
-            <button type="button" class="btn-mini btn-mini--secondary" @click="activeMetric = null">Zamknij</button>
-          </div>
-
-          <div v-if="activeMetric === 'meters'" class="stats-drilldown-content">
-            <div class="stats-mini-grid">
-              <div><strong>Suma metrów:</strong> {{ monthlyStats.breakdown.meters.totalMeters || 0 }} m</div>
-              <div><strong>Liczba studni:</strong> {{ monthlyStats.breakdown.meters.wellJobsCount || 0 }}</div>
-              <div><strong>Średnio / studnię:</strong> {{ (monthlyStats.breakdown.meters.avgMetersPerWell || 0).toFixed(2) }} m</div>
-              <div><strong>Śr. cena / m:</strong> {{ formatCurrency(monthlyStats.breakdown.meters.avgPricePerMeter) }}</div>
-              <div><strong>Śr. koszt / m:</strong> {{ formatCurrency(monthlyStats.breakdown.meters.avgCostPerMeter) }}</div>
-              <div><strong>Śr. dochód / m:</strong> {{ formatCurrency(monthlyStats.breakdown.meters.wellProfitPerMeter) }}</div>
-            </div>
-            <div class="stats-subtitle">Największe realizacje studni w miesiącu</div>
-            <div v-if="monthlyStats.breakdown.meters.topWells?.length" class="stats-table-wrap">
               <table class="stats-table">
                 <thead>
                   <tr>
                     <th>Data</th>
                     <th>Klient</th>
                     <th>Miejscowość</th>
-                    <th>Metry</th>
-                    <th>Szac. przychód</th>
+                    <th class="num">Metry</th>
+                    <th class="num">Szac. przychód</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -995,50 +874,14 @@ onMounted(() => {
                     <td>{{ well.jobDate }}</td>
                     <td>{{ well.clientName }}</td>
                     <td>{{ well.miejscowosc }}</td>
-                    <td>{{ well.meters }}</td>
-                    <td>{{ formatCurrency(well.estimatedRevenue) }}</td>
+                    <td class="num">{{ well.meters }}</td>
+                    <td class="num">{{ formatCurrency(well.estimatedRevenue) }}</td>
                   </tr>
                 </tbody>
               </table>
             </div>
-            <p v-else class="empty-message">Brak odwiertów w tym miesiącu.</p>
           </div>
-
-          <div v-else-if="activeMetric === 'service'" class="stats-drilldown-content">
-            <div class="stats-mini-grid" v-if="monthlyStats.kpis?.serviceBreakdown">
-              <div><strong>Serwisy płatne:</strong> {{ monthlyStats.kpis.serviceBreakdown.paidCount }}</div>
-              <div><strong>Przychód (płatne):</strong> {{ formatCurrency(monthlyStats.kpis.serviceBreakdown.paidRevenue) }}</div>
-              <div><strong>Koszty (płatne):</strong> {{ formatCurrency(monthlyStats.kpis.serviceBreakdown.paidCosts) }}</div>
-              <div><strong>Serwisy gwarancyjne (bezpłatne):</strong> {{ monthlyStats.kpis.serviceBreakdown.warrantyCount }}</div>
-              <div><strong>Koszty gwarancyjne:</strong> {{ formatCurrency(monthlyStats.kpis.serviceBreakdown.warrantyCosts) }}</div>
-            </div>
-            <template v-if="activeJobTypeBreakdown()">
-              <div class="stats-mini-grid">
-                <div><strong>Liczba zleceń łącznie:</strong> {{ activeJobTypeBreakdown().count }}</div>
-                <div><strong>Udział w miesiącu:</strong> {{ (activeJobTypeBreakdown().sharePercent || 0).toFixed(1) }}%</div>
-                <div><strong>Przychód:</strong> {{ formatCurrency(activeJobTypeBreakdown().revenue) }}</div>
-                <div><strong>Koszty:</strong> {{ formatCurrency(activeJobTypeBreakdown().costs) }}</div>
-                <div><strong>Dochód:</strong> {{ formatCurrency(activeJobTypeBreakdown().profit) }}</div>
-              </div>
-              <RouterLink :to="jobsLinkForMonth(activeMetric)" class="widget-see-all">Przejdź do listy zleceń tego typu →</RouterLink>
-            </template>
-            <p v-else class="empty-message">Brak danych dla wybranego typu zlecenia.</p>
-          </div>
-
-          <div v-else class="stats-drilldown-content">
-            <template v-if="activeJobTypeBreakdown()">
-              <div class="stats-mini-grid">
-                <div><strong>Liczba zleceń:</strong> {{ activeJobTypeBreakdown().count }}</div>
-                <div><strong>Udział w miesiącu:</strong> {{ (activeJobTypeBreakdown().sharePercent || 0).toFixed(1) }}%</div>
-                <div><strong>Przychód:</strong> {{ formatCurrency(activeJobTypeBreakdown().revenue) }}</div>
-                <div><strong>Koszty:</strong> {{ formatCurrency(activeJobTypeBreakdown().costs) }}</div>
-                <div><strong>Dochód:</strong> {{ formatCurrency(activeJobTypeBreakdown().profit) }}</div>
-              </div>
-              <RouterLink :to="jobsLinkForMonth(activeMetric)" class="widget-see-all">Przejdź do listy zleceń tego typu →</RouterLink>
-            </template>
-            <p v-else class="empty-message">Brak danych dla wybranego typu zlecenia.</p>
-          </div>
-        </div>
+        </section>
       </template>
       <div v-else class="empty-message">
         <p>Brak danych do wyświetlenia.</p>
@@ -1240,10 +1083,10 @@ onMounted(() => {
 .stats-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   flex-wrap: wrap;
-  gap: 12px;
-  margin-bottom: 18px;
+  gap: 12px 20px;
+  margin-bottom: 14px;
   padding-bottom: 12px;
   border-bottom: 1px solid var(--border-color);
 }
@@ -1256,9 +1099,10 @@ onMounted(() => {
 
 .stats-header-controls {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   flex-wrap: wrap;
-  gap: 12px;
+  justify-content: flex-end;
+  gap: 12px 18px;
 }
 
 .month-nav {
@@ -1274,6 +1118,31 @@ onMounted(() => {
   border-radius: 6px;
   background-color: var(--background-light);
   color: var(--text-color);
+}
+
+.costs-toggle {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  max-width: 520px;
+}
+
+.costs-summary-line,
+.stats-month-note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--grey);
+}
+
+.stats-month-note {
+  margin: -6px 0 14px;
+}
+
+.stats-header + .monthly-costs-panel,
+.stats-month-note + .monthly-costs-panel {
+  margin-top: 12px;
 }
 
 .btn-mini.active {
@@ -1356,282 +1225,112 @@ onMounted(() => {
   color: var(--grey);
 }
 
-.payroll-breakdown-banner {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-  padding: 10px 14px;
-  margin-bottom: 12px;
-  background: #f0f7ff;
-  border: 1px solid #cfe2ff;
-  border-radius: 6px;
-  font-size: 13px;
+.result-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 16px;
 }
 
-.payroll-breakdown-item {
+.result-tile {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 6px;
+  min-height: 108px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: #f8fafc;
 }
 
-.source-summary-item {
-  background: #eef6ff;
-  border-color: #b6d4fe;
+.result-tile--profit {
+  background: #fff;
+  border-color: #d7e3f4;
 }
 
-.mom-badge {
-  display: inline-flex;
-  align-items: center;
-  width: fit-content;
-  margin-top: 4px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  font-size: 11px;
+.result-label {
+  font-size: 12px;
   font-weight: 700;
-  line-height: 1.4;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--grey);
+}
+
+.result-value {
+  font-size: 22px;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-color);
+}
+
+.result-tile--profit .result-value {
+  font-size: 26px;
+}
+
+.mom-line {
+  margin-top: auto;
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.35;
 }
 
 .delta-positive {
-  background: #e8f8ef;
   color: #146c43;
 }
 
 .delta-negative {
-  background: #fdecec;
   color: #b02a37;
 }
 
 .delta-neutral {
-  background: #eef1f4;
   color: #5c6770;
 }
 
-.finance-card-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 4px;
-}
-
-.kpi-chip {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: #eef6ff;
-  color: #0b5ed7;
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.kpi-strip {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-  margin-bottom: 12px;
-}
-
-.kpi-strip-item {
-  background: #f8fafc;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 10px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.kpi-strip-item span {
+.result-caption {
+  margin: 10px 0 0;
   font-size: 12px;
   color: var(--grey);
-  font-weight: 600;
 }
 
-.kpi-strip-item strong {
-  font-size: 16px;
-}
-
-@media (max-width: 900px) {
-  .monthly-costs-grid,
-  .kpi-strip {
-    grid-template-columns: 1fr 1fr;
-  }
-}
-
-@media (max-width: 640px) {
-  .monthly-costs-grid,
-  .kpi-strip {
-    grid-template-columns: 1fr;
-  }
-}
-
-.finance-hero {
-  background: linear-gradient(135deg, #f8fafc 0%, #eef6ff 100%);
-  border: 1px solid var(--border-color);
-  border-radius: 10px;
-  padding: 18px 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.finance-hero-grid {
+.analysis-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr 1.3fr;
-  gap: 12px;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 16px;
+  margin-top: 18px;
 }
 
-.finance-card {
-  background: var(--background-light);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 14px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  cursor: pointer;
-  text-align: left;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+.stats-block {
+  min-width: 0;
 }
 
-.finance-card:hover {
-  border-color: var(--blue);
-  box-shadow: 0 1px 4px rgba(13, 110, 253, 0.08);
-}
-
-.finance-card.active {
-  border-color: var(--blue);
-  background: #eef6ff;
-  box-shadow: 0 0 0 2px rgba(13, 110, 253, 0.15);
-}
-
-.finance-card-label {
-  font-size: 13px;
-  color: var(--grey);
-  font-weight: 600;
-}
-
-.finance-card-value {
-  font-size: 22px;
+.stats-block-title,
+.stats-block-subtitle,
+.realization-card h4 {
+  margin: 0 0 10px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--text-color);
 }
 
-.finance-card--profit {
-  background: linear-gradient(135deg, #ffffff 0%, #f0f7ff 100%);
-}
-
-.finance-card-value--profit {
-  font-size: 28px;
-}
-
-.finance-bar {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.finance-bar-track {
-  display: flex;
-  height: 12px;
-  width: 100%;
-  border-radius: 999px;
-  overflow: hidden;
-  background: #e9ecef;
-}
-
-.finance-bar-segment {
-  height: 100%;
-  transition: width 0.25s ease;
-}
-
-.finance-bar-segment--revenue {
-  background: linear-gradient(90deg, #198754 0%, #2bb673 100%);
-}
-
-.finance-bar-segment--costs {
-  background: linear-gradient(90deg, #dc3545 0%, #f06b78 100%);
-}
-
-.finance-bar-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-  font-size: 12px;
+.stats-block-subtitle {
+  margin-top: 16px;
+  font-size: 13px;
   color: var(--text-color-secondary);
 }
 
-.finance-bar-legend-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-weight: 600;
-}
-
-.finance-bar-dot {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-}
-
-.finance-bar-dot--revenue {
-  background: #198754;
-}
-
-.finance-bar-dot--costs {
-  background: #dc3545;
-}
-
-.finance-bar-empty {
-  margin: 0;
-  font-size: 13px;
-  color: var(--grey);
-}
-
-.ops-grid {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 10px;
-  margin-top: 16px;
-}
-
-.ops-card {
-  background: var(--background-light-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 12px 14px;
+.payroll-line {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  cursor: pointer;
-  text-align: left;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: var(--text-color-secondary);
 }
 
-.ops-card:hover {
-  border-color: var(--blue);
-  box-shadow: 0 1px 4px rgba(13, 110, 253, 0.08);
-}
-
-.ops-card.active {
-  border-color: var(--blue);
-  background: #eef6ff;
-  box-shadow: 0 0 0 2px rgba(13, 110, 253, 0.15);
-}
-
-.ops-card-label {
-  font-size: 12px;
-  color: var(--grey);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
-}
-
-.ops-card-value {
-  font-size: 20px;
-  font-weight: 700;
+.payroll-line strong {
   color: var(--text-color);
+  font-variant-numeric: tabular-nums;
 }
 
 .expense-bars {
@@ -1662,6 +1361,7 @@ onMounted(() => {
 .expense-bar-value {
   color: var(--text-color-secondary);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .expense-bar-share {
@@ -1672,7 +1372,7 @@ onMounted(() => {
 .expense-bar-track {
   position: relative;
   width: 100%;
-  height: 8px;
+  height: 6px;
   border-radius: 999px;
   background: #e9ecef;
   overflow: hidden;
@@ -1680,71 +1380,175 @@ onMounted(() => {
 
 .expense-bar-fill {
   height: 100%;
-  background: linear-gradient(90deg, #0d6efd 0%, #4ea1ff 100%);
+  background: #3b82c4;
   border-radius: 999px;
-  transition: width 0.25s ease;
 }
 
 .expense-bar-fill--accent {
-  background: linear-gradient(90deg, #fd7e14 0%, #ffaa5c 100%);
+  background: #d97706;
 }
 
-.stats-drilldown-panel {
-  margin-top: 16px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--background-light-secondary);
-  padding: 14px;
-}
-.stats-drilldown-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 10px;
-}
-.stats-drilldown-header h3 {
+.stats-empty {
   margin: 0;
-  font-size: 15px;
-}
-.stats-drilldown-content {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.stats-subtitle {
   font-size: 13px;
-  font-weight: 700;
-  color: var(--text-color-secondary);
+  color: var(--grey);
 }
-.stats-mini-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 8px 14px;
-  font-size: 14px;
-}
+
 .stats-table-wrap {
   overflow-x: auto;
 }
+
 .stats-table {
   width: 100%;
   border-collapse: collapse;
   background: var(--background-light);
-  border: 1px solid var(--border-color);
 }
+
 .stats-table th,
 .stats-table td {
   text-align: left;
   padding: 8px 10px;
   border-bottom: 1px solid var(--border-color);
   font-size: 13px;
+  white-space: nowrap;
 }
+
 .stats-table th {
+  font-size: 11px;
   font-weight: 700;
-  color: var(--text-color-secondary);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--grey);
 }
+
 .stats-table tbody tr:last-child td {
   border-bottom: 0;
+}
+
+.stats-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.job-type-link,
+.quiet-link {
+  color: var(--text-color);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.job-type-link:hover,
+.quiet-link:hover {
+  color: var(--blue);
+  text-decoration: underline;
+}
+
+.realization {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color);
+}
+
+.realization-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.realization-card {
+  padding: 12px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.realization-value {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+}
+
+.metric-list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 16px;
+  margin: 12px 0 0;
+}
+
+.metric-list div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.metric-list dt {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--grey);
+}
+
+.metric-list dd {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.realization-card .quiet-link {
+  display: inline-block;
+  margin-top: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--blue);
+}
+
+.job-count-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin: 14px 0 0;
+}
+
+.job-count-links .quiet-link {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-color-secondary);
+}
+
+@media (max-width: 980px) {
+  .result-grid,
+  .analysis-grid,
+  .realization-grid,
+  .monthly-costs-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .result-grid,
+  .analysis-grid,
+  .realization-grid,
+  .monthly-costs-grid,
+  .metric-list {
+    grid-template-columns: 1fr;
+  }
+
+  .costs-toggle {
+    align-items: flex-start;
+  }
+
+  .stats-header-controls {
+    justify-content: flex-start;
+  }
+
+  .expense-bar-head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
 }
 
 .loading-container {
@@ -1866,54 +1670,4 @@ onMounted(() => {
   font-size: 13px;
 }
 
-@media (max-width: 900px) {
-  .finance-hero-grid {
-    grid-template-columns: 1fr 1fr;
-  }
-  .finance-card--profit {
-    grid-column: 1 / -1;
-  }
-  .ops-grid {
-    grid-template-columns: repeat(3, 1fr);
-  }
-}
-
-@media (max-width: 760px) {
-  .stats-drilldown-header {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-  .stats-mini-grid {
-    grid-template-columns: 1fr;
-  }
-  .finance-hero {
-    padding: 14px 14px;
-  }
-  .finance-hero-grid {
-    grid-template-columns: 1fr;
-  }
-  .finance-card-value {
-    font-size: 20px;
-  }
-  .finance-card-value--profit {
-    font-size: 24px;
-  }
-  .ops-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-  .ops-card-value {
-    font-size: 18px;
-  }
-  .expense-bar-head {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 2px;
-  }
-}
-
-@media (max-width: 420px) {
-  .ops-grid {
-    grid-template-columns: 1fr 1fr;
-  }
-}
 </style>
